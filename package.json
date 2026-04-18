@@ -16,6 +16,7 @@
     "build": "electron-forge package",
     "lint": "eslint --ext .ts,.tsx .",
     "typecheck": "tsc --noEmit",
+    "gen:proto": "buf generate",
     "test:unit": "vitest run",
     "test:e2e": "playwright test",
     "test": "pnpm typecheck && pnpm test:unit && pnpm build && pnpm test:e2e"
@@ -33,6 +34,8 @@
     ]
   },
   "devDependencies": {
+    "@bufbuild/buf": "^1.68.2",
+    "@bufbuild/protoc-gen-es": "^2.11.0",
     "@electron-forge/cli": "^7.11.1",
     "@electron-forge/maker-deb": "^7.11.1",
     "@electron-forge/maker-rpm": "^7.11.1",
@@ -62,6 +65,7 @@
     "vitest": "^2.1.9"
   },
   "dependencies": {
+    "@bufbuild/protobuf": "^2.11.0",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "electron-squirrel-startup": "^1.0.1",
