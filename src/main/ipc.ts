@@ -21,6 +21,16 @@ import type { PromptLogStore } from './stores/PromptLogStore';
 import type { FocusLogStore } from './stores/FocusLogStore';
 import type { ScreenStreamStore } from './stores/ScreenStreamStore';
 import { ConnectionOrchestrator } from './drivers/ConnectionOrchestrator';
+import {
+  actionSendText,
+  actionInject,
+  actionActivate,
+  actionMenuItem,
+  actionInvokeFunction,
+  actionRestartSession,
+  actionClose,
+  actionRawProtobuf,
+} from './actions';
 
 type Handlers = { [M in RpcMethod]: (args: RpcArgs<M>) => Promise<RpcResult<M>> };
 
@@ -107,6 +117,14 @@ export function registerIpc(
       await orchestrator.setKeystrokeAdvanced(advanced);
       return { advanced: monitor.keystrokes.advanced };
     },
+    'actions/send-text': (args) => actionSendText(orchestrator, args),
+    'actions/inject': (args) => actionInject(orchestrator, args),
+    'actions/activate': (args) => actionActivate(orchestrator, args),
+    'actions/menu-item': (args) => actionMenuItem(orchestrator, args),
+    'actions/invoke-function': (args) => actionInvokeFunction(orchestrator, args),
+    'actions/restart-session': (args) => actionRestartSession(orchestrator, args),
+    'actions/close': (args) => actionClose(orchestrator, args),
+    'actions/raw-protobuf': (args) => actionRawProtobuf(orchestrator, args),
   };
 
   ipcMain.handle('rpc', async (_event, payload: { method: RpcMethod; args: unknown }) => {

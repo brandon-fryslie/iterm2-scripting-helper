@@ -9,7 +9,7 @@ import type {
 } from './rpc';
 
 describe('RpcSchema', () => {
-  it('includes system/ping, connection/*, monitor/*', () => {
+  it('includes system/ping, connection/*, monitor/*, actions/*', () => {
     expectTypeOf<RpcMethod>().toEqualTypeOf<
       | 'system/ping'
       | 'connection/snapshot'
@@ -26,6 +26,14 @@ describe('RpcSchema', () => {
       | 'monitor/focus-log'
       | 'monitor/screen'
       | 'monitor/set-keystroke-advanced'
+      | 'actions/send-text'
+      | 'actions/inject'
+      | 'actions/activate'
+      | 'actions/menu-item'
+      | 'actions/invoke-function'
+      | 'actions/restart-session'
+      | 'actions/close'
+      | 'actions/raw-protobuf'
     >();
   });
 

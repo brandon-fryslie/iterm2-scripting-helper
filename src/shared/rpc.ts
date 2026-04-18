@@ -186,6 +186,28 @@ export interface ScreenSnapshot {
   lastError: string | null;
 }
 
+export interface ActionResult {
+  ok: boolean;
+  error: string | null;
+  latencyMs: number;
+  responseCase: string | null;
+  payload: Record<string, unknown> | null;
+}
+
+export type ActivateTarget =
+  | { kind: 'window'; id: string }
+  | { kind: 'tab'; id: string }
+  | { kind: 'session'; id: string }
+  | { kind: 'app' };
+
+export type InvokeScope =
+  | { kind: 'app' }
+  | { kind: 'session'; id: string }
+  | { kind: 'tab'; id: string }
+  | { kind: 'window'; id: string };
+
+export type CloseTargetKind = 'sessions' | 'tabs' | 'windows';
+
 export type RpcSchema = {
   'system/ping': {
     args: void;
@@ -246,6 +268,44 @@ export type RpcSchema = {
   'monitor/set-keystroke-advanced': {
     args: { advanced: boolean };
     result: { advanced: boolean };
+  };
+  'actions/send-text': {
+    args: { sessionId: string; text: string; suppressBroadcast?: boolean };
+    result: ActionResult;
+  };
+  'actions/inject': {
+    args: { sessionIds: string[]; bytesHex: string };
+    result: ActionResult;
+  };
+  'actions/activate': {
+    args: {
+      target: ActivateTarget;
+      orderWindowFront?: boolean;
+      selectSession?: boolean;
+      selectTab?: boolean;
+      activateApp?: boolean;
+    };
+    result: ActionResult;
+  };
+  'actions/menu-item': {
+    args: { identifier: string; queryOnly?: boolean };
+    result: ActionResult;
+  };
+  'actions/invoke-function': {
+    args: { invocation: string; scope: InvokeScope; timeout?: number };
+    result: ActionResult;
+  };
+  'actions/restart-session': {
+    args: { sessionId: string; onlyIfExited?: boolean };
+    result: ActionResult;
+  };
+  'actions/close': {
+    args: { kind: CloseTargetKind; ids: string[]; force?: boolean };
+    result: ActionResult;
+  };
+  'actions/raw-protobuf': {
+    args: { envelopeJson: string };
+    result: ActionResult;
   };
 };
 
