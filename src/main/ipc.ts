@@ -1,8 +1,6 @@
 import { ipcMain, webContents, type WebContents } from 'electron';
-import { app } from 'electron';
 import { create } from '@bufbuild/protobuf';
 import {
-  ClientOriginatedMessageSchema,
   ListSessionsRequestSchema,
 } from '@shared/proto/gen/api_pb';
 import type {
@@ -14,13 +12,25 @@ import type {
   ListSessionsSummary,
 } from '@shared/rpc';
 import type { ConnectionStore } from './stores/ConnectionStore';
+import type { LayoutStore } from './stores/LayoutStore';
+import type { VariableStore } from './stores/VariableStore';
+import type { WireLogStore } from './stores/WireLogStore';
+import type { NotificationHub } from './stores/NotificationHub';
 import { ConnectionOrchestrator } from './drivers/ConnectionOrchestrator';
 
 type Handlers = { [M in RpcMethod]: (args: RpcArgs<M>) => Promise<RpcResult<M>> };
 
+export interface MonitorStoresRef {
+  layout: LayoutStore;
+  variables: VariableStore;
+  wire: WireLogStore;
+  notifications: NotificationHub;
+}
+
 export function registerIpc(
   store: ConnectionStore,
   orchestrator: ConnectionOrchestrator,
+  monitor: MonitorStoresRef,
 ): void {
   const handlers: Handlers = {
     'system/ping': async () => ({
@@ -72,6 +82,15 @@ export function registerIpc(
         })),
       };
     },
+
+    'monitor/layout': async () => monitor.layout.snapshot(),
+    'monitor/variables': async () => monitor.variables.snapshot(),
+    'monitor/wire-log': async () => monitor.wire.snapshot(),
+    'monitor/notifications': async () => monitor.notifications.snapshot(),
+    'monitor/focus-session': async ({ sessionId }) => {
+      await orchestrator.setFocusedSession(sessionId);
+      return { focusedSessionId: monitor.variables.focusedSessionId };
+    },
   };
 
   ipcMain.handle('rpc', async (_event, payload: { method: RpcMethod; args: unknown }) => {
@@ -106,4 +125,3 @@ export function broadcast<K extends EventKind>(kind: K, payload: EventPayload<K>
 }
 
 export type { WebContents };
-export { app };

@@ -4,6 +4,10 @@ import { autorun } from 'mobx';
 import started from 'electron-squirrel-startup';
 import { registerIpc, broadcast } from './ipc';
 import { ConnectionStore } from './stores/ConnectionStore';
+import { LayoutStore } from './stores/LayoutStore';
+import { VariableStore } from './stores/VariableStore';
+import { WireLogStore } from './stores/WireLogStore';
+import { NotificationHub } from './stores/NotificationHub';
 import { ConnectionOrchestrator } from './drivers/ConnectionOrchestrator';
 
 declare const MAIN_WINDOW_VITE_DEV_SERVER_URL: string | undefined;
@@ -35,10 +39,24 @@ function createWindow(): void {
 }
 
 const connectionStore = new ConnectionStore();
-const orchestrator = new ConnectionOrchestrator(connectionStore, {
-  advisoryName: 'iTerm2 Scripting Workbench',
-  libraryVersion: `node ${app.getVersion()}`,
-});
+const layoutStore = new LayoutStore();
+const variableStore = new VariableStore();
+const wireLogStore = new WireLogStore();
+const notificationHub = new NotificationHub();
+
+const orchestrator = new ConnectionOrchestrator(
+  connectionStore,
+  {
+    layout: layoutStore,
+    variables: variableStore,
+    wire: wireLogStore,
+    notifications: notificationHub,
+  },
+  {
+    advisoryName: 'iTerm2 Scripting Workbench',
+    libraryVersion: `node ${app.getVersion()}`,
+  },
+);
 
 orchestrator.on('frame', (frame) => {
   broadcast('wire-frame', {
@@ -52,8 +70,29 @@ autorun(() => {
   broadcast('connection-state', connectionStore.snapshot());
 });
 
+autorun(() => {
+  broadcast('layout-snapshot', layoutStore.snapshot());
+});
+
+autorun(() => {
+  broadcast('variables-snapshot', variableStore.snapshot());
+});
+
+autorun(() => {
+  broadcast('wire-snapshot', wireLogStore.snapshot());
+});
+
+autorun(() => {
+  broadcast('notifications-snapshot', notificationHub.snapshot());
+});
+
 app.whenReady().then(() => {
-  registerIpc(connectionStore, orchestrator);
+  registerIpc(connectionStore, orchestrator, {
+    layout: layoutStore,
+    variables: variableStore,
+    wire: wireLogStore,
+    notifications: notificationHub,
+  });
   createWindow();
 
   app.on('activate', () => {

@@ -9,13 +9,18 @@ import type {
 } from './rpc';
 
 describe('RpcSchema', () => {
-  it('includes system/ping and the connection/* family', () => {
+  it('includes system/ping, connection/*, monitor/*', () => {
     expectTypeOf<RpcMethod>().toEqualTypeOf<
       | 'system/ping'
       | 'connection/snapshot'
       | 'connection/connect'
       | 'connection/disconnect'
       | 'connection/list-sessions'
+      | 'monitor/layout'
+      | 'monitor/variables'
+      | 'monitor/wire-log'
+      | 'monitor/notifications'
+      | 'monitor/focus-session'
     >();
   });
 
@@ -41,8 +46,21 @@ describe('RpcSchema', () => {
     expectTypeOf(s.protocolVersion).toEqualTypeOf<string>();
   });
 
-  it('EventSchema exposes connection-state and wire-frame', () => {
-    expectTypeOf<EventKind>().toEqualTypeOf<'connection-state' | 'wire-frame'>();
+  it('monitor/focus-session takes a sessionId', () => {
+    expectTypeOf<RpcArgs<'monitor/focus-session'>>().toEqualTypeOf<{
+      sessionId: string | null;
+    }>();
+  });
+
+  it('EventSchema exposes connection + wire + monitor channels', () => {
+    expectTypeOf<EventKind>().toEqualTypeOf<
+      | 'connection-state'
+      | 'wire-frame'
+      | 'layout-snapshot'
+      | 'variables-snapshot'
+      | 'wire-snapshot'
+      | 'notifications-snapshot'
+    >();
   });
 
   it('keeps RpcSchema and EventSchema structurally distinct', () => {

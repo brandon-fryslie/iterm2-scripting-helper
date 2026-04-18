@@ -40,6 +40,68 @@ export interface WireFrameEvent {
   at: number;
 }
 
+export interface LayoutSnapshot {
+  windows: WindowSummary[];
+  lastUpdatedAt: number;
+}
+
+export interface VariableEntry {
+  name: string;
+  value: string;
+  live: boolean;
+  updatedAt: number;
+}
+
+export interface VariableSnapshot {
+  sessionId: string | null;
+  variables: VariableEntry[];
+}
+
+export interface WireLogEntry {
+  seq: number;
+  at: number;
+  direction: 'out' | 'in';
+  size: number;
+  kind: string;
+  id: string;
+}
+
+export interface WireLogSnapshot {
+  entries: WireLogEntry[];
+  totalSeen: number;
+  capacity: number;
+}
+
+export type NotificationKind =
+  | 'keystroke'
+  | 'screen-update'
+  | 'prompt'
+  | 'custom-escape'
+  | 'new-session'
+  | 'terminate-session'
+  | 'layout-changed'
+  | 'focus-changed'
+  | 'variable-changed'
+  | 'server-rpc'
+  | 'broadcast-changed'
+  | 'profile-changed'
+  | 'location-changed'
+  | 'unknown';
+
+export interface NotificationEntry {
+  seq: number;
+  at: number;
+  kind: NotificationKind;
+  sessionId: string | null;
+  summary: string;
+}
+
+export interface NotificationLogSnapshot {
+  entries: NotificationEntry[];
+  totalSeen: number;
+  capacity: number;
+}
+
 export type RpcSchema = {
   'system/ping': {
     args: void;
@@ -61,6 +123,26 @@ export type RpcSchema = {
     args: void;
     result: ListSessionsSummary;
   };
+  'monitor/layout': {
+    args: void;
+    result: LayoutSnapshot;
+  };
+  'monitor/variables': {
+    args: void;
+    result: VariableSnapshot;
+  };
+  'monitor/wire-log': {
+    args: void;
+    result: WireLogSnapshot;
+  };
+  'monitor/notifications': {
+    args: void;
+    result: NotificationLogSnapshot;
+  };
+  'monitor/focus-session': {
+    args: { sessionId: string | null };
+    result: { focusedSessionId: string | null };
+  };
 };
 
 export type RpcMethod = keyof RpcSchema;
@@ -70,6 +152,10 @@ export type RpcResult<M extends RpcMethod> = RpcSchema[M]['result'];
 export type EventSchema = {
   'connection-state': ConnectionSnapshot;
   'wire-frame': WireFrameEvent;
+  'layout-snapshot': LayoutSnapshot;
+  'variables-snapshot': VariableSnapshot;
+  'wire-snapshot': WireLogSnapshot;
+  'notifications-snapshot': NotificationLogSnapshot;
 };
 
 export type EventKind = keyof EventSchema;
