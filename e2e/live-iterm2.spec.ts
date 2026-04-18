@@ -72,6 +72,123 @@ test.describe('live iTerm2', () => {
     await app.close();
   });
 
+  test('Workbench v2: status-bar registration + custom-escape subscriber round-trip', async () => {
+    const app = await electron.launch({ args: [mainEntry], cwd: repoRoot });
+    const win = await app.firstWindow();
+
+    await win.getByTestId('tab-trigger-settings').click();
+    await win.getByTestId('connect-button').click();
+    await expect(win.getByTestId('connection-state-badge')).toHaveAttribute(
+      'data-state',
+      'ready',
+      { timeout: 20_000 },
+    );
+
+    const sessionId = await win.evaluate(async () => {
+      const layout = await window.ipc.invoke('monitor/layout', undefined as never);
+      return layout.windows[0]?.tabs[0]?.sessions[0]?.sessionId ?? '';
+    });
+    expect(sessionId).not.toBe('');
+
+    // Register a status-bar component with a Color knob + verify it appears
+    // in the registrations list.
+    const uniqueId = `com.example.workbench-test-${Date.now()}`;
+    const regResult = await win.evaluate(async (args) => {
+      return window.ipc.invoke('workbench/register-rpc', {
+        id: `reg-test-${args.t}`,
+        role: 'status-bar',
+        name: `wb_test_${args.t}`,
+        arguments: ['knobs'],
+        defaults: [],
+        timeout: 5,
+        responseTemplate: '"workbench-test"',
+        statusBar: {
+          shortDescription: 'Workbench test',
+          detailedDescription: 'Live-integration demo component',
+          exemplar: '12:34',
+          updateCadence: 1,
+          uniqueIdentifier: args.uniqueId,
+          format: 'PLAIN_TEXT',
+          knobs: [
+            {
+              name: 'colorKnob',
+              type: 'Color',
+              placeholder: 'Tint',
+              jsonDefaultValue: JSON.stringify({
+                'Red Component': 0.2,
+                'Green Component': 0.6,
+                'Blue Component': 1,
+                'Alpha Component': 1,
+                'Color Space': 'sRGB',
+              }),
+              key: 'tint',
+            },
+          ],
+        },
+      });
+    }, { t: Date.now(), uniqueId });
+    expect(regResult.ok).toBe(true);
+
+    // Confirm it's in the registrations snapshot
+    const activeRegs = await win.evaluate(async () => {
+      return window.ipc.invoke('workbench/registrations', undefined as never);
+    });
+    const found = activeRegs.registrations.find(
+      (r) => r.statusBar?.uniqueIdentifier === uniqueId,
+    );
+    expect(found).toBeTruthy();
+    expect(found?.role).toBe('status-bar');
+    expect(found?.statusBar?.knobs[0].type).toBe('Color');
+
+    // Subscribe to custom escape on the focused session with an identity filter
+    const identity = `workbench-test-${Date.now()}`;
+    const subResult = await win.evaluate(async (args) => {
+      return window.ipc.invoke('workbench/subscribe-custom-escape', {
+        sessionId: args.sessionId,
+        identity: args.identity,
+      });
+    }, { sessionId, identity });
+    expect(subResult.ok).toBe(true);
+    expect(subResult.subscriptionId).toBeTruthy();
+
+    // Inject an OSC 1337 Custom= payload as terminal output (not typed input,
+    // which would just go to the shell) and expect it to surface in the
+    // subscriber log.
+    const payload = 'hello-from-workbench';
+    const sequence = `\x1b]1337;Custom=id=${identity}:${payload}\x1b\\`;
+    const bytesHex = Array.from(new TextEncoder().encode(sequence))
+      .map((b) => b.toString(16).padStart(2, '0'))
+      .join('');
+    await win.evaluate(async (args) => {
+      return window.ipc.invoke('actions/inject', {
+        sessionIds: [args.sessionId],
+        bytesHex: args.bytesHex,
+      });
+    }, { sessionId, bytesHex });
+
+    await expect(async () => {
+      const snap = await win.evaluate(() =>
+        window.ipc.invoke('workbench/custom-escape', undefined as never),
+      );
+      const matching = snap.entries.find(
+        (e) => e.identity === identity && e.payload.includes(payload),
+      );
+      expect(matching).toBeTruthy();
+    }).toPass({ timeout: 5000 });
+
+    // Cleanup
+    const subscriptionId = subResult.subscriptionId ?? '';
+    const regId = regResult.registrationId ?? '';
+    await win.evaluate(async (args) => {
+      await window.ipc.invoke('workbench/unsubscribe-custom-escape', {
+        subscriptionId: args.subscriptionId,
+      });
+      await window.ipc.invoke('workbench/unregister-rpc', { id: args.regId });
+    }, { subscriptionId, regId });
+
+    await app.close();
+  });
+
   test('Workbench: profile edit applies; dynamic profile round-trips; escape template emits', async () => {
     const app = await electron.launch({ args: [mainEntry], cwd: repoRoot });
     const win = await app.firstWindow();

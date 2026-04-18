@@ -21,6 +21,8 @@ import type { PromptLogStore } from './stores/PromptLogStore';
 import type { FocusLogStore } from './stores/FocusLogStore';
 import type { ScreenStreamStore } from './stores/ScreenStreamStore';
 import type { DynamicProfileStore } from './stores/DynamicProfileStore';
+import type { RegistrationStore } from './stores/RegistrationStore';
+import type { CustomEscapeStore } from './stores/CustomEscapeStore';
 import { ConnectionOrchestrator } from './drivers/ConnectionOrchestrator';
 import type { DynamicProfileWatcher } from './drivers/DynamicProfileWatcher';
 import {
@@ -46,6 +48,8 @@ export interface MonitorStoresRef {
   prompts: PromptLogStore;
   focus: FocusLogStore;
   screen: ScreenStreamStore;
+  registrations: RegistrationStore;
+  customEscape: CustomEscapeStore;
 }
 
 export interface WorkbenchStoresRef {
@@ -163,6 +167,55 @@ export function registerIpc(
         };
       }
     },
+    'workbench/register-rpc': async (spec) => {
+      try {
+        await orchestrator.registerRpc(spec);
+        return { ok: true, error: null, registrationId: spec.id };
+      } catch (err) {
+        return {
+          ok: false,
+          error: err instanceof Error ? err.message : String(err),
+          registrationId: null,
+        };
+      }
+    },
+    'workbench/unregister-rpc': async ({ id }) => {
+      try {
+        await orchestrator.unregisterRpc(id);
+        return { ok: true, error: null };
+      } catch (err) {
+        return {
+          ok: false,
+          error: err instanceof Error ? err.message : String(err),
+        };
+      }
+    },
+    'workbench/registrations': async () => monitor.registrations.snapshot(),
+    'workbench/subscribe-custom-escape': async ({ sessionId, identity }) => {
+      try {
+        const id = `ce-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+        await orchestrator.subscribeCustomEscape(id, sessionId, identity);
+        return { ok: true, error: null, subscriptionId: id };
+      } catch (err) {
+        return {
+          ok: false,
+          error: err instanceof Error ? err.message : String(err),
+          subscriptionId: null,
+        };
+      }
+    },
+    'workbench/unsubscribe-custom-escape': async ({ subscriptionId }) => {
+      try {
+        await orchestrator.unsubscribeCustomEscape(subscriptionId);
+        return { ok: true, error: null };
+      } catch (err) {
+        return {
+          ok: false,
+          error: err instanceof Error ? err.message : String(err),
+        };
+      }
+    },
+    'workbench/custom-escape': async () => monitor.customEscape.snapshot(),
   };
 
   ipcMain.handle('rpc', async (_event, payload: { method: RpcMethod; args: unknown }) => {

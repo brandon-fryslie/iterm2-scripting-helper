@@ -6,11 +6,17 @@ import type { WorkbenchArtifact } from '@/stores/WorkbenchStore';
 import { ProfileEditor } from './workbench/ProfileEditor';
 import { DynamicProfileEditor } from './workbench/DynamicProfileEditor';
 import { EscapeSequenceEditor } from './workbench/EscapeSequenceEditor';
+import { RegistrationEditor } from './workbench/RegistrationEditor';
+import { CustomEscapeSubscriber } from './workbench/CustomEscapeSubscriber';
+import { TriggersViewer } from './workbench/TriggersViewer';
 
 const RAIL: Array<{ id: WorkbenchArtifact; label: string }> = [
   { id: 'profile', label: 'Profiles' },
   { id: 'dynamic-profile', label: 'Dynamic Profiles' },
   { id: 'escape-sequence', label: 'Escape Sequences' },
+  { id: 'registrations', label: 'Registrations' },
+  { id: 'custom-escape', label: 'Custom Escape Subscriber' },
+  { id: 'triggers', label: 'Triggers' },
 ];
 
 export const WorkbenchTab = observer(function WorkbenchTab() {
@@ -48,6 +54,9 @@ export const WorkbenchTab = observer(function WorkbenchTab() {
         {workbench.artifact === 'profile' && <ProfileEditor />}
         {workbench.artifact === 'dynamic-profile' && <DynamicProfileEditor />}
         {workbench.artifact === 'escape-sequence' && <EscapeSequenceEditor />}
+        {workbench.artifact === 'registrations' && <RegistrationEditor />}
+        {workbench.artifact === 'custom-escape' && <CustomEscapeSubscriber />}
+        {workbench.artifact === 'triggers' && <TriggersViewer />}
       </section>
     </div>
   );

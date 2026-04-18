@@ -13,6 +13,8 @@ import { PromptLogStore } from './stores/PromptLogStore';
 import { FocusLogStore } from './stores/FocusLogStore';
 import { ScreenStreamStore } from './stores/ScreenStreamStore';
 import { DynamicProfileStore } from './stores/DynamicProfileStore';
+import { RegistrationStore } from './stores/RegistrationStore';
+import { CustomEscapeStore } from './stores/CustomEscapeStore';
 import { ConnectionOrchestrator } from './drivers/ConnectionOrchestrator';
 import { DynamicProfileWatcher } from './drivers/DynamicProfileWatcher';
 
@@ -54,6 +56,8 @@ const promptLogStore = new PromptLogStore();
 const focusLogStore = new FocusLogStore();
 const screenStreamStore = new ScreenStreamStore();
 const dynamicProfileStore = new DynamicProfileStore();
+const registrationStore = new RegistrationStore();
+const customEscapeStore = new CustomEscapeStore();
 
 const monitorStores = {
   layout: layoutStore,
@@ -64,6 +68,8 @@ const monitorStores = {
   prompts: promptLogStore,
   focus: focusLogStore,
   screen: screenStreamStore,
+  registrations: registrationStore,
+  customEscape: customEscapeStore,
 };
 
 const orchestrator = new ConnectionOrchestrator(
@@ -99,6 +105,14 @@ autorun(() => {
 
 autorun(() => {
   broadcast('dynamic-profiles-snapshot', dynamicProfileStore.snapshot());
+});
+
+autorun(() => {
+  broadcast('registrations-snapshot', registrationStore.snapshot());
+});
+
+autorun(() => {
+  broadcast('custom-escape-snapshot', customEscapeStore.snapshot());
 });
 
 // Keystrokes, prompts, notifications, wire, focus are pulled on demand via

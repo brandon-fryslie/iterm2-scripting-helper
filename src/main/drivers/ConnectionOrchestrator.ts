@@ -9,9 +9,20 @@ import {
   VariableRequestSchema,
   GetBufferRequestSchema,
   LineRangeSchema,
+  RPCRegistrationRequestSchema,
+  RPCRegistrationRequest_RPCArgumentSignatureSchema,
+  RPCRegistrationRequest_RPCArgumentSchema,
+  RPCRegistrationRequest_StatusBarComponentAttributesSchema,
+  RPCRegistrationRequest_StatusBarComponentAttributes_KnobSchema,
+  RPCRegistrationRequest_SessionTitleAttributesSchema,
+  RPCRegistrationRequest_ContextMenuAttributesSchema,
+  ServerOriginatedRPCResultRequestSchema,
   NotificationType,
   VariableScope,
   PromptMonitorMode,
+  RPCRegistrationRequest_Role,
+  RPCRegistrationRequest_StatusBarComponentAttributes_Knob_Type,
+  RPCRegistrationRequest_StatusBarComponentAttributes_Format,
   type ServerOriginatedMessage,
   type Notification,
   type ListSessionsResponse,
@@ -31,6 +42,11 @@ import type { KeystrokeLogStore } from '../stores/KeystrokeLogStore';
 import type { PromptLogStore } from '../stores/PromptLogStore';
 import type { FocusLogStore } from '../stores/FocusLogStore';
 import type { ScreenStreamStore } from '../stores/ScreenStreamStore';
+import type {
+  RegistrationStore,
+  RegistrationSpec,
+} from '../stores/RegistrationStore';
+import type { CustomEscapeStore } from '../stores/CustomEscapeStore';
 
 export const DEFAULT_SOCKET_PATH = path.join(
   os.homedir(),
@@ -67,6 +83,8 @@ export interface MonitorStores {
   prompts: PromptLogStore;
   focus: FocusLogStore;
   screen: ScreenStreamStore;
+  registrations: RegistrationStore;
+  customEscape: CustomEscapeStore;
 }
 
 export class ConnectionOrchestrator extends EventEmitter {
@@ -119,6 +137,8 @@ export class ConnectionOrchestrator extends EventEmitter {
       this.monitor.prompts.clear();
       this.monitor.focus.clear();
       this.monitor.screen.clear();
+      this.monitor.registrations.clearAll();
+      this.monitor.customEscape.clearAll();
       this.activeGlobalSubscriptions = [];
       this.activeVariableSubs = [];
       this.sessionScopedSubscriptions = [];
@@ -234,6 +254,91 @@ export class ConnectionOrchestrator extends EventEmitter {
     return this.options.socketPath;
   }
 
+  async registerRpc(spec: RegistrationSpec): Promise<void> {
+    const req = buildRegistrationRequest(spec);
+    await this.sendNotificationRequestRaw(
+      NotificationType.NOTIFY_ON_SERVER_ORIGINATED_RPC,
+      '',
+      true,
+      { arguments: { case: 'rpcRegistrationRequest', value: req } },
+    );
+    this.monitor.registrations.upsert(spec);
+  }
+
+  async unregisterRpc(id: string): Promise<void> {
+    const spec = this.monitor.registrations
+      .snapshot()
+      .registrations.find((r) => r.id === id);
+    if (!spec) return;
+    const req = buildRegistrationRequest({ ...spec });
+    await this.sendNotificationRequestRaw(
+      NotificationType.NOTIFY_ON_SERVER_ORIGINATED_RPC,
+      '',
+      false,
+      { arguments: { case: 'rpcRegistrationRequest', value: req } },
+    ).catch(() => void 0);
+    this.monitor.registrations.remove(id);
+  }
+
+  async subscribeCustomEscape(
+    subscriptionId: string,
+    sessionId: string,
+    identity: string,
+  ): Promise<void> {
+    await this.sendNotificationRequest(
+      NotificationType.NOTIFY_ON_CUSTOM_ESCAPE_SEQUENCE,
+      sessionId,
+      true,
+    );
+    this.monitor.customEscape.addSubscription({
+      id: subscriptionId,
+      sessionId,
+      identity,
+      createdAt: Date.now(),
+    });
+  }
+
+  async unsubscribeCustomEscape(subscriptionId: string): Promise<void> {
+    const snap = this.monitor.customEscape.snapshot();
+    const sub = snap.subscriptions.find((s) => s.id === subscriptionId);
+    if (!sub) return;
+    await this.sendNotificationRequest(
+      NotificationType.NOTIFY_ON_CUSTOM_ESCAPE_SEQUENCE,
+      sub.sessionId,
+      false,
+    ).catch(() => void 0);
+    this.monitor.customEscape.removeSubscription(subscriptionId);
+  }
+
+  async respondToServerRpc(
+    requestId: string,
+    jsonValue: string,
+  ): Promise<void> {
+    const req = create(ServerOriginatedRPCResultRequestSchema, {
+      requestId,
+      result: { case: 'jsonValue', value: jsonValue },
+    });
+    await this.protocol
+      .send({ submessage: { case: 'serverOriginatedRpcResultRequest', value: req } })
+      .catch((err) => this.emit('error', err));
+  }
+
+  async respondToServerRpcException(
+    requestId: string,
+    reason: string,
+  ): Promise<void> {
+    const req = create(ServerOriginatedRPCResultRequestSchema, {
+      requestId,
+      result: {
+        case: 'jsonException',
+        value: JSON.stringify({ reason }),
+      },
+    });
+    await this.protocol
+      .send({ submessage: { case: 'serverOriginatedRpcResultRequest', value: req } })
+      .catch((err) => this.emit('error', err));
+  }
+
   private async fetchInitialLayout(): Promise<void> {
     const response = await this.protocol.send({
       submessage: {
@@ -338,6 +443,15 @@ export class ConnectionOrchestrator extends EventEmitter {
   }
 
   private async sendNotificationRequest(
+    type: NotificationType,
+    session: string,
+    subscribe: boolean,
+    args?: Parameters<typeof create<typeof NotificationRequestSchema>>[1],
+  ): Promise<void> {
+    await this.sendNotificationRequestRaw(type, session, subscribe, args);
+  }
+
+  private async sendNotificationRequestRaw(
     type: NotificationType,
     session: string,
     subscribe: boolean,
@@ -480,7 +594,152 @@ export class ConnectionOrchestrator extends EventEmitter {
         this.scheduleScreenRefetch(session);
       }
     }
+    if (n.customEscapeSequenceNotification) {
+      this.monitor.customEscape.record(n.customEscapeSequenceNotification);
+    }
+    if (n.serverOriginatedRpcNotification?.rpc) {
+      void this.handleServerRpc(
+        n.serverOriginatedRpcNotification.requestId,
+        n.serverOriginatedRpcNotification.rpc,
+      );
+    }
   }
+
+  private async handleServerRpc(
+    requestId: string,
+    rpc: { name: string; arguments: Array<{ name: string; jsonValue: string }> },
+  ): Promise<void> {
+    const spec = this.monitor.registrations.findByName(rpc.name);
+    const args: Record<string, unknown> = {};
+    for (const a of rpc.arguments) {
+      try {
+        args[a.name] = JSON.parse(a.jsonValue);
+      } catch {
+        args[a.name] = a.jsonValue;
+      }
+    }
+    if (!spec) {
+      await this.respondToServerRpcException(
+        requestId,
+        `no registration for name=${rpc.name}`,
+      );
+      this.monitor.registrations.recordInvocation({
+        at: Date.now(),
+        registrationId: '',
+        requestId,
+        args,
+        responded: true,
+        responseJson: '',
+        error: `no registration for name=${rpc.name}`,
+      });
+      return;
+    }
+    try {
+      JSON.parse(spec.responseTemplate);
+      await this.respondToServerRpc(requestId, spec.responseTemplate);
+      this.monitor.registrations.recordInvocation({
+        at: Date.now(),
+        registrationId: spec.id,
+        requestId,
+        args,
+        responded: true,
+        responseJson: spec.responseTemplate,
+        error: null,
+      });
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      await this.respondToServerRpcException(requestId, msg);
+      this.monitor.registrations.recordInvocation({
+        at: Date.now(),
+        registrationId: spec.id,
+        requestId,
+        args,
+        responded: true,
+        responseJson: '',
+        error: msg,
+      });
+    }
+  }
+}
+
+function buildRegistrationRequest(spec: RegistrationSpec) {
+  const roleMap = {
+    generic: RPCRegistrationRequest_Role.GENERIC,
+    'session-title': RPCRegistrationRequest_Role.SESSION_TITLE,
+    'status-bar': RPCRegistrationRequest_Role.STATUS_BAR_COMPONENT,
+    'context-menu': RPCRegistrationRequest_Role.CONTEXT_MENU,
+  } as const;
+
+  const roleAttrs = buildRoleAttrs(spec);
+
+  return create(RPCRegistrationRequestSchema, {
+    name: spec.name,
+    arguments: spec.arguments.map((name) =>
+      create(RPCRegistrationRequest_RPCArgumentSignatureSchema, { name }),
+    ),
+    defaults: spec.defaults.map((d) =>
+      create(RPCRegistrationRequest_RPCArgumentSchema, { name: d.name, path: d.path }),
+    ),
+    timeout: spec.timeout,
+    role: roleMap[spec.role],
+    ...(roleAttrs ?? {}),
+  });
+}
+
+type RegistrationRequestInit = Parameters<
+  typeof create<typeof RPCRegistrationRequestSchema>
+>[1];
+
+function buildRoleAttrs(spec: RegistrationSpec): RegistrationRequestInit | undefined {
+  if (spec.role === 'status-bar' && spec.statusBar) {
+    const sb = spec.statusBar;
+    const knobTypeMap = {
+      Checkbox: RPCRegistrationRequest_StatusBarComponentAttributes_Knob_Type.Checkbox,
+      String: RPCRegistrationRequest_StatusBarComponentAttributes_Knob_Type.String,
+      PositiveFloatingPoint:
+        RPCRegistrationRequest_StatusBarComponentAttributes_Knob_Type.PositiveFloatingPoint,
+      Color: RPCRegistrationRequest_StatusBarComponentAttributes_Knob_Type.Color,
+    } as const;
+    const value = create(
+      RPCRegistrationRequest_StatusBarComponentAttributesSchema,
+      {
+        shortDescription: sb.shortDescription,
+        detailedDescription: sb.detailedDescription,
+        exemplar: sb.exemplar,
+        updateCadence: sb.updateCadence,
+        uniqueIdentifier: sb.uniqueIdentifier,
+        format:
+          sb.format === 'HTML'
+            ? RPCRegistrationRequest_StatusBarComponentAttributes_Format.HTML
+            : RPCRegistrationRequest_StatusBarComponentAttributes_Format.PLAIN_TEXT,
+        knobs: sb.knobs.map((k) =>
+          create(RPCRegistrationRequest_StatusBarComponentAttributes_KnobSchema, {
+            name: k.name,
+            type: knobTypeMap[k.type],
+            placeholder: k.placeholder,
+            jsonDefaultValue: k.jsonDefaultValue,
+            key: k.key,
+          }),
+        ),
+      },
+    );
+    return { RoleSpecificAttributes: { case: 'statusBarComponentAttributes', value } };
+  }
+  if (spec.role === 'session-title' && spec.sessionTitle) {
+    const value = create(RPCRegistrationRequest_SessionTitleAttributesSchema, {
+      displayName: spec.sessionTitle.displayName,
+      uniqueIdentifier: spec.sessionTitle.uniqueIdentifier,
+    });
+    return { RoleSpecificAttributes: { case: 'sessionTitleAttributes', value } };
+  }
+  if (spec.role === 'context-menu' && spec.contextMenu) {
+    const value = create(RPCRegistrationRequest_ContextMenuAttributesSchema, {
+      displayName: spec.contextMenu.displayName,
+      uniqueIdentifier: spec.contextMenu.uniqueIdentifier,
+    });
+    return { RoleSpecificAttributes: { case: 'contextMenuAttributes', value } };
+  }
+  return undefined;
 }
 
 function errString(err: unknown): string {

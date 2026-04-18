@@ -238,6 +238,93 @@ export interface DynamicProfileSnapshot {
   lastError: string | null;
 }
 
+export type RegistrationRole =
+  | 'generic'
+  | 'session-title'
+  | 'status-bar'
+  | 'context-menu';
+
+export interface KnobSpec {
+  name: string;
+  type: 'Checkbox' | 'String' | 'PositiveFloatingPoint' | 'Color';
+  placeholder: string;
+  jsonDefaultValue: string;
+  key: string;
+}
+
+export interface StatusBarAttrs {
+  shortDescription: string;
+  detailedDescription: string;
+  knobs: KnobSpec[];
+  exemplar: string;
+  updateCadence: number;
+  uniqueIdentifier: string;
+  format: 'PLAIN_TEXT' | 'HTML';
+}
+
+export interface SessionTitleAttrs {
+  displayName: string;
+  uniqueIdentifier: string;
+}
+
+export interface ContextMenuAttrs {
+  displayName: string;
+  uniqueIdentifier: string;
+}
+
+export interface RegistrationSpec {
+  id: string;
+  role: RegistrationRole;
+  name: string;
+  arguments: string[];
+  defaults: Array<{ name: string; path: string }>;
+  timeout: number;
+  statusBar?: StatusBarAttrs;
+  sessionTitle?: SessionTitleAttrs;
+  contextMenu?: ContextMenuAttrs;
+  responseTemplate: string;
+}
+
+export interface Invocation {
+  seq: number;
+  at: number;
+  registrationId: string;
+  requestId: string;
+  args: Record<string, unknown>;
+  responded: boolean;
+  responseJson: string;
+  error: string | null;
+}
+
+export interface RegistrationSnapshot {
+  registrations: RegistrationSpec[];
+  invocations: Invocation[];
+  totalInvocations: number;
+}
+
+export interface CustomEscapeSubscription {
+  id: string;
+  sessionId: string;
+  identity: string;
+  createdAt: number;
+}
+
+export interface CustomEscapeEntry {
+  seq: number;
+  at: number;
+  subscriptionId: string;
+  sessionId: string;
+  identity: string;
+  payload: string;
+}
+
+export interface CustomEscapeSnapshot {
+  subscriptions: CustomEscapeSubscription[];
+  entries: CustomEscapeEntry[];
+  totalSeen: number;
+  capacity: number;
+}
+
 export type RpcSchema = {
   'system/ping': {
     args: void;
@@ -360,6 +447,30 @@ export type RpcSchema = {
     args: { basename: string };
     result: { ok: boolean; error: string | null };
   };
+  'workbench/register-rpc': {
+    args: RegistrationSpec;
+    result: { ok: boolean; error: string | null; registrationId: string | null };
+  };
+  'workbench/unregister-rpc': {
+    args: { id: string };
+    result: { ok: boolean; error: string | null };
+  };
+  'workbench/registrations': {
+    args: void;
+    result: RegistrationSnapshot;
+  };
+  'workbench/subscribe-custom-escape': {
+    args: { sessionId: string; identity: string };
+    result: { ok: boolean; error: string | null; subscriptionId: string | null };
+  };
+  'workbench/unsubscribe-custom-escape': {
+    args: { subscriptionId: string };
+    result: { ok: boolean; error: string | null };
+  };
+  'workbench/custom-escape': {
+    args: void;
+    result: CustomEscapeSnapshot;
+  };
 };
 
 export type RpcMethod = keyof RpcSchema;
@@ -378,6 +489,8 @@ export type EventSchema = {
   'prompts-snapshot': PromptLogSnapshot;
   'focus-snapshot': FocusLogSnapshot;
   'dynamic-profiles-snapshot': DynamicProfileSnapshot;
+  'registrations-snapshot': RegistrationSnapshot;
+  'custom-escape-snapshot': CustomEscapeSnapshot;
 };
 
 export type EventKind = keyof EventSchema;

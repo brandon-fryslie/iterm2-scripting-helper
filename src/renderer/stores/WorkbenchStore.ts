@@ -3,9 +3,20 @@ import type {
   ActionResult,
   DynamicProfileSnapshot,
   ProfileSummary,
+  RegistrationSpec,
+  RegistrationRole,
+  RegistrationSnapshot,
+  CustomEscapeSnapshot,
+  KnobSpec,
 } from '@shared/rpc';
 
-export type WorkbenchArtifact = 'profile' | 'dynamic-profile' | 'escape-sequence';
+export type WorkbenchArtifact =
+  | 'profile'
+  | 'dynamic-profile'
+  | 'escape-sequence'
+  | 'registrations'
+  | 'custom-escape'
+  | 'triggers';
 
 export interface ProfileEditState {
   name: string;
@@ -57,6 +68,30 @@ export class WorkbenchStore {
   escapeTemplateTarget = '';
   escapeTemplateValues: Record<string, Record<string, string>> = {};
   escapeLastSent: EscapeEmitted | null = null;
+
+  registrationForm: RegistrationFormState = initialRegistrationForm();
+  registrationsSnapshot: RegistrationSnapshot = {
+    registrations: [],
+    invocations: [],
+    totalInvocations: 0,
+  };
+  registrationLastResult: {
+    ok: boolean;
+    error: string | null;
+    registrationId: string | null;
+  } | null = null;
+
+  customEscapeForm: CustomEscapeFormState = { sessionId: '', identity: '' };
+  customEscapeSnapshot: CustomEscapeSnapshot = {
+    subscriptions: [],
+    entries: [],
+    totalSeen: 0,
+    capacity: 0,
+  };
+  customEscapeLastError: string | null = null;
+
+  triggersDraft = '';
+  triggersLastResult: { ok: boolean; error: string | null } | null = null;
 
   constructor() {
     makeAutoObservable(this);
@@ -237,6 +272,210 @@ export class WorkbenchStore {
   recordEscape(sequence: string, result: ActionResult): void {
     this.escapeLastSent = { sequence, result };
   }
+
+  updateRegistrationForm(patch: Partial<RegistrationFormState>): void {
+    this.registrationForm = { ...this.registrationForm, ...patch };
+  }
+
+  addKnob(knob: KnobSpec): void {
+    this.registrationForm = {
+      ...this.registrationForm,
+      statusBarKnobs: [...this.registrationForm.statusBarKnobs, knob],
+    };
+  }
+
+  removeKnob(idx: number): void {
+    const next = [...this.registrationForm.statusBarKnobs];
+    next.splice(idx, 1);
+    this.registrationForm = { ...this.registrationForm, statusBarKnobs: next };
+  }
+
+  updateKnob(idx: number, patch: Partial<KnobSpec>): void {
+    const next = [...this.registrationForm.statusBarKnobs];
+    if (!next[idx]) return;
+    next[idx] = { ...next[idx], ...patch };
+    this.registrationForm = { ...this.registrationForm, statusBarKnobs: next };
+  }
+
+  applyRegistrationsSnapshot(snap: RegistrationSnapshot): void {
+    this.registrationsSnapshot = snap;
+  }
+
+  async refreshRegistrations(): Promise<void> {
+    const snap = await window.ipc.invoke('workbench/registrations', undefined as never);
+    runInAction(() => this.applyRegistrationsSnapshot(snap));
+  }
+
+  async registerRpc(): Promise<void> {
+    const form = this.registrationForm;
+    const spec: RegistrationSpec = {
+      id: `reg-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+      role: form.role,
+      name: form.name,
+      arguments: form.argumentsCsv
+        .split(',')
+        .map((s) => s.trim())
+        .filter(Boolean),
+      defaults: [],
+      timeout: form.timeout,
+      responseTemplate: form.responseTemplate,
+      statusBar:
+        form.role === 'status-bar'
+          ? {
+              shortDescription: form.statusBarShortDescription,
+              detailedDescription: form.statusBarDetailedDescription,
+              knobs: form.statusBarKnobs.map((k) => ({ ...k })),
+              exemplar: form.statusBarExemplar,
+              updateCadence: form.statusBarCadence,
+              uniqueIdentifier: form.statusBarUniqueIdentifier,
+              format: 'PLAIN_TEXT',
+            }
+          : undefined,
+      sessionTitle:
+        form.role === 'session-title'
+          ? {
+              displayName: form.displayName,
+              uniqueIdentifier: form.uniqueIdentifier,
+            }
+          : undefined,
+      contextMenu:
+        form.role === 'context-menu'
+          ? {
+              displayName: form.displayName,
+              uniqueIdentifier: form.uniqueIdentifier,
+            }
+          : undefined,
+    };
+    try {
+      JSON.parse(spec.responseTemplate);
+    } catch (err) {
+      runInAction(() => {
+        this.registrationLastResult = {
+          ok: false,
+          error: `Response JSON invalid: ${err instanceof Error ? err.message : err}`,
+          registrationId: null,
+        };
+      });
+      return;
+    }
+    const result = await window.ipc.invoke('workbench/register-rpc', spec);
+    runInAction(() => {
+      this.registrationLastResult = result;
+    });
+    if (result.ok) {
+      await this.refreshRegistrations();
+    }
+  }
+
+  async unregisterRpc(id: string): Promise<void> {
+    await window.ipc.invoke('workbench/unregister-rpc', { id });
+    await this.refreshRegistrations();
+  }
+
+  updateCustomEscapeForm(patch: Partial<CustomEscapeFormState>): void {
+    this.customEscapeForm = { ...this.customEscapeForm, ...patch };
+  }
+
+  applyCustomEscapeSnapshot(snap: CustomEscapeSnapshot): void {
+    this.customEscapeSnapshot = snap;
+  }
+
+  async refreshCustomEscape(): Promise<void> {
+    const snap = await window.ipc.invoke('workbench/custom-escape', undefined as never);
+    runInAction(() => this.applyCustomEscapeSnapshot(snap));
+  }
+
+  async subscribeCustomEscape(): Promise<void> {
+    const { sessionId, identity } = this.customEscapeForm;
+    if (!sessionId) {
+      this.customEscapeLastError = 'session required';
+      return;
+    }
+    const result = await window.ipc.invoke('workbench/subscribe-custom-escape', {
+      sessionId,
+      identity,
+    });
+    runInAction(() => {
+      this.customEscapeLastError = result.ok ? null : result.error ?? 'subscribe failed';
+    });
+    if (result.ok) await this.refreshCustomEscape();
+  }
+
+  async unsubscribeCustomEscape(subscriptionId: string): Promise<void> {
+    await window.ipc.invoke('workbench/unsubscribe-custom-escape', { subscriptionId });
+    await this.refreshCustomEscape();
+  }
+
+  setTriggersDraft(draft: string): void {
+    this.triggersDraft = draft;
+  }
+
+  async applyTriggersDraft(): Promise<void> {
+    if (!this.selectedProfileGuid) return;
+    try {
+      const parsed = JSON.parse(this.triggersDraft);
+      if (!Array.isArray(parsed)) {
+        throw new Error('triggers must be a JSON array');
+      }
+    } catch (err) {
+      runInAction(() => {
+        this.triggersLastResult = {
+          ok: false,
+          error: err instanceof Error ? err.message : String(err),
+        };
+      });
+      return;
+    }
+    const result = await window.ipc.invoke('workbench/set-profile-property', {
+      guids: [this.selectedProfileGuid],
+      assignments: [
+        { key: 'Triggers', jsonValue: this.triggersDraft },
+      ],
+    });
+    runInAction(() => {
+      this.triggersLastResult = { ok: result.ok, error: result.error };
+    });
+    if (result.ok) void this.refreshProfiles();
+  }
+}
+
+interface RegistrationFormState {
+  role: RegistrationRole;
+  name: string;
+  argumentsCsv: string;
+  timeout: number;
+  responseTemplate: string;
+  statusBarShortDescription: string;
+  statusBarDetailedDescription: string;
+  statusBarExemplar: string;
+  statusBarCadence: number;
+  statusBarUniqueIdentifier: string;
+  statusBarKnobs: KnobSpec[];
+  displayName: string;
+  uniqueIdentifier: string;
+}
+
+function initialRegistrationForm(): RegistrationFormState {
+  return {
+    role: 'status-bar',
+    name: 'workbench_sb',
+    argumentsCsv: 'knobs',
+    timeout: 5,
+    responseTemplate: '"Hello from Workbench"',
+    statusBarShortDescription: 'Workbench demo',
+    statusBarDetailedDescription: 'Reports the current time on a cadence.',
+    statusBarExemplar: '12:34',
+    statusBarCadence: 5,
+    statusBarUniqueIdentifier: 'com.example.workbench-demo',
+    statusBarKnobs: [],
+    displayName: 'Workbench title',
+    uniqueIdentifier: 'com.example.workbench-title',
+  };
+}
+
+interface CustomEscapeFormState {
+  sessionId: string;
+  identity: string;
 }
 
 function hexToRgbDict(hex: string): Record<string, number | string> {
