@@ -1,7 +1,10 @@
 import { app, BrowserWindow } from 'electron';
 import path from 'node:path';
+import { autorun } from 'mobx';
 import started from 'electron-squirrel-startup';
-import { registerIpc } from './ipc';
+import { registerIpc, broadcast } from './ipc';
+import { ConnectionStore } from './stores/ConnectionStore';
+import { ConnectionOrchestrator } from './drivers/ConnectionOrchestrator';
 
 declare const MAIN_WINDOW_VITE_DEV_SERVER_URL: string | undefined;
 declare const MAIN_WINDOW_VITE_NAME: string;
@@ -31,8 +34,26 @@ function createWindow(): void {
   }
 }
 
+const connectionStore = new ConnectionStore();
+const orchestrator = new ConnectionOrchestrator(connectionStore, {
+  advisoryName: 'iTerm2 Scripting Workbench',
+  libraryVersion: `node ${app.getVersion()}`,
+});
+
+orchestrator.on('frame', (frame) => {
+  broadcast('wire-frame', {
+    direction: frame.direction,
+    size: frame.bytes.byteLength,
+    at: frame.at,
+  });
+});
+
+autorun(() => {
+  broadcast('connection-state', connectionStore.snapshot());
+});
+
 app.whenReady().then(() => {
-  registerIpc();
+  registerIpc(connectionStore, orchestrator);
   createWindow();
 
   app.on('activate', () => {
@@ -40,6 +61,7 @@ app.whenReady().then(() => {
   });
 });
 
-app.on('window-all-closed', () => {
+app.on('window-all-closed', async () => {
+  await orchestrator.disconnect().catch(() => void 0);
   if (process.platform !== 'darwin') app.quit();
 });
