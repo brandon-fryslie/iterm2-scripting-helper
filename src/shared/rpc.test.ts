@@ -34,6 +34,11 @@ describe('RpcSchema', () => {
       | 'actions/restart-session'
       | 'actions/close'
       | 'actions/raw-protobuf'
+      | 'workbench/list-profiles'
+      | 'workbench/set-profile-property'
+      | 'workbench/dynamic-profiles'
+      | 'workbench/save-dynamic-profile'
+      | 'workbench/delete-dynamic-profile'
     >();
   });
 
@@ -77,6 +82,7 @@ describe('RpcSchema', () => {
       | 'keystrokes-snapshot'
       | 'prompts-snapshot'
       | 'focus-snapshot'
+      | 'dynamic-profiles-snapshot'
     >();
   });
 

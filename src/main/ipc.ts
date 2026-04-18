@@ -20,7 +20,9 @@ import type { KeystrokeLogStore } from './stores/KeystrokeLogStore';
 import type { PromptLogStore } from './stores/PromptLogStore';
 import type { FocusLogStore } from './stores/FocusLogStore';
 import type { ScreenStreamStore } from './stores/ScreenStreamStore';
+import type { DynamicProfileStore } from './stores/DynamicProfileStore';
 import { ConnectionOrchestrator } from './drivers/ConnectionOrchestrator';
+import type { DynamicProfileWatcher } from './drivers/DynamicProfileWatcher';
 import {
   actionSendText,
   actionInject,
@@ -31,6 +33,7 @@ import {
   actionClose,
   actionRawProtobuf,
 } from './actions';
+import { listProfiles, setProfileProperty } from './workbench';
 
 type Handlers = { [M in RpcMethod]: (args: RpcArgs<M>) => Promise<RpcResult<M>> };
 
@@ -45,10 +48,16 @@ export interface MonitorStoresRef {
   screen: ScreenStreamStore;
 }
 
+export interface WorkbenchStoresRef {
+  dynamicProfiles: DynamicProfileStore;
+  dynamicProfileWatcher: DynamicProfileWatcher;
+}
+
 export function registerIpc(
   store: ConnectionStore,
   orchestrator: ConnectionOrchestrator,
   monitor: MonitorStoresRef,
+  workbench: WorkbenchStoresRef,
 ): void {
   const handlers: Handlers = {
     'system/ping': async () => ({
@@ -125,11 +134,46 @@ export function registerIpc(
     'actions/restart-session': (args) => actionRestartSession(orchestrator, args),
     'actions/close': (args) => actionClose(orchestrator, args),
     'actions/raw-protobuf': (args) => actionRawProtobuf(orchestrator, args),
+    'workbench/list-profiles': () => listProfiles(orchestrator),
+    'workbench/set-profile-property': (args) => setProfileProperty(orchestrator, args),
+    'workbench/dynamic-profiles': async () => {
+      await workbench.dynamicProfileWatcher.refresh().catch(() => void 0);
+      return workbench.dynamicProfiles.snapshot();
+    },
+    'workbench/save-dynamic-profile': async ({ basename, body }) => {
+      try {
+        const p = await workbench.dynamicProfileWatcher.writeFile(basename, body);
+        return { ok: true, error: null, path: p };
+      } catch (err) {
+        return {
+          ok: false,
+          error: err instanceof Error ? err.message : String(err),
+          path: null,
+        };
+      }
+    },
+    'workbench/delete-dynamic-profile': async ({ basename }) => {
+      try {
+        await workbench.dynamicProfileWatcher.deleteFile(basename);
+        return { ok: true, error: null };
+      } catch (err) {
+        return {
+          ok: false,
+          error: err instanceof Error ? err.message : String(err),
+        };
+      }
+    },
   };
 
   ipcMain.handle('rpc', async (_event, payload: { method: RpcMethod; args: unknown }) => {
     const handler = handlers[payload.method] as (a: unknown) => Promise<unknown>;
-    return handler(payload.args);
+    try {
+      return await handler(payload.args);
+    } catch (err) {
+      throw new Error(
+        `[rpc:${payload.method}] ${err instanceof Error ? err.stack ?? err.message : String(err)}`,
+      );
+    }
   });
 }
 

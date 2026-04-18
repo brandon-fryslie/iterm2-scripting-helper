@@ -12,7 +12,9 @@ import { KeystrokeLogStore } from './stores/KeystrokeLogStore';
 import { PromptLogStore } from './stores/PromptLogStore';
 import { FocusLogStore } from './stores/FocusLogStore';
 import { ScreenStreamStore } from './stores/ScreenStreamStore';
+import { DynamicProfileStore } from './stores/DynamicProfileStore';
 import { ConnectionOrchestrator } from './drivers/ConnectionOrchestrator';
+import { DynamicProfileWatcher } from './drivers/DynamicProfileWatcher';
 
 declare const MAIN_WINDOW_VITE_DEV_SERVER_URL: string | undefined;
 declare const MAIN_WINDOW_VITE_NAME: string;
@@ -51,6 +53,7 @@ const keystrokeLogStore = new KeystrokeLogStore();
 const promptLogStore = new PromptLogStore();
 const focusLogStore = new FocusLogStore();
 const screenStreamStore = new ScreenStreamStore();
+const dynamicProfileStore = new DynamicProfileStore();
 
 const monitorStores = {
   layout: layoutStore,
@@ -76,6 +79,8 @@ orchestrator.on('error', (err: unknown) => {
   connectionStore.setError(err instanceof Error ? err.message : String(err));
 });
 
+const dynamicProfileWatcher = new DynamicProfileWatcher(dynamicProfileStore);
+
 autorun(() => {
   broadcast('connection-state', connectionStore.snapshot());
 });
@@ -92,13 +97,21 @@ autorun(() => {
   broadcast('screen-snapshot', screenStreamStore.snapshot());
 });
 
+autorun(() => {
+  broadcast('dynamic-profiles-snapshot', dynamicProfileStore.snapshot());
+});
+
 // Keystrokes, prompts, notifications, wire, focus are pulled on demand via
 // monitor/* RPCs. Their ring buffers can mutate tens of times per second
 // under load and the IPC channel doesn't handle firehose broadcasts well.
 // A post-MVP heartbeat-based delta push will replace this polling story.
 
 app.whenReady().then(() => {
-  registerIpc(connectionStore, orchestrator, monitorStores);
+  registerIpc(connectionStore, orchestrator, monitorStores, {
+    dynamicProfiles: dynamicProfileStore,
+    dynamicProfileWatcher,
+  });
+  void dynamicProfileWatcher.start();
   createWindow();
 
   app.on('activate', () => {
@@ -108,5 +121,6 @@ app.whenReady().then(() => {
 
 app.on('window-all-closed', async () => {
   await orchestrator.disconnect().catch(() => void 0);
+  await dynamicProfileWatcher.stop().catch(() => void 0);
   if (process.platform !== 'darwin') app.quit();
 });

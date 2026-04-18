@@ -208,6 +208,36 @@ export type InvokeScope =
 
 export type CloseTargetKind = 'sessions' | 'tabs' | 'windows';
 
+export interface ProfileSummary {
+  guid: string;
+  name: string;
+  properties: Record<string, string>;
+}
+
+export interface ProfileListResult {
+  ok: boolean;
+  error?: string;
+  profiles: ProfileSummary[];
+}
+
+export interface DynamicProfileFile {
+  path: string;
+  basename: string;
+  mtime: number;
+  size: number;
+  body: string;
+  parseError: string | null;
+  topLevelKeys: string[];
+  profileCount: number;
+}
+
+export interface DynamicProfileSnapshot {
+  folder: string;
+  folderExists: boolean;
+  files: DynamicProfileFile[];
+  lastError: string | null;
+}
+
 export type RpcSchema = {
   'system/ping': {
     args: void;
@@ -307,6 +337,29 @@ export type RpcSchema = {
     args: { envelopeJson: string };
     result: ActionResult;
   };
+  'workbench/list-profiles': {
+    args: void;
+    result: ProfileListResult;
+  };
+  'workbench/set-profile-property': {
+    args: {
+      guids: string[];
+      assignments: Array<{ key: string; jsonValue: string }>;
+    };
+    result: ActionResult;
+  };
+  'workbench/dynamic-profiles': {
+    args: void;
+    result: DynamicProfileSnapshot;
+  };
+  'workbench/save-dynamic-profile': {
+    args: { basename: string; body: string };
+    result: { ok: boolean; error: string | null; path: string | null };
+  };
+  'workbench/delete-dynamic-profile': {
+    args: { basename: string };
+    result: { ok: boolean; error: string | null };
+  };
 };
 
 export type RpcMethod = keyof RpcSchema;
@@ -324,6 +377,7 @@ export type EventSchema = {
   'keystrokes-snapshot': KeystrokeLogSnapshot;
   'prompts-snapshot': PromptLogSnapshot;
   'focus-snapshot': FocusLogSnapshot;
+  'dynamic-profiles-snapshot': DynamicProfileSnapshot;
 };
 
 export type EventKind = keyof EventSchema;
