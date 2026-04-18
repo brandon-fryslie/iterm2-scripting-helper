@@ -102,6 +102,90 @@ export interface NotificationLogSnapshot {
   capacity: number;
 }
 
+export type KeystrokeAction = 'key-down' | 'key-up' | 'flags-changed';
+export type KeystrokeModifier =
+  | 'control'
+  | 'option'
+  | 'command'
+  | 'shift'
+  | 'function'
+  | 'numpad';
+
+export interface KeystrokeEntry {
+  seq: number;
+  at: number;
+  sessionId: string;
+  characters: string;
+  charactersIgnoringModifiers: string;
+  modifiers: KeystrokeModifier[];
+  keyCode: number;
+  action: KeystrokeAction;
+}
+
+export interface KeystrokeLogSnapshot {
+  entries: KeystrokeEntry[];
+  totalSeen: number;
+  capacity: number;
+  advanced: boolean;
+}
+
+export type PromptEventKind = 'prompt' | 'command-start' | 'command-end';
+
+export interface PromptEntry {
+  seq: number;
+  at: number;
+  sessionId: string;
+  uniquePromptId: string;
+  kind: PromptEventKind;
+  command: string | null;
+  status: number | null;
+}
+
+export interface PromptLogSnapshot {
+  entries: PromptEntry[];
+  totalSeen: number;
+  capacity: number;
+}
+
+export type FocusEventKind =
+  | 'app-active'
+  | 'app-inactive'
+  | 'window'
+  | 'selected-tab'
+  | 'session'
+  | 'unknown';
+
+export interface FocusEntry {
+  seq: number;
+  at: number;
+  kind: FocusEventKind;
+  summary: string;
+  sessionId: string | null;
+  windowId: string | null;
+}
+
+export interface FocusLogSnapshot {
+  entries: FocusEntry[];
+  totalSeen: number;
+  capacity: number;
+}
+
+export interface ScreenLine {
+  index: number;
+  text: string;
+}
+
+export interface ScreenSnapshot {
+  sessionId: string | null;
+  lines: ScreenLine[];
+  cursor: { x: number; y: number } | null;
+  numLinesAboveScreen: number;
+  lastUpdatedAt: number;
+  requestsInflight: number;
+  updatesReceived: number;
+  lastError: string | null;
+}
+
 export type RpcSchema = {
   'system/ping': {
     args: void;
@@ -143,6 +227,26 @@ export type RpcSchema = {
     args: { sessionId: string | null };
     result: { focusedSessionId: string | null };
   };
+  'monitor/keystrokes': {
+    args: void;
+    result: KeystrokeLogSnapshot;
+  };
+  'monitor/prompts': {
+    args: void;
+    result: PromptLogSnapshot;
+  };
+  'monitor/focus-log': {
+    args: void;
+    result: FocusLogSnapshot;
+  };
+  'monitor/screen': {
+    args: void;
+    result: ScreenSnapshot;
+  };
+  'monitor/set-keystroke-advanced': {
+    args: { advanced: boolean };
+    result: { advanced: boolean };
+  };
 };
 
 export type RpcMethod = keyof RpcSchema;
@@ -156,6 +260,10 @@ export type EventSchema = {
   'variables-snapshot': VariableSnapshot;
   'wire-snapshot': WireLogSnapshot;
   'notifications-snapshot': NotificationLogSnapshot;
+  'screen-snapshot': ScreenSnapshot;
+  'keystrokes-snapshot': KeystrokeLogSnapshot;
+  'prompts-snapshot': PromptLogSnapshot;
+  'focus-snapshot': FocusLogSnapshot;
 };
 
 export type EventKind = keyof EventSchema;

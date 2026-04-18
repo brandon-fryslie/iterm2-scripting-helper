@@ -21,6 +21,11 @@ describe('RpcSchema', () => {
       | 'monitor/wire-log'
       | 'monitor/notifications'
       | 'monitor/focus-session'
+      | 'monitor/keystrokes'
+      | 'monitor/prompts'
+      | 'monitor/focus-log'
+      | 'monitor/screen'
+      | 'monitor/set-keystroke-advanced'
     >();
   });
 
@@ -60,6 +65,10 @@ describe('RpcSchema', () => {
       | 'variables-snapshot'
       | 'wire-snapshot'
       | 'notifications-snapshot'
+      | 'screen-snapshot'
+      | 'keystrokes-snapshot'
+      | 'prompts-snapshot'
+      | 'focus-snapshot'
     >();
   });
 

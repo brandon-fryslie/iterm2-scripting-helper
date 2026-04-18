@@ -7,8 +7,11 @@ import {
   ListSessionsRequestSchema,
   NotificationRequestSchema,
   VariableRequestSchema,
+  GetBufferRequestSchema,
+  LineRangeSchema,
   NotificationType,
   VariableScope,
+  PromptMonitorMode,
   type ServerOriginatedMessage,
   type Notification,
   type ListSessionsResponse,
@@ -24,6 +27,10 @@ import type { LayoutStore } from '../stores/LayoutStore';
 import type { VariableStore } from '../stores/VariableStore';
 import type { WireLogStore } from '../stores/WireLogStore';
 import type { NotificationHub } from '../stores/NotificationHub';
+import type { KeystrokeLogStore } from '../stores/KeystrokeLogStore';
+import type { PromptLogStore } from '../stores/PromptLogStore';
+import type { FocusLogStore } from '../stores/FocusLogStore';
+import type { ScreenStreamStore } from '../stores/ScreenStreamStore';
 
 export const DEFAULT_SOCKET_PATH = path.join(
   os.homedir(),
@@ -43,6 +50,8 @@ export const LIVE_VARIABLE_WATCHLIST = [
   'tty',
 ] as const;
 
+const SCREEN_COALESCE_MS = 16;
+
 export interface OrchestratorOptions {
   advisoryName: string;
   libraryVersion: string;
@@ -54,6 +63,10 @@ export interface MonitorStores {
   variables: VariableStore;
   wire: WireLogStore;
   notifications: NotificationHub;
+  keystrokes: KeystrokeLogStore;
+  prompts: PromptLogStore;
+  focus: FocusLogStore;
+  screen: ScreenStreamStore;
 }
 
 export class ConnectionOrchestrator extends EventEmitter {
@@ -63,6 +76,12 @@ export class ConnectionOrchestrator extends EventEmitter {
   private credentials: { cookie: string; key: string } | null = null;
   private activeGlobalSubscriptions: NotificationType[] = [];
   private activeVariableSubs: Array<{ name: string; sessionId: string }> = [];
+  private sessionScopedSubscriptions: Array<{
+    type: NotificationType;
+    sessionId: string;
+  }> = [];
+  private screenCoalesceTimer: NodeJS.Timeout | null = null;
+  private screenFetchPending = false;
 
   constructor(
     private readonly store: ConnectionStore,
@@ -96,8 +115,14 @@ export class ConnectionOrchestrator extends EventEmitter {
       this.monitor.variables.clearAll();
       this.monitor.wire.clear();
       this.monitor.notifications.clear();
+      this.monitor.keystrokes.clear();
+      this.monitor.prompts.clear();
+      this.monitor.focus.clear();
+      this.monitor.screen.clear();
       this.activeGlobalSubscriptions = [];
       this.activeVariableSubs = [];
+      this.sessionScopedSubscriptions = [];
+      this.cancelScreenCoalesce();
       this.emit('close', { code, reason });
     });
     this.protocol.on('error', (err) => {
@@ -142,6 +167,7 @@ export class ConnectionOrchestrator extends EventEmitter {
   }
 
   async disconnect(): Promise<void> {
+    this.cancelScreenCoalesce();
     await this.protocol.disconnect();
     this.credentials = null;
   }
@@ -156,18 +182,13 @@ export class ConnectionOrchestrator extends EventEmitter {
   }
 
   async setFocusedSession(sessionId: string | null): Promise<void> {
-    if (this.monitor.variables.focusedSessionId === sessionId) return;
+    const prevSession = this.monitor.variables.focusedSessionId;
+    if (prevSession === sessionId) return;
 
-    if (this.protocol.getState() === 'ready') {
-      for (const sub of this.activeVariableSubs) {
-        await this.toggleVariableSubscription(sub.sessionId, sub.name, false).catch(
-          () => void 0,
-        );
-      }
-    }
-    this.activeVariableSubs = [];
-
+    await this.tearDownSessionSubscriptions(prevSession);
     this.monitor.variables.setFocused(sessionId);
+    this.monitor.screen.setFocused(sessionId);
+
     if (!sessionId || this.protocol.getState() !== 'ready') return;
 
     try {
@@ -181,6 +202,32 @@ export class ConnectionOrchestrator extends EventEmitter {
       await this.toggleVariableSubscription(sessionId, name, true).catch(() => void 0);
       this.activeVariableSubs.push({ name, sessionId });
     }
+
+    await this.subscribeSessionScoped(sessionId);
+    await this.fetchScreenBuffer(sessionId).catch(() => void 0);
+  }
+
+  async setKeystrokeAdvanced(advanced: boolean): Promise<void> {
+    if (this.monitor.keystrokes.advanced === advanced) return;
+    this.monitor.keystrokes.setAdvanced(advanced);
+    const focused = this.monitor.variables.focusedSessionId;
+    if (!focused || this.protocol.getState() !== 'ready') return;
+    await this.sendNotificationRequest(
+      NotificationType.NOTIFY_ON_KEYSTROKE,
+      focused,
+      false,
+    ).catch(() => void 0);
+    await this.sendNotificationRequest(
+      NotificationType.NOTIFY_ON_KEYSTROKE,
+      focused,
+      true,
+      {
+        arguments: {
+          case: 'keystrokeMonitorRequest',
+          value: { patternsToIgnore: [], advanced },
+        },
+      },
+    ).catch((err) => this.emit('error', err));
   }
 
   getSocketPath(): string {
@@ -212,6 +259,81 @@ export class ConnectionOrchestrator extends EventEmitter {
         this.emit('error', err);
       });
       this.activeGlobalSubscriptions.push(t);
+    }
+  }
+
+  private async subscribeSessionScoped(sessionId: string): Promise<void> {
+    await this.sendNotificationRequest(
+      NotificationType.NOTIFY_ON_KEYSTROKE,
+      sessionId,
+      true,
+      {
+        arguments: {
+          case: 'keystrokeMonitorRequest',
+          value: {
+            patternsToIgnore: [],
+            advanced: this.monitor.keystrokes.advanced,
+          },
+        },
+      },
+    ).catch((err) => this.emit('error', err));
+    this.sessionScopedSubscriptions.push({
+      type: NotificationType.NOTIFY_ON_KEYSTROKE,
+      sessionId,
+    });
+
+    await this.sendNotificationRequest(
+      NotificationType.NOTIFY_ON_PROMPT,
+      sessionId,
+      true,
+      {
+        arguments: {
+          case: 'promptMonitorRequest',
+          value: {
+            modes: [
+              PromptMonitorMode.PROMPT,
+              PromptMonitorMode.COMMAND_START,
+              PromptMonitorMode.COMMAND_END,
+            ],
+          },
+        },
+      },
+    ).catch((err) => this.emit('error', err));
+    this.sessionScopedSubscriptions.push({
+      type: NotificationType.NOTIFY_ON_PROMPT,
+      sessionId,
+    });
+
+    await this.sendNotificationRequest(
+      NotificationType.NOTIFY_ON_SCREEN_UPDATE,
+      sessionId,
+      true,
+    ).catch((err) => this.emit('error', err));
+    this.sessionScopedSubscriptions.push({
+      type: NotificationType.NOTIFY_ON_SCREEN_UPDATE,
+      sessionId,
+    });
+  }
+
+  private async tearDownSessionSubscriptions(prevSession: string | null): Promise<void> {
+    if (this.protocol.getState() === 'ready') {
+      for (const sub of this.activeVariableSubs) {
+        await this.toggleVariableSubscription(sub.sessionId, sub.name, false).catch(
+          () => void 0,
+        );
+      }
+      for (const sub of this.sessionScopedSubscriptions) {
+        await this.sendNotificationRequest(sub.type, sub.sessionId, false).catch(
+          () => void 0,
+        );
+      }
+    }
+    this.activeVariableSubs = [];
+    this.sessionScopedSubscriptions = [];
+    this.cancelScreenCoalesce();
+    if (prevSession) {
+      this.monitor.keystrokes.clear();
+      this.monitor.prompts.clear();
     }
   }
 
@@ -279,6 +401,55 @@ export class ConnectionOrchestrator extends EventEmitter {
     }
   }
 
+  private async fetchScreenBuffer(sessionId: string): Promise<void> {
+    if (this.monitor.screen.buffer.sessionId !== sessionId) return;
+    const req = create(GetBufferRequestSchema, {
+      session: sessionId,
+      lineRange: create(LineRangeSchema, { screenContentsOnly: true }),
+    });
+    this.monitor.screen.noteFetchStarted();
+    try {
+      const response = await this.protocol.send({
+        submessage: { case: 'getBufferRequest' as const, value: req },
+      });
+      if (response.submessage.case === 'getBufferResponse') {
+        this.monitor.screen.applyGetBufferResponse(sessionId, response.submessage.value);
+      } else {
+        this.monitor.screen.noteFetchFailed(
+          response.submessage.case === 'error'
+            ? response.submessage.value
+            : `unexpected case ${response.submessage.case ?? '<none>'}`,
+        );
+      }
+    } catch (err) {
+      this.monitor.screen.noteFetchFailed((err as Error).message);
+      this.emit('error', err);
+    }
+  }
+
+  private scheduleScreenRefetch(sessionId: string): void {
+    if (this.monitor.screen.buffer.sessionId !== sessionId) return;
+    if (this.screenCoalesceTimer) return;
+    this.screenCoalesceTimer = setTimeout(() => {
+      this.screenCoalesceTimer = null;
+      if (this.screenFetchPending) return;
+      this.screenFetchPending = true;
+      this.fetchScreenBuffer(sessionId)
+        .catch(() => void 0)
+        .finally(() => {
+          this.screenFetchPending = false;
+        });
+    }, SCREEN_COALESCE_MS);
+  }
+
+  private cancelScreenCoalesce(): void {
+    if (this.screenCoalesceTimer) {
+      clearTimeout(this.screenCoalesceTimer);
+      this.screenCoalesceTimer = null;
+    }
+    this.screenFetchPending = false;
+  }
+
   private routeNotification(n: Notification): void {
     if (n.layoutChangedNotification?.listSessionsResponse) {
       this.monitor.layout.apply(
@@ -293,6 +464,21 @@ export class ConnectionOrchestrator extends EventEmitter {
     }
     if (n.terminateSessionNotification?.sessionId) {
       this.monitor.variables.clearSession(n.terminateSessionNotification.sessionId);
+    }
+    if (n.keystrokeNotification) {
+      this.monitor.keystrokes.record(n.keystrokeNotification);
+    }
+    if (n.promptNotification) {
+      this.monitor.prompts.record(n.promptNotification);
+    }
+    if (n.focusChangedNotification) {
+      this.monitor.focus.record(n.focusChangedNotification);
+    }
+    if (n.screenUpdateNotification) {
+      const session = n.screenUpdateNotification.session;
+      if (session && this.monitor.screen.buffer.sessionId === session) {
+        this.scheduleScreenRefetch(session);
+      }
     }
   }
 }

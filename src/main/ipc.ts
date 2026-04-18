@@ -16,6 +16,10 @@ import type { LayoutStore } from './stores/LayoutStore';
 import type { VariableStore } from './stores/VariableStore';
 import type { WireLogStore } from './stores/WireLogStore';
 import type { NotificationHub } from './stores/NotificationHub';
+import type { KeystrokeLogStore } from './stores/KeystrokeLogStore';
+import type { PromptLogStore } from './stores/PromptLogStore';
+import type { FocusLogStore } from './stores/FocusLogStore';
+import type { ScreenStreamStore } from './stores/ScreenStreamStore';
 import { ConnectionOrchestrator } from './drivers/ConnectionOrchestrator';
 
 type Handlers = { [M in RpcMethod]: (args: RpcArgs<M>) => Promise<RpcResult<M>> };
@@ -25,6 +29,10 @@ export interface MonitorStoresRef {
   variables: VariableStore;
   wire: WireLogStore;
   notifications: NotificationHub;
+  keystrokes: KeystrokeLogStore;
+  prompts: PromptLogStore;
+  focus: FocusLogStore;
+  screen: ScreenStreamStore;
 }
 
 export function registerIpc(
@@ -90,6 +98,14 @@ export function registerIpc(
     'monitor/focus-session': async ({ sessionId }) => {
       await orchestrator.setFocusedSession(sessionId);
       return { focusedSessionId: monitor.variables.focusedSessionId };
+    },
+    'monitor/keystrokes': async () => monitor.keystrokes.snapshot(),
+    'monitor/prompts': async () => monitor.prompts.snapshot(),
+    'monitor/focus-log': async () => monitor.focus.snapshot(),
+    'monitor/screen': async () => monitor.screen.snapshot(),
+    'monitor/set-keystroke-advanced': async ({ advanced }) => {
+      await orchestrator.setKeystrokeAdvanced(advanced);
+      return { advanced: monitor.keystrokes.advanced };
     },
   };
 

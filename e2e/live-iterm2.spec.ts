@@ -71,4 +71,32 @@ test.describe('live iTerm2', () => {
 
     await app.close();
   });
+
+  test('Monitor: screen renders + keystrokes + prompts panes populate', async () => {
+    const app = await electron.launch({ args: [mainEntry], cwd: repoRoot });
+    const win = await app.firstWindow();
+
+    await win.getByTestId('tab-trigger-settings').click();
+    await win.getByTestId('connect-button').click();
+    await expect(win.getByTestId('connection-state-badge')).toHaveAttribute(
+      'data-state',
+      'ready',
+      { timeout: 20_000 },
+    );
+
+    await win.getByTestId('tab-trigger-monitor').click();
+    await expect(win.getByTestId('keystrokes-pane')).toBeVisible();
+    await expect(win.getByTestId('prompts-pane')).toBeVisible();
+    await expect(win.getByTestId('focus-pane')).toBeVisible();
+
+    const firstSession = win.locator('[data-testid^="layout-session-"]').first();
+    await expect(firstSession).toBeVisible({ timeout: 10_000 });
+    await firstSession.click();
+
+    await expect(win.getByTestId('screen-body')).toBeVisible({ timeout: 15_000 });
+    const bodyLines = win.locator('[data-testid="screen-body"] > div');
+    await expect(bodyLines.first()).toBeVisible({ timeout: 10_000 });
+
+    await app.close();
+  });
 });

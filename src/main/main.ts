@@ -8,6 +8,10 @@ import { LayoutStore } from './stores/LayoutStore';
 import { VariableStore } from './stores/VariableStore';
 import { WireLogStore } from './stores/WireLogStore';
 import { NotificationHub } from './stores/NotificationHub';
+import { KeystrokeLogStore } from './stores/KeystrokeLogStore';
+import { PromptLogStore } from './stores/PromptLogStore';
+import { FocusLogStore } from './stores/FocusLogStore';
+import { ScreenStreamStore } from './stores/ScreenStreamStore';
 import { ConnectionOrchestrator } from './drivers/ConnectionOrchestrator';
 
 declare const MAIN_WINDOW_VITE_DEV_SERVER_URL: string | undefined;
@@ -43,24 +47,34 @@ const layoutStore = new LayoutStore();
 const variableStore = new VariableStore();
 const wireLogStore = new WireLogStore();
 const notificationHub = new NotificationHub();
+const keystrokeLogStore = new KeystrokeLogStore();
+const promptLogStore = new PromptLogStore();
+const focusLogStore = new FocusLogStore();
+const screenStreamStore = new ScreenStreamStore();
+
+const monitorStores = {
+  layout: layoutStore,
+  variables: variableStore,
+  wire: wireLogStore,
+  notifications: notificationHub,
+  keystrokes: keystrokeLogStore,
+  prompts: promptLogStore,
+  focus: focusLogStore,
+  screen: screenStreamStore,
+};
 
 const orchestrator = new ConnectionOrchestrator(
   connectionStore,
-  {
-    layout: layoutStore,
-    variables: variableStore,
-    wire: wireLogStore,
-    notifications: notificationHub,
-  },
+  monitorStores,
   {
     advisoryName: 'iTerm2 Scripting Workbench',
     libraryVersion: `node ${app.getVersion()}`,
   },
 );
 
-// Per-frame broadcasts are disabled — wire-snapshot heartbeat below carries
-// aggregated frame state. Keeping the frame firehose would flood IPC and
-// starve invoke round-trips.
+orchestrator.on('error', (err: unknown) => {
+  connectionStore.setError(err instanceof Error ? err.message : String(err));
+});
 
 autorun(() => {
   broadcast('connection-state', connectionStore.snapshot());
@@ -74,16 +88,17 @@ autorun(() => {
   broadcast('variables-snapshot', variableStore.snapshot());
 });
 
-// Wire + notifications broadcasts are deferred to post-MVP. Renderer pulls via
-// monitor/wire-log + monitor/notifications on demand.
+autorun(() => {
+  broadcast('screen-snapshot', screenStreamStore.snapshot());
+});
+
+// Keystrokes, prompts, notifications, wire, focus are pulled on demand via
+// monitor/* RPCs. Their ring buffers can mutate tens of times per second
+// under load and the IPC channel doesn't handle firehose broadcasts well.
+// A post-MVP heartbeat-based delta push will replace this polling story.
 
 app.whenReady().then(() => {
-  registerIpc(connectionStore, orchestrator, {
-    layout: layoutStore,
-    variables: variableStore,
-    wire: wireLogStore,
-    notifications: notificationHub,
-  });
+  registerIpc(connectionStore, orchestrator, monitorStores);
   createWindow();
 
   app.on('activate', () => {
