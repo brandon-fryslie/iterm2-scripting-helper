@@ -1,37 +1,51 @@
 import { useEffect, useState } from 'react';
+import { observer } from 'mobx-react-lite';
+import { ConnectionPanel } from './settings/ConnectionPanel';
+import { AuthorizationPanel } from './settings/AuthorizationPanel';
+import { CapabilityPanel } from './settings/CapabilityPanel';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { useStore } from '@/stores/context';
 import type { RpcResult } from '@shared/rpc';
 
-export function SettingsTab() {
+export const SettingsTab = observer(function SettingsTab() {
+  const { connection } = useStore();
   const [ping, setPing] = useState<RpcResult<'system/ping'> | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  const [pingError, setPingError] = useState<string | null>(null);
 
   useEffect(() => {
-    window.ipc
+    void window.ipc
       .invoke('system/ping', undefined as never)
       .then(setPing)
-      .catch((e) => setError(String(e)));
-  }, []);
+      .catch((e) => setPingError(String(e)));
+    void connection.refresh();
+    const unsub = window.ipc.on('connection-state', (snap) =>
+      connection.apply(snap),
+    );
+    const unsubFrame = window.ipc.on('wire-frame', () => connection.bumpFrame());
+    return () => {
+      unsub();
+      unsubFrame();
+    };
+  }, [connection]);
 
   return (
-    <Card data-testid="tab-settings-placeholder">
-      <CardHeader>
-        <CardTitle>Settings</CardTitle>
-      </CardHeader>
-      <CardContent className="space-y-2 text-sm">
-        <p className="text-muted-foreground">
-          Connection, authorization, capability report, and docs index arrive in M1+.
-        </p>
-        <div>
-          <div className="font-medium">IPC bridge self-test</div>
+    <div className="grid gap-4" data-testid="tab-settings-placeholder">
+      <ConnectionPanel />
+      <AuthorizationPanel />
+      <CapabilityPanel />
+      <Card>
+        <CardHeader>
+          <CardTitle>IPC self-test</CardTitle>
+        </CardHeader>
+        <CardContent>
           <pre
             data-testid="ping-result"
-            className="mt-1 rounded bg-muted p-2 font-mono text-xs"
+            className="rounded bg-muted p-2 font-mono text-xs"
           >
-            {error ?? (ping ? JSON.stringify(ping, null, 2) : 'pinging...')}
+            {pingError ?? (ping ? JSON.stringify(ping, null, 2) : 'pinging...')}
           </pre>
-        </div>
-      </CardContent>
-    </Card>
+        </CardContent>
+      </Card>
+    </div>
   );
-}
+});

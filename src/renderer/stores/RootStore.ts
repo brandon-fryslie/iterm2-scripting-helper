@@ -1,13 +1,11 @@
 import { makeAutoObservable } from 'mobx';
+import { ConnectionStore } from './ConnectionStore';
 
 export class RootStore {
-  placeholder = 0;
+  readonly connection: ConnectionStore;
 
   constructor() {
-    makeAutoObservable(this);
-  }
-
-  tick(): void {
-    this.placeholder += 1;
+    this.connection = new ConnectionStore();
+    makeAutoObservable(this, { connection: false });
   }
 }
