@@ -1,5 +1,8 @@
 import { makeAutoObservable } from 'mobx';
-import type { ListSessionsResponse } from '@shared/proto/gen/api_pb';
+import type {
+  ListSessionsResponse,
+  SplitTreeNode,
+} from '@shared/proto/gen/api_pb';
 
 export interface LayoutSession {
   sessionId: string;
@@ -56,22 +59,18 @@ export class LayoutStore {
       lastUpdatedAt: this.lastUpdatedAt,
     };
   }
+
 }
 
-function collectSessions(node: unknown): LayoutSession[] {
+function collectSessions(node: SplitTreeNode | undefined): LayoutSession[] {
+  if (!node) return [];
   const out: LayoutSession[] = [];
-  const walk = (n: unknown): void => {
-    if (!n || typeof n !== 'object') return;
-    const obj = n as Record<string, unknown>;
-    if (typeof obj.uniqueIdentifier === 'string') {
-      out.push({ sessionId: obj.uniqueIdentifier });
+  for (const link of node.links) {
+    if (link.child.case === 'session') {
+      out.push({ sessionId: link.child.value.uniqueIdentifier });
+    } else if (link.child.case === 'node') {
+      out.push(...collectSessions(link.child.value));
     }
-    if (Array.isArray(obj.links)) {
-      for (const link of obj.links) {
-        walk((link as { node?: unknown }).node);
-      }
-    }
-  };
-  walk(node);
+  }
   return out;
 }

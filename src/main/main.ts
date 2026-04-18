@@ -58,13 +58,9 @@ const orchestrator = new ConnectionOrchestrator(
   },
 );
 
-orchestrator.on('frame', (frame) => {
-  broadcast('wire-frame', {
-    direction: frame.direction,
-    size: frame.bytes.byteLength,
-    at: frame.at,
-  });
-});
+// Per-frame broadcasts are disabled — wire-snapshot heartbeat below carries
+// aggregated frame state. Keeping the frame firehose would flood IPC and
+// starve invoke round-trips.
 
 autorun(() => {
   broadcast('connection-state', connectionStore.snapshot());
@@ -78,13 +74,8 @@ autorun(() => {
   broadcast('variables-snapshot', variableStore.snapshot());
 });
 
-autorun(() => {
-  broadcast('wire-snapshot', wireLogStore.snapshot());
-});
-
-autorun(() => {
-  broadcast('notifications-snapshot', notificationHub.snapshot());
-});
+// Wire + notifications broadcasts are deferred to post-MVP. Renderer pulls via
+// monitor/wire-log + monitor/notifications on demand.
 
 app.whenReady().then(() => {
   registerIpc(connectionStore, orchestrator, {

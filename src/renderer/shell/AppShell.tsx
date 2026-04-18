@@ -14,7 +14,7 @@ const TABS = [
 export function AppShell() {
   return (
     <div className="flex min-h-screen flex-col">
-      <Tabs defaultValue="monitor" className="flex flex-1 flex-col">
+      <Tabs defaultValue="settings" className="flex flex-1 flex-col">
         <header className="border-b px-4 py-2">
           <TabsList>
             {TABS.map(({ value, label }) => (

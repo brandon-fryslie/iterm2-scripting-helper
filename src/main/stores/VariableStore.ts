@@ -72,9 +72,14 @@ export class VariableStore {
     if (!id) return { sessionId: null, variables: [] };
     const map = this.bySession.get(id);
     if (!map) return { sessionId: id, variables: [] };
-    const variables = Array.from(map.values()).sort((a, b) =>
-      a.name.localeCompare(b.name),
-    );
+    const variables = Array.from(map.values())
+      .map((v) => ({
+        name: v.name,
+        value: v.value,
+        live: v.live,
+        updatedAt: v.updatedAt,
+      }))
+      .sort((a, b) => a.name.localeCompare(b.name));
     return { sessionId: id, variables };
   }
 }

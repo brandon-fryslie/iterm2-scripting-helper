@@ -100,17 +100,17 @@ export function registerIpc(
 }
 
 function collectSessions(tab: {
-  root?: unknown;
+  root?: import('@shared/proto/gen/api_pb').SplitTreeNode;
 }): Array<{ sessionId: string }> {
   const out: Array<{ sessionId: string }> = [];
-  const walk = (node: unknown): void => {
-    if (!node || typeof node !== 'object') return;
-    const n = node as Record<string, unknown>;
-    if (typeof n.uniqueIdentifier === 'string') {
-      out.push({ sessionId: n.uniqueIdentifier });
-    }
-    if (Array.isArray(n.links)) {
-      for (const link of n.links) walk((link as { node?: unknown }).node);
+  const walk = (node: import('@shared/proto/gen/api_pb').SplitTreeNode | undefined): void => {
+    if (!node) return;
+    for (const link of node.links) {
+      if (link.child.case === 'session') {
+        out.push({ sessionId: link.child.value.uniqueIdentifier });
+      } else if (link.child.case === 'node') {
+        walk(link.child.value);
+      }
     }
   };
   walk(tab.root);

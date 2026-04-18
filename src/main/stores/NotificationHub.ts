@@ -76,7 +76,15 @@ export class NotificationHub {
     const start = (this.head - this.length + this.capacity) % this.capacity;
     for (let i = 0; i < this.length; i++) {
       const e = this.ring[(start + i) % this.capacity];
-      if (e) entries.push(e);
+      if (e) {
+        entries.push({
+          seq: e.seq,
+          at: e.at,
+          kind: e.kind,
+          sessionId: e.sessionId,
+          summary: e.summary,
+        });
+      }
     }
     return { entries, totalSeen: this.totalSeen, capacity: this.capacity };
   }
