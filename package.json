@@ -1,6 +1,6 @@
 {
   "name": "iterm2-scripting-helper",
-  "productName": "iTerm2 Scripting Helper",
+  "productName": "iTerm2 Scripting Workbench",
   "version": "0.1.0",
   "description": "Electron desktop app for observing, authoring, and driving every iTerm2 scripting surface.",
   "main": ".vite/build/main.js",
@@ -15,7 +15,10 @@
     "publish": "electron-forge publish",
     "build": "electron-forge package",
     "lint": "eslint --ext .ts,.tsx .",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "test:unit": "vitest run",
+    "test:e2e": "playwright test",
+    "test": "pnpm typecheck && pnpm test:unit && pnpm build && pnpm test:e2e"
   },
   "keywords": [],
   "author": {
@@ -39,16 +42,35 @@
     "@electron-forge/plugin-fuses": "^7.11.1",
     "@electron-forge/plugin-vite": "^7.11.1",
     "@electron/fuses": "^1.8.0",
+    "@playwright/test": "^1.59.1",
+    "@tailwindcss/vite": "^4.2.2",
+    "@testing-library/dom": "^10.4.1",
+    "@testing-library/react": "^16.3.2",
     "@types/electron-squirrel-startup": "^1.0.2",
+    "@types/react": "^18.3.12",
+    "@types/react-dom": "^18.3.1",
     "@typescript-eslint/eslint-plugin": "^5.62.0",
     "@typescript-eslint/parser": "^5.62.0",
+    "@vitejs/plugin-react": "^4.7.0",
     "electron": "41.2.1",
     "eslint": "^8.57.1",
     "eslint-plugin-import": "^2.32.0",
+    "jsdom": "^29.0.2",
+    "tailwindcss": "^4.2.2",
     "typescript": "^5.6.3",
-    "vite": "^5.4.21"
+    "vite": "^5.4.21",
+    "vitest": "^2.1.9"
   },
   "dependencies": {
-    "electron-squirrel-startup": "^1.0.1"
+    "class-variance-authority": "^0.7.1",
+    "clsx": "^2.1.1",
+    "electron-squirrel-startup": "^1.0.1",
+    "lucide-react": "^1.8.0",
+    "mobx": "^6.15.0",
+    "mobx-react-lite": "^4.1.1",
+    "radix-ui": "^1.4.3",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "tailwind-merge": "^3.5.0"
   }
 }
