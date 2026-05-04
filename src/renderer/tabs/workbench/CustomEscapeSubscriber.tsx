@@ -27,9 +27,9 @@ export const CustomEscapeSubscriber = observer(function CustomEscapeSubscriber()
   const snap = workbench.customEscapeSnapshot;
   const form = workbench.customEscapeForm;
 
-  const sessions: string[] = [];
+  const sessions: Array<{ sessionId: string; title: string }> = [];
   for (const w of monitor.layout.windows) {
-    for (const t of w.tabs) for (const s of t.sessions) sessions.push(s.sessionId);
+    for (const t of w.tabs) for (const s of t.sessions) sessions.push({ sessionId: s.sessionId, title: s.title });
   }
 
   return (
@@ -55,8 +55,8 @@ export const CustomEscapeSubscriber = observer(function CustomEscapeSubscriber()
               </SelectTrigger>
               <SelectContent>
                 {sessions.map((s) => (
-                  <SelectItem key={s} value={s}>
-                    {s.slice(0, 12)}…
+                  <SelectItem key={s.sessionId} value={s.sessionId}>
+                    {s.title || s.sessionId.slice(0, 12) + '…'}
                   </SelectItem>
                 ))}
               </SelectContent>

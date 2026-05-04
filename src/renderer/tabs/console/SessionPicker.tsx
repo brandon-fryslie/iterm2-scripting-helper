@@ -16,7 +16,7 @@ export const SessionPicker = observer(function SessionPicker() {
       for (const s of t.sessions) {
         sessions.push({
           sessionId: s.sessionId,
-          label: `tab ${t.tabId} · ${s.sessionId.slice(0, 8)}…`,
+          label: s.title || `tab ${t.tabId} · ${s.sessionId.slice(0, 8)}…`,
         });
       }
     }

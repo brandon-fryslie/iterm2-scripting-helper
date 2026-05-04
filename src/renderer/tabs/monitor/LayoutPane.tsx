@@ -53,7 +53,7 @@ export const LayoutPane = observer(function LayoutPane() {
                       focused && 'bg-accent font-semibold',
                     )}
                   >
-                    {s.sessionId}
+                    {s.title || s.sessionId}
                   </button>
                 );
               })}

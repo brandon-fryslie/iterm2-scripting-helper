@@ -6,6 +6,7 @@ import type {
 
 export interface LayoutSession {
   sessionId: string;
+  title: string;
 }
 
 export interface LayoutTab {
@@ -53,7 +54,7 @@ export class LayoutStore {
         windowId: w.windowId,
         tabs: w.tabs.map((t) => ({
           tabId: t.tabId,
-          sessions: t.sessions.map((s) => ({ sessionId: s.sessionId })),
+          sessions: t.sessions.map((s) => ({ sessionId: s.sessionId, title: s.title })),
         })),
       })),
       lastUpdatedAt: this.lastUpdatedAt,
@@ -67,7 +68,7 @@ function collectSessions(node: SplitTreeNode | undefined): LayoutSession[] {
   const out: LayoutSession[] = [];
   for (const link of node.links) {
     if (link.child.case === 'session') {
-      out.push({ sessionId: link.child.value.uniqueIdentifier });
+      out.push({ sessionId: link.child.value.uniqueIdentifier, title: link.child.value.title });
     } else if (link.child.case === 'node') {
       out.push(...collectSessions(link.child.value));
     }

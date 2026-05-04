@@ -18,6 +18,7 @@ export interface ConnectionSnapshot {
 
 export interface SessionSummary {
   sessionId: string;
+  title: string;
 }
 
 export interface TabSummary {

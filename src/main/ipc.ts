@@ -232,13 +232,13 @@ export function registerIpc(
 
 function collectSessions(tab: {
   root?: import('@shared/proto/gen/api_pb').SplitTreeNode;
-}): Array<{ sessionId: string }> {
-  const out: Array<{ sessionId: string }> = [];
+}): Array<{ sessionId: string; title: string }> {
+  const out: Array<{ sessionId: string; title: string }> = [];
   const walk = (node: import('@shared/proto/gen/api_pb').SplitTreeNode | undefined): void => {
     if (!node) return;
     for (const link of node.links) {
       if (link.child.case === 'session') {
-        out.push({ sessionId: link.child.value.uniqueIdentifier });
+        out.push({ sessionId: link.child.value.uniqueIdentifier, title: link.child.value.title });
       } else if (link.child.case === 'node') {
         walk(link.child.value);
       }
