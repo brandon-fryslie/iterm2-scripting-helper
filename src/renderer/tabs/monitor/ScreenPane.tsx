@@ -95,15 +95,9 @@ const XTermScreen = observer(function XTermScreen() {
     const dispose = autorun(() => {
       const snap = monitor.screen;
       if (!snap.lines || snap.lines.length === 0) return;
-      const cursor = snap.cursor;
       term.reset();
-      const ansi = styledLinesToAnsi(snap.lines, null, term.cols);
-      term.write(ansi, () => {
-        if (!cursor) return;
-        const row = Math.min(cursor.y + 1, snap.lines.length);
-        const col = Math.min(cursor.x + 1, term.cols);
-        term.write(`\x1b[${row};${col}H`);
-      });
+      const ansi = styledLinesToAnsi(snap.lines, snap.cursor, term.cols);
+      term.write(ansi);
     });
 
     return () => {

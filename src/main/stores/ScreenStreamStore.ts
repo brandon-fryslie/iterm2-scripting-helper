@@ -23,7 +23,6 @@ export interface ScreenBuffer {
   sessionId: string | null;
   lines: StyledLine[];
   cursor: { x: number; y: number } | null;
-  numLinesAboveScreen: number;
   lastUpdatedAt: number;
   requestsInflight: number;
   updatesReceived: number;
@@ -34,7 +33,6 @@ const EMPTY: ScreenBuffer = {
   sessionId: null,
   lines: [],
   cursor: null,
-  numLinesAboveScreen: 0,
   lastUpdatedAt: 0,
   requestsInflight: 0,
   updatesReceived: 0,
@@ -94,9 +92,11 @@ export class ScreenStreamStore {
         styles: lc.style.map(convertProtoStyle),
       })),
       cursor: response.cursor
-        ? { x: Number(response.cursor.x), y: Number(response.cursor.y) }
+        ? {
+            x: Number(response.cursor.x),
+            y: Number(response.cursor.y) - Number(response.numLinesAboveScreen ?? 0),
+          }
         : null,
-      numLinesAboveScreen: Number(response.numLinesAboveScreen ?? 0),
       lastUpdatedAt: Date.now(),
       requestsInflight: Math.max(0, this.buffer.requestsInflight - 1),
       updatesReceived: this.buffer.updatesReceived + 1,
@@ -134,7 +134,6 @@ export class ScreenStreamStore {
       cursor: this.buffer.cursor
         ? { x: this.buffer.cursor.x, y: this.buffer.cursor.y }
         : null,
-      numLinesAboveScreen: this.buffer.numLinesAboveScreen,
       lastUpdatedAt: this.buffer.lastUpdatedAt,
       requestsInflight: this.buffer.requestsInflight,
       updatesReceived: this.buffer.updatesReceived,

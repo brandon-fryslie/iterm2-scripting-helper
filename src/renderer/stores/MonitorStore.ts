@@ -39,7 +39,6 @@ const EMPTY_SCREEN: ScreenSnapshot = {
   sessionId: null,
   lines: [],
   cursor: null,
-  numLinesAboveScreen: 0,
   lastUpdatedAt: 0,
   requestsInflight: 0,
   updatesReceived: 0,

@@ -198,7 +198,6 @@ export interface ScreenSnapshot {
   sessionId: string | null;
   lines: ScreenLine[];
   cursor: { x: number; y: number } | null;
-  numLinesAboveScreen: number;
   lastUpdatedAt: number;
   requestsInflight: number;
   updatesReceived: number;
