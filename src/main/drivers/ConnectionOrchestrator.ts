@@ -515,11 +515,14 @@ export class ConnectionOrchestrator extends EventEmitter {
     }
   }
 
-  private async fetchScreenBuffer(sessionId: string): Promise<void> {
+  private async fetchScreenBuffer(sessionId: string, incremental = false): Promise<void> {
     if (this.monitor.screen.buffer.sessionId !== sessionId) return;
+    const lineRange = incremental
+      ? create(LineRangeSchema, { screenContentsOnly: true })
+      : create(LineRangeSchema, { trailingLines: 1000 });
     const req = create(GetBufferRequestSchema, {
       session: sessionId,
-      lineRange: create(LineRangeSchema, { trailingLines: 1000 }),
+      lineRange,
       includeStyles: true,
     });
     this.monitor.screen.noteFetchStarted();
@@ -549,7 +552,7 @@ export class ConnectionOrchestrator extends EventEmitter {
       this.screenCoalesceTimer = null;
       if (this.screenFetchPending) return;
       this.screenFetchPending = true;
-      this.fetchScreenBuffer(sessionId)
+      this.fetchScreenBuffer(sessionId, true)
         .catch(() => void 0)
         .finally(() => {
           this.screenFetchPending = false;
