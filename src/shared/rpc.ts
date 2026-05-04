@@ -170,9 +170,28 @@ export interface FocusLogSnapshot {
   capacity: number;
 }
 
+export interface CellStyleRun {
+  fg: string | null;
+  bg: string | null;
+  bold: boolean;
+  faint: boolean;
+  italic: boolean;
+  underline: boolean;
+  strikethrough: boolean;
+  inverse: boolean;
+  repeats: number;
+}
+
+export interface StyledLine {
+  index: number;
+  text: string;
+  styles: CellStyleRun[];
+}
+
 export interface ScreenLine {
   index: number;
   text: string;
+  styles: CellStyleRun[];
 }
 
 export interface ScreenSnapshot {

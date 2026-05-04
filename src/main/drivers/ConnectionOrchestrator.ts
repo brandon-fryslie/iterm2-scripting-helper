@@ -520,6 +520,7 @@ export class ConnectionOrchestrator extends EventEmitter {
     const req = create(GetBufferRequestSchema, {
       session: sessionId,
       lineRange: create(LineRangeSchema, { screenContentsOnly: true }),
+      includeStyles: true,
     });
     this.monitor.screen.noteFetchStarted();
     try {

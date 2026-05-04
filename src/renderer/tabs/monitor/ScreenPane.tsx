@@ -1,5 +1,12 @@
+import { useEffect, useRef } from 'react';
 import { observer } from 'mobx-react-lite';
+import { autorun } from 'mobx';
+import { Terminal } from '@xterm/xterm';
+import { FitAddon } from '@xterm/addon-fit';
+import { WebLinksAddon } from '@xterm/addon-web-links';
+import '@xterm/xterm/css/xterm.css';
 import { useStore } from '@/stores/context';
+import { styledLinesToAnsi } from './screenToAnsi';
 import { Badge } from '@/components/ui/badge';
 
 export const ScreenPane = observer(function ScreenPane() {
@@ -43,16 +50,56 @@ export const ScreenPane = observer(function ScreenPane() {
         )}
         <Badge variant="outline">updates: {snap.updatesReceived}</Badge>
       </div>
-      <pre
-        className="flex-1 overflow-auto bg-zinc-950 p-3 font-mono text-xs text-zinc-100"
-        data-testid="screen-body"
-      >
-        {snap.lines.map((line) => (
-          <div key={line.index} className="min-h-[1em] whitespace-pre">
-            {line.text || '\u00a0'}
-          </div>
-        ))}
-      </pre>
+      <XTermScreen />
     </div>
   );
+});
+
+const XTermScreen = observer(function XTermScreen() {
+  const { monitor } = useStore();
+  const containerRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const container = containerRef.current;
+    if (!container) return;
+
+    const term = new Terminal({
+      fontSize: 13,
+      fontFamily: "Menlo, Monaco, 'Courier New', monospace",
+      convertEol: true,
+      scrollback: 1000,
+      cursorBlink: true,
+      theme: {
+        background: '#0b1120',
+        foreground: '#e5e5e5',
+        cursor: '#e5e5e5',
+        selectionBackground: '#404040',
+      },
+    });
+
+    const fitAddon = new FitAddon();
+    term.loadAddon(fitAddon);
+    term.loadAddon(new WebLinksAddon());
+    term.open(container);
+    fitAddon.fit();
+
+    const observer = new ResizeObserver(() => fitAddon.fit());
+    observer.observe(container);
+
+    const dispose = autorun(() => {
+      const snap = monitor.screen;
+      if (!snap.lines || snap.lines.length === 0) return;
+      term.reset();
+      const ansi = styledLinesToAnsi(snap.lines, snap.cursor, term.cols);
+      term.write(ansi);
+    });
+
+    return () => {
+      dispose();
+      observer.disconnect();
+      term.dispose();
+    };
+  }, [monitor]);
+
+  return <div ref={containerRef} className="h-full w-full" />;
 });
