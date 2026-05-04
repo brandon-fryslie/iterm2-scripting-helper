@@ -84,6 +84,7 @@ export class ScreenStreamStore {
 
   applyGetBufferResponse(sessionId: string, response: GetBufferResponse): void {
     if (this.buffer.sessionId !== sessionId) return;
+    const startY = Number(response.windowedCoordRange?.coordRange?.start?.y ?? 0);
     this.buffer = {
       sessionId,
       lines: response.contents.map((lc, idx) => ({
@@ -92,10 +93,7 @@ export class ScreenStreamStore {
         styles: lc.style.map(convertProtoStyle),
       })),
       cursor: response.cursor
-        ? {
-            x: Number(response.cursor.x),
-            y: Number(response.cursor.y) - Number(response.numLinesAboveScreen ?? 0),
-          }
+        ? { x: Number(response.cursor.x), y: Number(response.cursor.y) - startY }
         : null,
       lastUpdatedAt: Date.now(),
       requestsInflight: Math.max(0, this.buffer.requestsInflight - 1),

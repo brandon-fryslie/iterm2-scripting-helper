@@ -519,7 +519,7 @@ export class ConnectionOrchestrator extends EventEmitter {
     if (this.monitor.screen.buffer.sessionId !== sessionId) return;
     const req = create(GetBufferRequestSchema, {
       session: sessionId,
-      lineRange: create(LineRangeSchema, { screenContentsOnly: true }),
+      lineRange: create(LineRangeSchema, { trailingLines: 1000 }),
       includeStyles: true,
     });
     this.monitor.screen.noteFetchStarted();
