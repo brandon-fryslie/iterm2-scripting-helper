@@ -128,6 +128,8 @@ app.whenReady().then(() => {
   void dynamicProfileWatcher.start();
   createWindow();
 
+  void orchestrator.connect().catch(() => { /* error recorded on store */ });
+
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow();
   });
