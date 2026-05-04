@@ -129,7 +129,7 @@ export class ScreenStreamStore {
       lines: this.buffer.lines.map((l) => ({
         index: l.index,
         text: l.text,
-        styles: l.styles,
+        styles: l.styles.map((s) => ({ ...s })),
       })),
       cursor: this.buffer.cursor
         ? { x: this.buffer.cursor.x, y: this.buffer.cursor.y }
