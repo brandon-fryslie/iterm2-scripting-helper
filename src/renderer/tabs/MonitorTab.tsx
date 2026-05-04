@@ -1,6 +1,7 @@
 import { useEffect } from 'react';
 import { observer } from 'mobx-react-lite';
 import { Group, Panel, Separator } from 'react-resizable-panels';
+import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import { LayoutPane } from './monitor/LayoutPane';
 import { VariablesPane } from './monitor/VariablesPane';
 import { WirePane } from './monitor/WirePane';
@@ -10,6 +11,7 @@ import { KeystrokesPane } from './monitor/KeystrokesPane';
 import { PromptsPane } from './monitor/PromptsPane';
 import { FocusTimelinePane } from './monitor/FocusTimelinePane';
 import { useStore } from '@/stores/context';
+import type { ActiveEventTab } from '@/stores/MonitorStore';
 
 const REFRESH_INTERVAL_MS = 250;
 
@@ -43,53 +45,78 @@ export const MonitorTab = observer(function MonitorTab() {
   return (
     <div className="h-[calc(100vh-6rem)]" data-testid="tab-monitor-placeholder">
       <Group orientation="vertical" className="h-full">
-        <Panel defaultSize={50} minSize={20}>
+        <Panel id="monitor-body" defaultSize={72} minSize={40}>
           <Group orientation="horizontal" className="h-full">
-            <PaneCell title="Layout">
+            <PaneCell id="monitor-layout" title="Layout" defaultSize={18} minSize={12}>
               <LayoutPane />
             </PaneCell>
             <Separator className="w-[2px] bg-border transition-colors hover:bg-primary" />
-            <PaneCell title="Variables">
+            <Panel id="monitor-screen" defaultSize={57} minSize={30}>
+              <div className="flex h-full flex-col overflow-hidden rounded border">
+                <ScreenPane />
+              </div>
+            </Panel>
+            <Separator className="w-[2px] bg-border transition-colors hover:bg-primary" />
+            <PaneCell id="monitor-variables" title="Variables" defaultSize={25} minSize={15}>
               <VariablesPane />
-            </PaneCell>
-            <Separator className="w-[2px] bg-border transition-colors hover:bg-primary" />
-            <PaneCell title="Screen">
-              <ScreenPane />
-            </PaneCell>
-            <Separator className="w-[2px] bg-border transition-colors hover:bg-primary" />
-            <PaneCell title="Wire">
-              <WirePane />
             </PaneCell>
           </Group>
         </Panel>
         <Separator className="h-[2px] bg-border transition-colors hover:bg-primary" />
-        <Panel defaultSize={50} minSize={20}>
-          <Group orientation="horizontal" className="h-full">
-            <PaneCell title="Keystrokes">
-              <KeystrokesPane />
-            </PaneCell>
-            <Separator className="w-[2px] bg-border transition-colors hover:bg-primary" />
-            <PaneCell title="Prompts">
-              <PromptsPane />
-            </PaneCell>
-            <Separator className="w-[2px] bg-border transition-colors hover:bg-primary" />
-            <PaneCell title="Notifications">
-              <NotificationsPane />
-            </PaneCell>
-            <Separator className="w-[2px] bg-border transition-colors hover:bg-primary" />
-            <PaneCell title="Focus">
-              <FocusTimelinePane />
-            </PaneCell>
-          </Group>
+        <Panel id="monitor-footer" defaultSize={28} minSize={15}>
+          <div className="flex h-full flex-col overflow-hidden rounded border">
+            <Tabs
+              value={monitor.activeEventTab}
+              onValueChange={(v) => monitor.setActiveEventTab(v as ActiveEventTab)}
+              className="flex h-full flex-col overflow-hidden gap-0"
+            >
+              <div className="border-b px-2">
+                <TabsList variant="line">
+                  <TabsTrigger value="keystrokes">Keystrokes</TabsTrigger>
+                  <TabsTrigger value="prompts">Prompts</TabsTrigger>
+                  <TabsTrigger value="notifications">Notifications</TabsTrigger>
+                  <TabsTrigger value="focus">Focus</TabsTrigger>
+                  <TabsTrigger value="wire">Wire</TabsTrigger>
+                </TabsList>
+              </div>
+              <TabsContent value="keystrokes" className="overflow-hidden">
+                <KeystrokesPane />
+              </TabsContent>
+              <TabsContent value="prompts" className="overflow-hidden">
+                <PromptsPane />
+              </TabsContent>
+              <TabsContent value="notifications" className="overflow-hidden">
+                <NotificationsPane />
+              </TabsContent>
+              <TabsContent value="focus" className="overflow-hidden">
+                <FocusTimelinePane />
+              </TabsContent>
+              <TabsContent value="wire" className="overflow-hidden">
+                <WirePane />
+              </TabsContent>
+            </Tabs>
+          </div>
         </Panel>
       </Group>
     </div>
   );
 });
 
-function PaneCell({ title, children }: { title: string; children: React.ReactNode }) {
+function PaneCell({
+  id,
+  title,
+  children,
+  defaultSize,
+  minSize,
+}: {
+  id: string;
+  title: string;
+  children: React.ReactNode;
+  defaultSize: number;
+  minSize: number;
+}) {
   return (
-    <Panel defaultSize={25} minSize={10}>
+    <Panel id={id} defaultSize={defaultSize} minSize={minSize}>
       <div className="flex h-full flex-col rounded border">
         <div className="border-b bg-muted px-3 py-1 text-xs font-semibold uppercase tracking-wide">
           {title}

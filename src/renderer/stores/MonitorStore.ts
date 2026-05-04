@@ -46,6 +46,8 @@ const EMPTY_SCREEN: ScreenSnapshot = {
   lastError: null,
 };
 
+export type ActiveEventTab = 'keystrokes' | 'prompts' | 'notifications' | 'focus' | 'wire';
+
 export class MonitorStore {
   layout: LayoutSnapshot = EMPTY_LAYOUT;
   variables: VariableSnapshot = EMPTY_VARIABLES;
@@ -58,6 +60,7 @@ export class MonitorStore {
   focusSessionId: string | null = null;
   notificationKindFilter: NotificationKind | 'all' = 'all';
   wireDirectionFilter: 'all' | 'out' | 'in' = 'all';
+  activeEventTab: ActiveEventTab = 'keystrokes';
   mirrorsHydrated = false;
 
   constructor() {
@@ -106,6 +109,10 @@ export class MonitorStore {
 
   setWireDirectionFilter(d: 'all' | 'out' | 'in'): void {
     this.wireDirectionFilter = d;
+  }
+
+  setActiveEventTab(tab: ActiveEventTab): void {
+    this.activeEventTab = tab;
   }
 
   get filteredNotifications() {
