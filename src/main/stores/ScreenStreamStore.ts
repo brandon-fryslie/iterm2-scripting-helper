@@ -1,4 +1,4 @@
-import { makeAutoObservable } from 'mobx';
+import { makeAutoObservable, toJS } from 'mobx';
 import type { AppLine, AppCellStyleRun } from '@shared/domain';
 
 export type { AppCellStyleRun as CellStyleRun };
@@ -68,6 +68,6 @@ export class ScreenStreamStore {
   }
 
   snapshot(): ScreenBuffer {
-    return { ...this.buffer };
+    return toJS(this.buffer);
   }
 }

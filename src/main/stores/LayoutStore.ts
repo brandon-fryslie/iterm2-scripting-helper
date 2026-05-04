@@ -1,4 +1,4 @@
-import { makeAutoObservable } from 'mobx';
+import { makeAutoObservable, toJS } from 'mobx';
 import type { AppLayout, AppWindow } from '@shared/domain';
 
 export interface LayoutSnapshot {
@@ -28,9 +28,6 @@ export class LayoutStore {
   }
 
   snapshot(): LayoutSnapshot {
-    return {
-      windows: this.windows,
-      lastUpdatedAt: this.lastUpdatedAt,
-    };
+    return toJS({ windows: this.windows, lastUpdatedAt: this.lastUpdatedAt });
   }
 }

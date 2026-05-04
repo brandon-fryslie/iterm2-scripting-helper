@@ -1,4 +1,4 @@
-import { makeAutoObservable } from 'mobx';
+import { makeAutoObservable, toJS } from 'mobx';
 import type { CustomEscapeSequenceNotification } from '@shared/proto/gen/api_pb';
 
 export interface CustomEscapeSubscription {
@@ -84,7 +84,7 @@ export class CustomEscapeStore {
   }
 
   snapshot(): CustomEscapeSnapshot {
-    const subs = Array.from(this.subscriptions.values()).map((s) => ({ ...s }));
+    const subs = Array.from(this.subscriptions.values()).map((s) => toJS(s));
     const entries: CustomEscapeEntry[] = [];
     const start = (this.head - this.length + CAPACITY) % CAPACITY;
     for (let i = 0; i < this.length; i++) {

@@ -1,4 +1,4 @@
-import { makeAutoObservable } from 'mobx';
+import { makeAutoObservable, toJS } from 'mobx';
 import type { AppPromptEntry, AppPromptEventKind } from '@shared/domain';
 
 export type { AppPromptEventKind as PromptEventKind };
@@ -53,7 +53,7 @@ export class PromptLogStore {
     const start = (this.head - this.length + this.capacity) % this.capacity;
     for (let i = 0; i < this.length; i++) {
       const e = this.ring[(start + i) % this.capacity];
-      if (e) entries.push(e);
+      if (e) entries.push(toJS(e));
     }
     return { entries, totalSeen: this.totalSeen, capacity: this.capacity };
   }

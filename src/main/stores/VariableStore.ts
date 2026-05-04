@@ -1,4 +1,4 @@
-import { makeAutoObservable } from 'mobx';
+import { makeAutoObservable, toJS } from 'mobx';
 import type { AppVariableEntry, AppVariableScope } from '@shared/domain';
 
 export type { AppVariableScope as VariableScope };
@@ -72,7 +72,7 @@ export class VariableStore {
     const map = this.bySession.get(id);
     if (!map) return { sessionId: id, variables: [] };
     const variables = Array.from(map.values())
-      .map((v) => ({ ...v }))
+      .map((v) => toJS(v))
       .sort((a, b) => a.name.localeCompare(b.name));
     return { sessionId: id, variables };
   }
