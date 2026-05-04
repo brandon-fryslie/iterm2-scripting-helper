@@ -1,3 +1,55 @@
+import type {
+  AppLayout,
+  AppWindow,
+  AppSession,
+  AppVariableEntry,
+  AppVariableScope,
+  AppKeystrokeEntry,
+  AppKeystrokeAction,
+  AppKeystrokeModifier,
+  AppPromptEntry,
+  AppPromptEventKind,
+  AppFocusEntry,
+  AppFocusEventKind,
+  AppWindowStatus,
+  AppNotificationEntry,
+  AppNotificationKind,
+  AppCellStyleRun,
+  AppLine,
+} from './domain';
+
+export type {
+  AppLayout,
+  AppWindow,
+  AppSession,
+  AppVariableEntry,
+  AppVariableScope,
+  AppKeystrokeEntry,
+  AppKeystrokeAction,
+  AppKeystrokeModifier,
+  AppPromptEntry,
+  AppPromptEventKind,
+  AppFocusEntry,
+  AppFocusEventKind,
+  AppWindowStatus,
+  AppNotificationEntry,
+  AppNotificationKind,
+  AppCellStyleRun,
+  AppLine,
+};
+
+// Re-export domain types under old names for backward compat during migration
+export type SessionSummary = AppSession;
+export interface LayoutSnapshot {
+  windows: AppWindow[];
+  lastUpdatedAt: number;
+}
+export type KeystrokeAction = AppKeystrokeAction;
+export type KeystrokeModifier = AppKeystrokeModifier;
+export type PromptEventKind = AppPromptEventKind;
+export type FocusEventKind = AppFocusEventKind;
+export type NotificationKind = AppNotificationKind;
+
 export interface ConnectionSnapshot {
   state:
     | 'idle'
@@ -16,23 +68,9 @@ export interface ConnectionSnapshot {
   lastLatencyMs: number | null;
 }
 
-export interface SessionSummary {
-  sessionId: string;
-  title: string;
-}
-
-export interface TabSummary {
-  tabId: string;
-  sessions: SessionSummary[];
-}
-
-export interface WindowSummary {
-  windowId: string;
-  tabs: TabSummary[];
-}
-
 export interface ListSessionsSummary {
-  windows: WindowSummary[];
+  windows: AppWindow[];
+  buriedSessions: AppSession[];
 }
 
 export interface WireFrameEvent {
@@ -41,21 +79,9 @@ export interface WireFrameEvent {
   at: number;
 }
 
-export interface LayoutSnapshot {
-  windows: WindowSummary[];
-  lastUpdatedAt: number;
-}
-
-export interface VariableEntry {
-  name: string;
-  value: string;
-  live: boolean;
-  updatedAt: number;
-}
-
 export interface VariableSnapshot {
   sessionId: string | null;
-  variables: VariableEntry[];
+  variables: AppVariableEntry[];
 }
 
 export interface WireLogEntry {
@@ -73,131 +99,34 @@ export interface WireLogSnapshot {
   capacity: number;
 }
 
-export type NotificationKind =
-  | 'keystroke'
-  | 'screen-update'
-  | 'prompt'
-  | 'custom-escape'
-  | 'new-session'
-  | 'terminate-session'
-  | 'layout-changed'
-  | 'focus-changed'
-  | 'variable-changed'
-  | 'server-rpc'
-  | 'broadcast-changed'
-  | 'profile-changed'
-  | 'location-changed'
-  | 'unknown';
-
-export interface NotificationEntry {
-  seq: number;
-  at: number;
-  kind: NotificationKind;
-  sessionId: string | null;
-  summary: string;
-}
-
 export interface NotificationLogSnapshot {
-  entries: NotificationEntry[];
+  entries: AppNotificationEntry[];
   totalSeen: number;
   capacity: number;
 }
 
-export type KeystrokeAction = 'key-down' | 'key-up' | 'flags-changed';
-export type KeystrokeModifier =
-  | 'control'
-  | 'option'
-  | 'command'
-  | 'shift'
-  | 'function'
-  | 'numpad';
-
-export interface KeystrokeEntry {
-  seq: number;
-  at: number;
-  sessionId: string;
-  characters: string;
-  charactersIgnoringModifiers: string;
-  modifiers: KeystrokeModifier[];
-  keyCode: number;
-  action: KeystrokeAction;
-}
-
 export interface KeystrokeLogSnapshot {
-  entries: KeystrokeEntry[];
+  entries: AppKeystrokeEntry[];
   totalSeen: number;
   capacity: number;
   advanced: boolean;
 }
 
-export type PromptEventKind = 'prompt' | 'command-start' | 'command-end';
-
-export interface PromptEntry {
-  seq: number;
-  at: number;
-  sessionId: string;
-  uniquePromptId: string;
-  kind: PromptEventKind;
-  command: string | null;
-  status: number | null;
-}
-
 export interface PromptLogSnapshot {
-  entries: PromptEntry[];
+  entries: AppPromptEntry[];
   totalSeen: number;
   capacity: number;
-}
-
-export type FocusEventKind =
-  | 'app-active'
-  | 'app-inactive'
-  | 'window'
-  | 'selected-tab'
-  | 'session'
-  | 'unknown';
-
-export interface FocusEntry {
-  seq: number;
-  at: number;
-  kind: FocusEventKind;
-  summary: string;
-  sessionId: string | null;
-  windowId: string | null;
 }
 
 export interface FocusLogSnapshot {
-  entries: FocusEntry[];
+  entries: AppFocusEntry[];
   totalSeen: number;
   capacity: number;
-}
-
-export interface CellStyleRun {
-  fg: string | null;
-  bg: string | null;
-  bold: boolean;
-  faint: boolean;
-  italic: boolean;
-  underline: boolean;
-  strikethrough: boolean;
-  inverse: boolean;
-  repeats: number;
-}
-
-export interface StyledLine {
-  index: number;
-  text: string;
-  styles: CellStyleRun[];
-}
-
-export interface ScreenLine {
-  index: number;
-  text: string;
-  styles: CellStyleRun[];
 }
 
 export interface ScreenSnapshot {
   sessionId: string | null;
-  lines: ScreenLine[];
+  lines: AppLine[];
   cursor: { x: number; y: number } | null;
   lastUpdatedAt: number;
   requestsInflight: number;
@@ -499,7 +428,7 @@ export type RpcResult<M extends RpcMethod> = RpcSchema[M]['result'];
 export type EventSchema = {
   'connection-state': ConnectionSnapshot;
   'wire-frame': WireFrameEvent;
-  'layout-snapshot': LayoutSnapshot;
+  'layout-snapshot': import('../main/stores/LayoutStore').LayoutSnapshot;
   'variables-snapshot': VariableSnapshot;
   'wire-snapshot': WireLogSnapshot;
   'notifications-snapshot': NotificationLogSnapshot;

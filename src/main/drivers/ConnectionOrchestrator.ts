@@ -25,8 +25,16 @@ import {
   RPCRegistrationRequest_StatusBarComponentAttributes_Format,
   type ServerOriginatedMessage,
   type Notification,
-  type ListSessionsResponse,
 } from '@shared/proto/gen/api_pb';
+import {
+  convertLayout,
+  convertGetBuffer,
+  convertKeystroke,
+  convertPrompt,
+  convertFocus,
+  classifyNotification,
+  variableScopeName,
+} from '@shared/converters';
 import { AppleScriptDriver, AppleScriptError } from './AppleScriptDriver';
 import {
   ProtocolDriver,
@@ -121,7 +129,8 @@ export class ConnectionOrchestrator extends EventEmitter {
       this.emit('frame', frame);
     });
     this.protocol.on('notification', (n: Notification) => {
-      const entry = this.monitor.notifications.record(n);
+      const classified = classifyNotification(n);
+      const entry = this.monitor.notifications.record(classified);
       this.routeNotification(n);
       this.emit('notification', { notification: n, entry });
     });
@@ -347,7 +356,7 @@ export class ConnectionOrchestrator extends EventEmitter {
       },
     });
     if (response.submessage.case === 'listSessionsResponse') {
-      this.monitor.layout.apply(response.submessage.value);
+      this.monitor.layout.apply(convertLayout(response.submessage.value));
     }
   }
 
@@ -531,7 +540,8 @@ export class ConnectionOrchestrator extends EventEmitter {
         submessage: { case: 'getBufferRequest' as const, value: req },
       });
       if (response.submessage.case === 'getBufferResponse') {
-        this.monitor.screen.applyGetBufferResponse(sessionId, response.submessage.value);
+        const { lines, cursor } = convertGetBuffer(response.submessage.value);
+        this.monitor.screen.applyBuffer(sessionId, lines, cursor);
       } else {
         this.monitor.screen.noteFetchFailed(
           response.submessage.case === 'error'
@@ -570,27 +580,25 @@ export class ConnectionOrchestrator extends EventEmitter {
 
   private routeNotification(n: Notification): void {
     if (n.layoutChangedNotification?.listSessionsResponse) {
-      this.monitor.layout.apply(
-        n.layoutChangedNotification.listSessionsResponse satisfies ListSessionsResponse,
-      );
+      this.monitor.layout.apply(convertLayout(n.layoutChangedNotification.listSessionsResponse));
     }
     if (n.variableChangedNotification) {
       const v = n.variableChangedNotification;
       if (v.identifier && v.name) {
-        this.monitor.variables.applyChange(v.identifier, v.name, v.jsonNewValue ?? 'null');
+        this.monitor.variables.applyChange(v.identifier, v.name, v.jsonNewValue ?? 'null', variableScopeName(v.scope));
       }
     }
     if (n.terminateSessionNotification?.sessionId) {
       this.monitor.variables.clearSession(n.terminateSessionNotification.sessionId);
     }
     if (n.keystrokeNotification) {
-      this.monitor.keystrokes.record(n.keystrokeNotification);
+      this.monitor.keystrokes.record(convertKeystroke(n.keystrokeNotification));
     }
     if (n.promptNotification) {
-      this.monitor.prompts.record(n.promptNotification);
+      this.monitor.prompts.record(convertPrompt(n.promptNotification));
     }
     if (n.focusChangedNotification) {
-      this.monitor.focus.record(n.focusChangedNotification);
+      this.monitor.focus.record(convertFocus(n.focusChangedNotification));
     }
     if (n.screenUpdateNotification) {
       const session = n.screenUpdateNotification.session;

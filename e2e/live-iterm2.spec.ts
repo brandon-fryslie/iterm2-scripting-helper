@@ -86,7 +86,10 @@ test.describe('live iTerm2', () => {
 
     const sessionId = await win.evaluate(async () => {
       const layout = await window.ipc.invoke('monitor/layout', undefined as never);
-      return layout.windows[0]?.tabs[0]?.sessions[0]?.sessionId ?? '';
+      const tab = layout.windows[0]?.tabs[0];
+      const first = tab?.root?.children?.[0];
+      if (!first || first.kind !== 'session') return '';
+      return first.session.sessionId;
     });
     expect(sessionId).not.toBe('');
 
@@ -204,7 +207,9 @@ test.describe('live iTerm2', () => {
     // Grab the default profile's GUID and a real sessionId.
     const probe = await win.evaluate(async () => {
       const layout = await window.ipc.invoke('monitor/layout', undefined as never);
-      const s = layout.windows[0]?.tabs[0]?.sessions[0]?.sessionId ?? '';
+      const tab = layout.windows[0]?.tabs[0];
+      const first = tab?.root?.children?.[0];
+      const s = (first?.kind === 'session' ? first.session.sessionId : '') ?? '';
       const prof = await window.ipc.invoke('workbench/list-profiles', undefined as never);
       const def = prof.profiles.find((p) => p.name === 'Default') ?? prof.profiles[0];
       return { sessionId: s, guid: def?.guid ?? '', name: def?.name ?? '' };
@@ -307,8 +312,9 @@ test.describe('live iTerm2', () => {
       const layout = await window.ipc.invoke('monitor/layout', undefined as never);
       const w = layout.windows[0];
       const t = w?.tabs[0];
-      const s = t?.sessions[0];
-      return { sessionId: s?.sessionId ?? '', tabId: t?.tabId ?? '' };
+      const first = t?.root?.children?.[0];
+      const sessionId = first?.kind === 'session' ? first.session.sessionId : '';
+      return { sessionId, tabId: t?.tabId ?? '' };
     });
     expect(probe.sessionId).not.toBe('');
     expect(probe.tabId).not.toBe('');

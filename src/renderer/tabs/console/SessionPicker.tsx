@@ -7,13 +7,14 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { useStore } from '@/stores/context';
+import { flatSessions } from '@shared/domain';
 
 export const SessionPicker = observer(function SessionPicker() {
   const { monitor, console: consoleStore } = useStore();
   const sessions: Array<{ sessionId: string; label: string }> = [];
   for (const w of monitor.layout.windows) {
     for (const t of w.tabs) {
-      for (const s of t.sessions) {
+      for (const s of flatSessions(t)) {
         sessions.push({
           sessionId: s.sessionId,
           label: s.title || `tab ${t.tabId} · ${s.sessionId.slice(0, 8)}…`,

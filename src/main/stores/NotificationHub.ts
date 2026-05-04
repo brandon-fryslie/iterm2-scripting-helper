@@ -1,32 +1,11 @@
 import { makeAutoObservable } from 'mobx';
-import type { Notification } from '@shared/proto/gen/api_pb';
+import type { AppNotificationEntry, AppNotificationKind } from '@shared/domain';
 
-export type NotificationKind =
-  | 'keystroke'
-  | 'screen-update'
-  | 'prompt'
-  | 'custom-escape'
-  | 'new-session'
-  | 'terminate-session'
-  | 'layout-changed'
-  | 'focus-changed'
-  | 'variable-changed'
-  | 'server-rpc'
-  | 'broadcast-changed'
-  | 'profile-changed'
-  | 'location-changed'
-  | 'unknown';
-
-export interface NotificationEntry {
-  seq: number;
-  at: number;
-  kind: NotificationKind;
-  sessionId: string | null;
-  summary: string;
-}
+export type { AppNotificationKind as NotificationKind };
+export type { AppNotificationEntry as NotificationEntry };
 
 export interface NotificationSnapshot {
-  entries: NotificationEntry[];
+  entries: AppNotificationEntry[];
   totalSeen: number;
   capacity: number;
 }
@@ -35,7 +14,7 @@ const DEFAULT_CAPACITY = 2000;
 
 export class NotificationHub {
   private readonly capacity: number;
-  private ring: (NotificationEntry | undefined)[];
+  private ring: (AppNotificationEntry | undefined)[];
   private head = 0;
   private length = 0;
   private nextSeq = 1;
@@ -43,18 +22,18 @@ export class NotificationHub {
 
   constructor(capacity = DEFAULT_CAPACITY) {
     this.capacity = capacity;
-    this.ring = new Array<NotificationEntry | undefined>(capacity);
+    this.ring = new Array<AppNotificationEntry | undefined>(capacity);
     makeAutoObservable(this);
   }
 
-  record(n: Notification): NotificationEntry {
-    const { kind, sessionId, summary } = classify(n);
-    const entry: NotificationEntry = {
+  record(classified: { kind: AppNotificationKind; sessionId: string | null; summary: string; payload: Record<string, unknown> }): AppNotificationEntry {
+    const entry: AppNotificationEntry = {
       seq: this.nextSeq++,
       at: Date.now(),
-      kind,
-      sessionId,
-      summary,
+      kind: classified.kind,
+      sessionId: classified.sessionId,
+      summary: classified.summary,
+      payload: classified.payload,
     };
     this.ring[this.head] = entry;
     this.head = (this.head + 1) % this.capacity;
@@ -64,7 +43,7 @@ export class NotificationHub {
   }
 
   clear(): void {
-    this.ring = new Array<NotificationEntry | undefined>(this.capacity);
+    this.ring = new Array<AppNotificationEntry | undefined>(this.capacity);
     this.head = 0;
     this.length = 0;
     this.totalSeen = 0;
@@ -72,115 +51,12 @@ export class NotificationHub {
   }
 
   snapshot(): NotificationSnapshot {
-    const entries: NotificationEntry[] = [];
+    const entries: AppNotificationEntry[] = [];
     const start = (this.head - this.length + this.capacity) % this.capacity;
     for (let i = 0; i < this.length; i++) {
       const e = this.ring[(start + i) % this.capacity];
-      if (e) {
-        entries.push({
-          seq: e.seq,
-          at: e.at,
-          kind: e.kind,
-          sessionId: e.sessionId,
-          summary: e.summary,
-        });
-      }
+      if (e) entries.push(e);
     }
     return { entries, totalSeen: this.totalSeen, capacity: this.capacity };
   }
-}
-
-function classify(n: Notification): {
-  kind: NotificationKind;
-  sessionId: string | null;
-  summary: string;
-} {
-  if (n.keystrokeNotification) {
-    const k = n.keystrokeNotification;
-    return {
-      kind: 'keystroke',
-      sessionId: k.session ?? null,
-      summary: `${k.characters ?? ''}`,
-    };
-  }
-  if (n.screenUpdateNotification) {
-    return {
-      kind: 'screen-update',
-      sessionId: n.screenUpdateNotification.session ?? null,
-      summary: '',
-    };
-  }
-  if (n.promptNotification) {
-    const p = n.promptNotification;
-    return {
-      kind: 'prompt',
-      sessionId: p.session ?? null,
-      summary: `${p.event.case ?? 'prompt'}`,
-    };
-  }
-  if (n.customEscapeSequenceNotification) {
-    const c = n.customEscapeSequenceNotification;
-    return {
-      kind: 'custom-escape',
-      sessionId: c.session ?? null,
-      summary: `${c.senderIdentity ?? ''}: ${(c.payload ?? '').slice(0, 80)}`,
-    };
-  }
-  if (n.newSessionNotification) {
-    return {
-      kind: 'new-session',
-      sessionId: n.newSessionNotification.sessionId ?? null,
-      summary: `new session ${n.newSessionNotification.sessionId ?? ''}`,
-    };
-  }
-  if (n.terminateSessionNotification) {
-    return {
-      kind: 'terminate-session',
-      sessionId: n.terminateSessionNotification.sessionId ?? null,
-      summary: `terminated ${n.terminateSessionNotification.sessionId ?? ''}`,
-    };
-  }
-  if (n.layoutChangedNotification) {
-    return { kind: 'layout-changed', sessionId: null, summary: 'layout changed' };
-  }
-  if (n.focusChangedNotification) {
-    return {
-      kind: 'focus-changed',
-      sessionId: null,
-      summary: `${n.focusChangedNotification.event.case ?? ''}`,
-    };
-  }
-  if (n.variableChangedNotification) {
-    const v = n.variableChangedNotification;
-    return {
-      kind: 'variable-changed',
-      sessionId: v.identifier || null,
-      summary: `${v.name ?? ''}=${(v.jsonNewValue ?? '').slice(0, 80)}`,
-    };
-  }
-  if (n.serverOriginatedRpcNotification) {
-    return {
-      kind: 'server-rpc',
-      sessionId: null,
-      summary: `rpc ${n.serverOriginatedRpcNotification.rpc?.name ?? ''}`,
-    };
-  }
-  if (n.broadcastDomainsChanged) {
-    return { kind: 'broadcast-changed', sessionId: null, summary: 'broadcast domains changed' };
-  }
-  if (n.profileChangedNotification) {
-    return {
-      kind: 'profile-changed',
-      sessionId: null,
-      summary: `profile ${n.profileChangedNotification.guid ?? ''}`,
-    };
-  }
-  if (n.locationChangeNotification) {
-    return {
-      kind: 'location-changed',
-      sessionId: n.locationChangeNotification.session ?? null,
-      summary: '',
-    };
-  }
-  return { kind: 'unknown', sessionId: null, summary: '' };
 }

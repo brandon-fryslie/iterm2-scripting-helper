@@ -1,7 +1,7 @@
-import type { StyledLine } from '@shared/rpc';
+import type { AppLine } from '@shared/domain';
 
 export function styledLinesToAnsi(
-  lines: StyledLine[],
+  lines: AppLine[],
   cursor: { x: number; y: number } | null,
   termCols: number,
 ): string {

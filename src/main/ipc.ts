@@ -3,6 +3,7 @@ import { create } from '@bufbuild/protobuf';
 import {
   ListSessionsRequestSchema,
 } from '@shared/proto/gen/api_pb';
+import { convertLayout } from '@shared/converters';
 import type {
   RpcMethod,
   RpcArgs,
@@ -102,15 +103,10 @@ export function registerIpc(
           `expected listSessionsResponse, got ${response.submessage.case ?? '<none>'}`,
         );
       }
-      const r = response.submessage.value;
+      const layout = convertLayout(response.submessage.value);
       return {
-        windows: r.windows.map((w) => ({
-          windowId: w.windowId,
-          tabs: w.tabs.map((t) => ({
-            tabId: t.tabId,
-            sessions: collectSessions(t),
-          })),
-        })),
+        windows: layout.windows,
+        buriedSessions: layout.buriedSessions,
       };
     },
 
@@ -228,24 +224,6 @@ export function registerIpc(
       );
     }
   });
-}
-
-function collectSessions(tab: {
-  root?: import('@shared/proto/gen/api_pb').SplitTreeNode;
-}): Array<{ sessionId: string; title: string }> {
-  const out: Array<{ sessionId: string; title: string }> = [];
-  const walk = (node: import('@shared/proto/gen/api_pb').SplitTreeNode | undefined): void => {
-    if (!node) return;
-    for (const link of node.links) {
-      if (link.child.case === 'session') {
-        out.push({ sessionId: link.child.value.uniqueIdentifier, title: link.child.value.title });
-      } else if (link.child.case === 'node') {
-        walk(link.child.value);
-      }
-    }
-  };
-  walk(tab.root);
-  return out;
 }
 
 export function broadcast<K extends EventKind>(kind: K, payload: EventPayload<K>): void {

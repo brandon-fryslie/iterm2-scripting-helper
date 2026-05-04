@@ -1,8 +1,8 @@
+import { useEffect } from 'react';
 import { observer } from 'mobx-react-lite';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { Badge } from '@/components/ui/badge';
 import {
   Select,
   SelectContent,
@@ -11,47 +11,29 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { useStore } from '@/stores/context';
+import { flatSessions } from '@shared/domain';
 import { ESCAPE_TEMPLATES } from '@shared/escape-sequences';
-
-function hexdump(s: string): string {
-  const bytes = new TextEncoder().encode(s);
-  const parts: string[] = [];
-  for (const b of bytes) {
-    parts.push(b.toString(16).padStart(2, '0'));
-  }
-  return parts.join(' ');
-}
-
-function humanize(s: string): string {
-  return s
-    .replace(/\x1b/g, 'ESC ')
-    .replace(/\x07/g, 'BEL ')
-    .replace(/\x5c/g, '\\\\');
-}
+import type { EscapeTemplate } from '@shared/escape-sequences';
 
 export const EscapeSequenceEditor = observer(function EscapeSequenceEditor() {
   const { workbench, monitor } = useStore();
-  const template = ESCAPE_TEMPLATES.find((t) => t.id === workbench.escapeTemplateId);
-  const values = workbench.escapeTemplateValues[workbench.escapeTemplateId] ?? {};
 
+  useEffect(() => {
+    void workbench.refreshCustomEscape();
+  }, [workbench]);
+
+  const template: EscapeTemplate | undefined = ESCAPE_TEMPLATES.find((t: EscapeTemplate) => t.id === workbench.escapeTemplateId);
+  const fields = template?.fields ?? [];
+  const values = workbench.escapeTemplateValues[workbench.escapeTemplateId] ?? {};
   let sequence = '';
-  let buildError: string | null = null;
   if (template) {
-    try {
-      const finalValues: Record<string, string> = {};
-      for (const f of template.fields) {
-        finalValues[f.name] = values[f.name] ?? f.default ?? '';
-      }
-      sequence = template.build(finalValues);
-    } catch (err) {
-      buildError = err instanceof Error ? err.message : String(err);
-    }
+    sequence = template.build(values);
   }
 
   const sessions: Array<{ sessionId: string; title: string }> = [];
   for (const w of monitor.layout.windows) {
     for (const t of w.tabs) {
-      for (const s of t.sessions) sessions.push({ sessionId: s.sessionId, title: s.title });
+      for (const s of flatSessions(t)) sessions.push({ sessionId: s.sessionId, title: s.title });
     }
   }
 
@@ -66,62 +48,30 @@ export const EscapeSequenceEditor = observer(function EscapeSequenceEditor() {
             value={workbench.escapeTemplateId}
             onValueChange={(v) => workbench.setEscapeTemplate(v)}
           >
-            <SelectTrigger data-testid="escape-template-select">
+            <SelectTrigger>
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
-              {ESCAPE_TEMPLATES.map((t) => (
+              {ESCAPE_TEMPLATES.map((t: EscapeTemplate) => (
                 <SelectItem key={t.id} value={t.id}>
-                  {t.group} · {t.label}
+                  {t.label}
                 </SelectItem>
               ))}
             </SelectContent>
           </Select>
-          {template && (
+          {template?.description && (
             <p className="text-xs text-muted-foreground">{template.description}</p>
           )}
-          {template?.fields.map((f) => (
-            <label key={f.name} className="grid grid-cols-[10rem_1fr] items-start gap-2">
-              <span className="pt-1 text-xs text-muted-foreground">{f.name}</span>
-              <div>
-                {f.type === 'multiline' || f.type === 'file-base64' ? (
-                  <textarea
-                    value={values[f.name] ?? f.default ?? ''}
-                    onChange={(e) =>
-                      workbench.setEscapeField(template.id, f.name, e.target.value)
-                    }
-                    placeholder={f.placeholder}
-                    rows={3}
-                    className="w-full rounded border bg-background px-2 py-1 font-mono text-xs"
-                    data-testid={`escape-field-${f.name}`}
-                  />
-                ) : f.type === 'boolean' ? (
-                  <input
-                    type="checkbox"
-                    checked={(values[f.name] ?? f.default ?? 'false') === 'true'}
-                    onChange={(e) =>
-                      workbench.setEscapeField(
-                        template.id,
-                        f.name,
-                        String(e.target.checked),
-                      )
-                    }
-                  />
-                ) : (
-                  <Input
-                    value={values[f.name] ?? f.default ?? ''}
-                    onChange={(e) =>
-                      workbench.setEscapeField(template.id, f.name, e.target.value)
-                    }
-                    placeholder={f.placeholder}
-                    data-testid={`escape-field-${f.name}`}
-                    type={f.type === 'number' ? 'number' : 'text'}
-                  />
-                )}
-                {f.help && (
-                  <p className="mt-1 text-[10px] text-muted-foreground">{f.help}</p>
-                )}
-              </div>
+          {fields.map((f: { name: string; placeholder?: string; default?: string }) => (
+            <label key={f.name} className="grid grid-cols-[8rem_1fr] items-center gap-2">
+              <span className="text-xs text-muted-foreground">{f.name}</span>
+              <Input
+                value={values[f.name] ?? f.default}
+                onChange={(e) =>
+                  workbench.setEscapeField(workbench.escapeTemplateId, f.name, e.target.value)
+                }
+                placeholder={f.placeholder}
+              />
             </label>
           ))}
         </CardContent>
@@ -129,17 +79,13 @@ export const EscapeSequenceEditor = observer(function EscapeSequenceEditor() {
 
       <Card>
         <CardHeader className="pb-2">
-          <CardTitle className="text-base">Sequence</CardTitle>
+          <CardTitle className="text-base">Preview</CardTitle>
         </CardHeader>
         <CardContent className="grid gap-3 text-sm">
-          {buildError ? (
-            <Badge variant="destructive" data-testid="escape-build-error">
-              {buildError}
-            </Badge>
-          ) : (
+          {sequence ? (
             <>
               <div>
-                <div className="mb-1 text-xs text-muted-foreground">Readable</div>
+                <div className="mb-1 text-xs text-muted-foreground">Human-readable</div>
                 <pre
                   className="whitespace-pre-wrap rounded bg-muted p-2 font-mono text-xs"
                   data-testid="escape-sequence-readable"
@@ -157,6 +103,8 @@ export const EscapeSequenceEditor = observer(function EscapeSequenceEditor() {
                 </pre>
               </div>
             </>
+          ) : (
+            <p className="text-xs text-muted-foreground">Select a template above.</p>
           )}
           <div className="flex flex-wrap items-center gap-2">
             <Select
@@ -176,38 +124,23 @@ export const EscapeSequenceEditor = observer(function EscapeSequenceEditor() {
             </Select>
             <Button
               onClick={async () => {
-                if (!sequence || !workbench.escapeTemplateTarget) return;
+                if (!sequence) return;
                 const result = await window.ipc.invoke('actions/send-text', {
                   sessionId: workbench.escapeTemplateTarget,
                   text: sequence,
+                  suppressBroadcast: true,
                 });
                 workbench.recordEscape(sequence, result);
               }}
               disabled={!sequence || !workbench.escapeTemplateTarget}
-              data-testid="escape-emit"
+              data-testid="escape-send"
             >
               Emit to session
             </Button>
-            <Button
-              variant="outline"
-              onClick={() => {
-                if (!sequence) return;
-                void navigator.clipboard.writeText(sequence);
-              }}
-              disabled={!sequence}
-              data-testid="escape-copy"
-            >
-              Copy
-            </Button>
-            {workbench.escapeLastSent?.result && (
-              <Badge
-                variant={workbench.escapeLastSent.result.ok ? 'default' : 'destructive'}
-                data-testid="escape-emit-result"
-              >
-                {workbench.escapeLastSent.result.ok
-                  ? `emitted (${workbench.escapeLastSent.result.latencyMs} ms)`
-                  : `error: ${workbench.escapeLastSent.result.error}`}
-              </Badge>
+            {workbench.escapeLastSent && (
+              <span className="text-xs text-muted-foreground">
+                last: {workbench.escapeLastSent.result.ok ? 'ok' : workbench.escapeLastSent.result.error}
+              </span>
             )}
           </div>
         </CardContent>
@@ -215,3 +148,16 @@ export const EscapeSequenceEditor = observer(function EscapeSequenceEditor() {
     </div>
   );
 });
+
+function humanize(s: string): string {
+  return s
+    .replace(/\x1b/g, '\\e')
+    .replace(/\x07/g, '\\a')
+    .replace(/\x00/g, '\\0');
+}
+
+function hexdump(s: string): string {
+  return Array.from(s)
+    .map((c) => c.charCodeAt(0).toString(16).padStart(2, '0'))
+    .join(' ');
+}

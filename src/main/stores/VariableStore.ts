@@ -1,20 +1,17 @@
 import { makeAutoObservable } from 'mobx';
+import type { AppVariableEntry, AppVariableScope } from '@shared/domain';
 
-export interface VariableEntry {
-  name: string;
-  value: string;
-  live: boolean;
-  updatedAt: number;
-}
+export type { AppVariableScope as VariableScope };
+export type { AppVariableEntry as VariableEntry };
 
 export interface VariableSnapshot {
   sessionId: string | null;
-  variables: VariableEntry[];
+  variables: AppVariableEntry[];
 }
 
 export class VariableStore {
   focusedSessionId: string | null = null;
-  private readonly bySession = new Map<string, Map<string, VariableEntry>>();
+  private readonly bySession = new Map<string, Map<string, AppVariableEntry>>();
   private readonly liveNames = new Set<string>();
 
   constructor() {
@@ -32,19 +29,20 @@ export class VariableStore {
 
   applyDump(sessionId: string, dict: Record<string, unknown>): void {
     const now = Date.now();
-    const map = new Map<string, VariableEntry>();
+    const map = new Map<string, AppVariableEntry>();
     for (const [name, value] of Object.entries(dict)) {
       map.set(name, {
         name,
         value: JSON.stringify(value),
         live: this.liveNames.has(name),
         updatedAt: now,
+        scope: 'session',
       });
     }
     this.bySession.set(sessionId, map);
   }
 
-  applyChange(sessionId: string, name: string, jsonValue: string): void {
+  applyChange(sessionId: string, name: string, jsonValue: string, scope: AppVariableScope = 'session'): void {
     let map = this.bySession.get(sessionId);
     if (!map) {
       map = new Map();
@@ -55,6 +53,7 @@ export class VariableStore {
       value: jsonValue,
       live: this.liveNames.has(name),
       updatedAt: Date.now(),
+      scope,
     });
   }
 
@@ -73,12 +72,7 @@ export class VariableStore {
     const map = this.bySession.get(id);
     if (!map) return { sessionId: id, variables: [] };
     const variables = Array.from(map.values())
-      .map((v) => ({
-        name: v.name,
-        value: v.value,
-        live: v.live,
-        updatedAt: v.updatedAt,
-      }))
+      .map((v) => ({ ...v }))
       .sort((a, b) => a.name.localeCompare(b.name));
     return { sessionId: id, variables };
   }

@@ -4,6 +4,7 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Separator } from '@/components/ui/separator';
 import { useStore } from '@/stores/context';
+import { flatSessions } from '@shared/domain';
 import type { ConnectionSnapshot } from '@shared/rpc';
 
 type State = ConnectionSnapshot['state'];
@@ -119,7 +120,7 @@ export const ConnectionPanel = observer(function ConnectionPanel() {
             tab(s);{' '}
             {connection.lastSessions.windows.reduce(
               (n, w) =>
-                n + w.tabs.reduce((m, t) => m + t.sessions.length, 0),
+                n + w.tabs.reduce((m, t) => m + flatSessions(t).length, 0),
               0,
             )}{' '}
             session(s).

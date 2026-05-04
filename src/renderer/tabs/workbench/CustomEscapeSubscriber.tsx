@@ -12,6 +12,7 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { useStore } from '@/stores/context';
+import { flatSessions } from '@shared/domain';
 
 export const CustomEscapeSubscriber = observer(function CustomEscapeSubscriber() {
   const { workbench, monitor } = useStore();
@@ -29,7 +30,7 @@ export const CustomEscapeSubscriber = observer(function CustomEscapeSubscriber()
 
   const sessions: Array<{ sessionId: string; title: string }> = [];
   for (const w of monitor.layout.windows) {
-    for (const t of w.tabs) for (const s of t.sessions) sessions.push({ sessionId: s.sessionId, title: s.title });
+    for (const t of w.tabs) for (const s of flatSessions(t)) sessions.push({ sessionId: s.sessionId, title: s.title });
   }
 
   return (
