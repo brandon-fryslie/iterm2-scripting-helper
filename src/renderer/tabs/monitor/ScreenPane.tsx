@@ -92,12 +92,34 @@ const XTermScreen = observer(function XTermScreen() {
       void window.ipc.invoke('actions/send-text', { sessionId, text: data });
     });
 
+    let lastSessionId: string | null = null;
+
     const dispose = autorun(() => {
       const snap = monitor.screen;
       if (!snap.lines || snap.lines.length === 0) return;
-      term.reset();
-      const ansi = styledLinesToAnsi(snap.lines, snap.cursor, term.cols);
-      term.write(ansi);
+      const rows = term.rows;
+      if (rows === 0) return;
+
+      const isSessionChange = lastSessionId !== snap.sessionId;
+      lastSessionId = snap.sessionId ?? null;
+
+      if (isSessionChange) {
+        term.reset();
+        const ansi = styledLinesToAnsi(snap.lines, snap.cursor, term.cols);
+        term.write(`\x1b[?25l${ansi}\x1b[?25h`);
+        return;
+      }
+
+      // Incremental update: only rewrite visible screen (~24 lines)
+      term.scrollToBottom();
+      const startIdx = Math.max(0, snap.lines.length - rows);
+      const visibleLines = snap.lines.slice(startIdx);
+      const visibleCursor = snap.cursor
+        ? { x: snap.cursor.x, y: Math.max(0, snap.cursor.y - startIdx) }
+        : null;
+
+      const ansi = styledLinesToAnsi(visibleLines, visibleCursor, term.cols);
+      term.write(`\x1b[?25l\x1b[1;1H\x1b[0J${ansi}\x1b[?25h`);
     });
 
     return () => {
