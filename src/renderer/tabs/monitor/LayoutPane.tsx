@@ -40,9 +40,12 @@ export const LayoutPane = observer(function LayoutPane() {
           </div>
           {w.tabs.map((t) => {
             const sessions = flatSessions(t);
+            const single = sessions.length === 1;
             return (
-              <div key={t.tabId} className="ml-3 mt-1">
-                <div className="text-muted-foreground">tab {t.tabId}</div>
+              <div key={t.tabId} className={cn('mt-1', !single && 'ml-3')}>
+                {!single && (
+                  <div className="text-muted-foreground">tab {t.tabId}</div>
+                )}
                 {sessions.map((s) => {
                   const focused = monitor.focusSessionId === s.sessionId;
                   return (
@@ -52,7 +55,8 @@ export const LayoutPane = observer(function LayoutPane() {
                       data-testid={`layout-session-${s.sessionId}`}
                       data-focused={focused ? 'true' : 'false'}
                       className={cn(
-                        'ml-3 block w-full rounded px-2 py-1 text-left font-mono hover:bg-accent',
+                        'block w-full rounded px-2 py-1 text-left font-mono hover:bg-accent',
+                        !single && 'ml-3',
                         focused && 'bg-accent font-semibold',
                       )}
                     >
