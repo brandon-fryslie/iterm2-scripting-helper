@@ -1,4 +1,4 @@
-import { makeAutoObservable, toJS } from 'mobx';
+import { makeAutoObservable, observable } from 'mobx';
 import type { CustomEscapeSequenceNotification } from '@shared/proto/gen/api_pb';
 
 export interface CustomEscapeSubscription {
@@ -27,8 +27,8 @@ export interface CustomEscapeSnapshot {
 const CAPACITY = 500;
 
 export class CustomEscapeStore {
-  private readonly subscriptions = new Map<string, CustomEscapeSubscription>();
-  private readonly ring: (CustomEscapeEntry | undefined)[] = new Array(CAPACITY);
+  @observable.shallow private readonly subscriptions = new Map<string, CustomEscapeSubscription>();
+  @observable.shallow private readonly ring: (CustomEscapeEntry | undefined)[] = new Array(CAPACITY);
   private head = 0;
   private length = 0;
   private nextSeq = 1;
@@ -84,7 +84,7 @@ export class CustomEscapeStore {
   }
 
   snapshot(): CustomEscapeSnapshot {
-    const subs = Array.from(this.subscriptions.values()).map((s) => toJS(s));
+    const subs = Array.from(this.subscriptions.values());
     const entries: CustomEscapeEntry[] = [];
     const start = (this.head - this.length + CAPACITY) % CAPACITY;
     for (let i = 0; i < this.length; i++) {

@@ -1,4 +1,4 @@
-import { makeAutoObservable, toJS } from 'mobx';
+import { makeAutoObservable, observable } from 'mobx';
 import type { AppFocusEntry, AppFocusEventKind } from '@shared/domain';
 
 export type { AppFocusEventKind as FocusEventKind };
@@ -14,7 +14,7 @@ const DEFAULT_CAPACITY = 500;
 
 export class FocusLogStore {
   private readonly capacity: number;
-  private ring: (AppFocusEntry | undefined)[];
+  @observable.shallow private ring: (AppFocusEntry | undefined)[];
   private head = 0;
   private length = 0;
   private nextSeq = 1;
@@ -52,7 +52,7 @@ export class FocusLogStore {
     const start = (this.head - this.length + this.capacity) % this.capacity;
     for (let i = 0; i < this.length; i++) {
       const e = this.ring[(start + i) % this.capacity];
-      if (e) entries.push(toJS(e));
+      if (e) entries.push(e);
     }
     return { entries, totalSeen: this.totalSeen, capacity: this.capacity };
   }

@@ -1,4 +1,4 @@
-import { makeAutoObservable, toJS } from 'mobx';
+import { makeAutoObservable, observable } from 'mobx';
 import type { AppVariableEntry, AppVariableScope } from '@shared/domain';
 
 export type { AppVariableScope as VariableScope };
@@ -11,7 +11,7 @@ export interface VariableSnapshot {
 
 export class VariableStore {
   focusedSessionId: string | null = null;
-  private readonly bySession = new Map<string, Map<string, AppVariableEntry>>();
+  @observable.shallow private readonly bySession = new Map<string, Map<string, AppVariableEntry>>();
   private readonly liveNames = new Set<string>();
 
   constructor() {
@@ -72,7 +72,6 @@ export class VariableStore {
     const map = this.bySession.get(id);
     if (!map) return { sessionId: id, variables: [] };
     const variables = Array.from(map.values())
-      .map((v) => toJS(v))
       .sort((a, b) => a.name.localeCompare(b.name));
     return { sessionId: id, variables };
   }

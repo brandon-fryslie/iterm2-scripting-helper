@@ -1,5 +1,5 @@
-import { makeAutoObservable, toJS } from 'mobx';
-import type { AppLayout, AppWindow } from '@shared/domain';
+import { makeAutoObservable, observable } from 'mobx';
+import type { AppLayout, AppWindow, AppSession } from '@shared/domain';
 
 export interface LayoutSnapshot {
   windows: AppWindow[];
@@ -7,8 +7,8 @@ export interface LayoutSnapshot {
 }
 
 export class LayoutStore {
-  windows: AppWindow[] = [];
-  buriedSessions: import('@shared/domain').AppSession[] = [];
+  @observable.ref windows: AppWindow[] = [];
+  @observable.ref buriedSessions: AppSession[] = [];
   lastUpdatedAt = 0;
 
   constructor() {
@@ -28,6 +28,6 @@ export class LayoutStore {
   }
 
   snapshot(): LayoutSnapshot {
-    return toJS({ windows: this.windows, lastUpdatedAt: this.lastUpdatedAt });
+    return { windows: this.windows, lastUpdatedAt: this.lastUpdatedAt };
   }
 }

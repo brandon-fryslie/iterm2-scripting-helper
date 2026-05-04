@@ -1,4 +1,4 @@
-import { makeAutoObservable, toJS } from 'mobx';
+import { makeAutoObservable, observable } from 'mobx';
 import type { AppNotificationEntry, AppNotificationKind } from '@shared/domain';
 
 export type { AppNotificationKind as NotificationKind };
@@ -14,7 +14,7 @@ const DEFAULT_CAPACITY = 2000;
 
 export class NotificationHub {
   private readonly capacity: number;
-  private ring: (AppNotificationEntry | undefined)[];
+  @observable.shallow private ring: (AppNotificationEntry | undefined)[];
   private head = 0;
   private length = 0;
   private nextSeq = 1;
@@ -55,7 +55,7 @@ export class NotificationHub {
     const start = (this.head - this.length + this.capacity) % this.capacity;
     for (let i = 0; i < this.length; i++) {
       const e = this.ring[(start + i) % this.capacity];
-      if (e) entries.push(toJS(e));
+      if (e) entries.push(e);
     }
     return { entries, totalSeen: this.totalSeen, capacity: this.capacity };
   }

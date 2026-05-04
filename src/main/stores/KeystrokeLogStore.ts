@@ -1,4 +1,4 @@
-import { makeAutoObservable, toJS } from 'mobx';
+import { makeAutoObservable, observable } from 'mobx';
 import type { AppKeystrokeEntry, AppKeystrokeModifier, AppKeystrokeAction } from '@shared/domain';
 
 export type { AppKeystrokeAction as KeystrokeAction, AppKeystrokeModifier as KeystrokeModifier };
@@ -15,7 +15,7 @@ const DEFAULT_CAPACITY = 2000;
 
 export class KeystrokeLogStore {
   private readonly capacity: number;
-  private ring: (AppKeystrokeEntry | undefined)[];
+  @observable.shallow private ring: (AppKeystrokeEntry | undefined)[];
   private head = 0;
   private length = 0;
   private nextSeq = 1;
@@ -33,11 +33,7 @@ export class KeystrokeLogStore {
   }
 
   record(entry: Omit<AppKeystrokeEntry, 'seq' | 'at'>): AppKeystrokeEntry {
-    const full: AppKeystrokeEntry = {
-      ...entry,
-      seq: this.nextSeq++,
-      at: Date.now(),
-    };
+    const full: AppKeystrokeEntry = { ...entry, seq: this.nextSeq++, at: Date.now() };
     this.ring[this.head] = full;
     this.head = (this.head + 1) % this.capacity;
     if (this.length < this.capacity) this.length += 1;
@@ -58,13 +54,8 @@ export class KeystrokeLogStore {
     const start = (this.head - this.length + this.capacity) % this.capacity;
     for (let i = 0; i < this.length; i++) {
       const e = this.ring[(start + i) % this.capacity];
-      if (e) entries.push(toJS(e));
+      if (e) entries.push(e);
     }
-    return {
-      entries,
-      totalSeen: this.totalSeen,
-      capacity: this.capacity,
-      advanced: this.advanced,
-    };
+    return { entries, totalSeen: this.totalSeen, capacity: this.capacity, advanced: this.advanced };
   }
 }

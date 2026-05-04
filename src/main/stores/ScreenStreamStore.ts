@@ -1,8 +1,5 @@
-import { makeAutoObservable, toJS } from 'mobx';
-import type { AppLine, AppCellStyleRun } from '@shared/domain';
-
-export type { AppCellStyleRun as CellStyleRun };
-export type { AppLine as StyledLine };
+import { makeAutoObservable, observable } from 'mobx';
+import type { AppLine } from '@shared/domain';
 
 export interface ScreenBuffer {
   sessionId: string | null;
@@ -25,7 +22,7 @@ const EMPTY: ScreenBuffer = {
 };
 
 export class ScreenStreamStore {
-  buffer: ScreenBuffer = EMPTY;
+  @observable.ref buffer: ScreenBuffer = EMPTY;
 
   constructor() {
     makeAutoObservable(this);
@@ -68,6 +65,6 @@ export class ScreenStreamStore {
   }
 
   snapshot(): ScreenBuffer {
-    return toJS(this.buffer);
+    return this.buffer;
   }
 }
