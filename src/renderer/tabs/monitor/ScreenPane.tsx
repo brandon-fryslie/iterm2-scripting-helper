@@ -93,6 +93,7 @@ const XTermScreen = observer(function XTermScreen() {
     });
 
     let lastSessionId: string | null = null;
+    let lastUpdatesReceived = -1;
 
     const renderFull = () => {
       const snap = monitor.screen;
@@ -139,6 +140,9 @@ const XTermScreen = observer(function XTermScreen() {
       if (!snap.sessionId) return;
 
       const isSessionChange = lastSessionId !== snap.sessionId;
+      if (!isSessionChange && snap.updatesReceived === lastUpdatesReceived) return;
+
+      lastUpdatesReceived = snap.updatesReceived;
       lastSessionId = snap.sessionId;
 
       if (isSessionChange) {
