@@ -27,15 +27,18 @@ export interface CustomEscapeSnapshot {
 const CAPACITY = 500;
 
 export class CustomEscapeStore {
-  @observable.shallow private readonly subscriptions = new Map<string, CustomEscapeSubscription>();
-  @observable.shallow private readonly ring: (CustomEscapeEntry | undefined)[] = new Array(CAPACITY);
+  private readonly subscriptions = new Map<string, CustomEscapeSubscription>();
+  private readonly ring: (CustomEscapeEntry | undefined)[] = new Array(CAPACITY);
   private head = 0;
   private length = 0;
   private nextSeq = 1;
   totalSeen = 0;
 
   constructor() {
-    makeAutoObservable(this);
+    makeAutoObservable<CustomEscapeStore, 'subscriptions' | 'ring'>(this, {
+      subscriptions: observable.shallow,
+      ring: observable.shallow,
+    });
   }
 
   addSubscription(sub: CustomEscapeSubscription): void {
@@ -89,16 +92,7 @@ export class CustomEscapeStore {
     const start = (this.head - this.length + CAPACITY) % CAPACITY;
     for (let i = 0; i < this.length; i++) {
       const e = this.ring[(start + i) % CAPACITY];
-      if (e) {
-        entries.push({
-          seq: e.seq,
-          at: e.at,
-          subscriptionId: e.subscriptionId,
-          sessionId: e.sessionId,
-          identity: e.identity,
-          payload: e.payload,
-        });
-      }
+      if (e) entries.push(e);
     }
     return { subscriptions: subs, entries, totalSeen: this.totalSeen, capacity: CAPACITY };
   }

@@ -7,12 +7,15 @@ export interface LayoutSnapshot {
 }
 
 export class LayoutStore {
-  @observable.ref windows: AppWindow[] = [];
-  @observable.ref buriedSessions: AppSession[] = [];
+  windows: AppWindow[] = [];
+  buriedSessions: AppSession[] = [];
   lastUpdatedAt = 0;
 
   constructor() {
-    makeAutoObservable(this);
+    makeAutoObservable(this, {
+      windows: observable.ref,
+      buriedSessions: observable.ref,
+    });
   }
 
   apply(layout: AppLayout): void {

@@ -14,7 +14,7 @@ const DEFAULT_CAPACITY = 2000;
 
 export class NotificationHub {
   private readonly capacity: number;
-  @observable.shallow private ring: (AppNotificationEntry | undefined)[];
+  private ring: (AppNotificationEntry | undefined)[];
   private head = 0;
   private length = 0;
   private nextSeq = 1;
@@ -23,7 +23,9 @@ export class NotificationHub {
   constructor(capacity = DEFAULT_CAPACITY) {
     this.capacity = capacity;
     this.ring = new Array<AppNotificationEntry | undefined>(capacity);
-    makeAutoObservable(this);
+    makeAutoObservable<NotificationHub, 'ring'>(this, {
+      ring: observable.shallow,
+    });
   }
 
   record(classified: { kind: AppNotificationKind; sessionId: string | null; summary: string; payload: Record<string, unknown> }): AppNotificationEntry {

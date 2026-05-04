@@ -14,7 +14,7 @@ const DEFAULT_CAPACITY = 500;
 
 export class FocusLogStore {
   private readonly capacity: number;
-  @observable.shallow private ring: (AppFocusEntry | undefined)[];
+  private ring: (AppFocusEntry | undefined)[];
   private head = 0;
   private length = 0;
   private nextSeq = 1;
@@ -23,7 +23,9 @@ export class FocusLogStore {
   constructor(capacity = DEFAULT_CAPACITY) {
     this.capacity = capacity;
     this.ring = new Array<AppFocusEntry | undefined>(capacity);
-    makeAutoObservable(this);
+    makeAutoObservable<FocusLogStore, 'ring'>(this, {
+      ring: observable.shallow,
+    });
   }
 
   record(entry: Omit<AppFocusEntry, 'seq' | 'at'>): AppFocusEntry {

@@ -14,7 +14,7 @@ const DEFAULT_CAPACITY = 2000;
 
 export class PromptLogStore {
   private readonly capacity: number;
-  @observable.shallow private ring: (AppPromptEntry | undefined)[];
+  private ring: (AppPromptEntry | undefined)[];
   private head = 0;
   private length = 0;
   private nextSeq = 1;
@@ -23,7 +23,9 @@ export class PromptLogStore {
   constructor(capacity = DEFAULT_CAPACITY) {
     this.capacity = capacity;
     this.ring = new Array<AppPromptEntry | undefined>(capacity);
-    makeAutoObservable(this);
+    makeAutoObservable<PromptLogStore, 'ring'>(this, {
+      ring: observable.shallow,
+    });
   }
 
   record(entry: Omit<AppPromptEntry, 'seq' | 'at'> | null): AppPromptEntry | null {

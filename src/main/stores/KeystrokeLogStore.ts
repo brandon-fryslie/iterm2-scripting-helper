@@ -15,7 +15,7 @@ const DEFAULT_CAPACITY = 2000;
 
 export class KeystrokeLogStore {
   private readonly capacity: number;
-  @observable.shallow private ring: (AppKeystrokeEntry | undefined)[];
+  private ring: (AppKeystrokeEntry | undefined)[];
   private head = 0;
   private length = 0;
   private nextSeq = 1;
@@ -25,7 +25,9 @@ export class KeystrokeLogStore {
   constructor(capacity = DEFAULT_CAPACITY) {
     this.capacity = capacity;
     this.ring = new Array<AppKeystrokeEntry | undefined>(capacity);
-    makeAutoObservable(this);
+    makeAutoObservable<KeystrokeLogStore, 'ring'>(this, {
+      ring: observable.shallow,
+    });
   }
 
   setAdvanced(advanced: boolean): void {

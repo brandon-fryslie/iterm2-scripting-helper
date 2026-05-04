@@ -11,11 +11,13 @@ export interface VariableSnapshot {
 
 export class VariableStore {
   focusedSessionId: string | null = null;
-  @observable.shallow private readonly bySession = new Map<string, Map<string, AppVariableEntry>>();
+  private readonly bySession = new Map<string, Map<string, AppVariableEntry>>();
   private readonly liveNames = new Set<string>();
 
   constructor() {
-    makeAutoObservable(this);
+    makeAutoObservable<VariableStore, 'bySession'>(this, {
+      bySession: observable.shallow,
+    });
   }
 
   setFocused(sessionId: string | null): void {

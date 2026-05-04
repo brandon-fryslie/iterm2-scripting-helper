@@ -22,10 +22,12 @@ const EMPTY: ScreenBuffer = {
 };
 
 export class ScreenStreamStore {
-  @observable.ref buffer: ScreenBuffer = EMPTY;
+  buffer: ScreenBuffer = EMPTY;
 
   constructor() {
-    makeAutoObservable(this);
+    makeAutoObservable(this, {
+      buffer: observable.ref,
+    });
   }
 
   setFocused(sessionId: string | null): void {
