@@ -86,6 +86,12 @@ const XTermScreen = observer(function XTermScreen() {
     const observer = new ResizeObserver(() => fitAddon.fit());
     observer.observe(container);
 
+    const dataDisposable = term.onData((data) => {
+      const sessionId = monitor.focusSessionId;
+      if (!sessionId) return;
+      void window.ipc.invoke('actions/send-text', { sessionId, text: data });
+    });
+
     const dispose = autorun(() => {
       const snap = monitor.screen;
       if (!snap.lines || snap.lines.length === 0) return;
@@ -96,6 +102,7 @@ const XTermScreen = observer(function XTermScreen() {
 
     return () => {
       dispose();
+      dataDisposable.dispose();
       observer.disconnect();
       term.dispose();
     };
