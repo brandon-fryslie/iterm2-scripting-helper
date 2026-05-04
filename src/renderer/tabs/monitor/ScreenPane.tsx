@@ -70,10 +70,10 @@ const XTermScreen = observer(function XTermScreen() {
       scrollback: 1000,
       cursorBlink: true,
       theme: {
-        background: '#0b1120',
-        foreground: '#e5e5e5',
-        cursor: '#e5e5e5',
-        selectionBackground: '#404040',
+        background: '#0d1117',
+        foreground: '#e6edf3',
+        cursor: '#58a6ff',
+        selectionBackground: '#264f78',
       },
     });
 
