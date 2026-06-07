@@ -1,14 +1,8 @@
-import { test, expect, _electron as electron } from '@playwright/test';
-import path from 'node:path';
-
-const repoRoot = path.resolve(__dirname, '..');
-const mainEntry = path.join(repoRoot, '.vite/build/main.js');
+import { test, expect } from '@playwright/test';
+import { launchApp } from './launch-app';
 
 test('four-tab shell renders placeholders and IPC ping round-trips', async () => {
-  const app = await electron.launch({
-    args: [mainEntry],
-    cwd: repoRoot,
-  });
+  const app = await launchApp();
   const win = await app.firstWindow();
 
   for (const id of ['monitor', 'workbench', 'console', 'settings']) {

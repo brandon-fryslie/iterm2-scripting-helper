@@ -119,6 +119,37 @@ export function isSessionEntity(entity: AppEntityRef): entity is AppEntitySessio
   return entity.kind === 'session';
 }
 
+// [LAW:single-enforcer] The layout graph is the authority for focus ref validity.
+export function appEntityExistsInLayout(
+  layout: Pick<AppLayout, 'windows'>,
+  entity: AppEntityRef,
+): boolean {
+  switch (entity.kind) {
+    case 'app':
+      return true;
+    case 'window':
+      return layout.windows.some((window) => window.windowId === entity.windowId);
+    case 'tab':
+      return layout.windows.some(
+        (window) =>
+          window.windowId === entity.windowId &&
+          window.tabs.some((tab) => tab.tabId === entity.tabId),
+      );
+    case 'session':
+      return layout.windows.some(
+        (window) =>
+          window.windowId === entity.windowId &&
+          window.tabs.some(
+            (tab) =>
+              tab.tabId === entity.tabId &&
+              flatSessions(tab).some(
+                (session) => session.sessionId === entity.sessionId,
+              ),
+          ),
+      );
+  }
+}
+
 export interface AppCellStyleRun {
   fg: string | null;
   bg: string | null;

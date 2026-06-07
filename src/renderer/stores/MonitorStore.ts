@@ -60,13 +60,18 @@ export class MonitorStore {
   wireDirectionFilter: 'all' | 'out' | 'in' = 'all';
   activeEventTab: ActiveEventTab = 'keystrokes';
   mirrorsHydrated = false;
+  private readonly onLayoutApplied: () => void;
 
-  constructor() {
-    makeAutoObservable(this);
+  constructor(onLayoutApplied: () => void = () => undefined) {
+    this.onLayoutApplied = onLayoutApplied;
+    makeAutoObservable<MonitorStore, 'onLayoutApplied'>(this, {
+      onLayoutApplied: false,
+    });
   }
 
   applyLayout(snap: LayoutSnapshot): void {
     this.layout = snap;
+    this.onLayoutApplied();
   }
 
   applyVariables(snap: VariableSnapshot): void {
@@ -146,6 +151,7 @@ export class MonitorStore {
       this.screen = screen;
       this.mirrorsHydrated = true;
     });
+    this.onLayoutApplied();
   }
 
   async loadSessionFocus(sessionId: string | null): Promise<string | null> {

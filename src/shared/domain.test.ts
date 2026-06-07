@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
+  APP_ENTITY,
+  appEntityExistsInLayout,
   appEntityKey,
   flatSessions,
   isSessionEntity,
@@ -58,5 +60,29 @@ describe('entity focus refs', () => {
     expect(appEntityKey(sessionEntityRef(window, tab, flatSessions(tab)[0]))).toBe(
       'session:window-1:tab-1:session-1',
     );
+  });
+
+  it('validates entity refs against the layout graph', () => {
+    expect(appEntityExistsInLayout({ windows: [window] }, APP_ENTITY)).toBe(true);
+    expect(appEntityExistsInLayout({ windows: [window] }, windowEntityRef(window))).toBe(
+      true,
+    );
+    expect(appEntityExistsInLayout({ windows: [window] }, tabEntityRef(window, tab))).toBe(
+      true,
+    );
+    expect(
+      appEntityExistsInLayout(
+        { windows: [window] },
+        sessionEntityRef(window, tab, flatSessions(tab)[0]),
+      ),
+    ).toBe(true);
+    expect(
+      appEntityExistsInLayout({ windows: [window] }, {
+        kind: 'session',
+        windowId: 'window-1',
+        tabId: 'tab-1',
+        sessionId: 'gone',
+      }),
+    ).toBe(false);
   });
 });

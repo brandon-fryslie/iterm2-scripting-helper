@@ -4,7 +4,11 @@ import { MonitorStore } from './MonitorStore';
 import { ConsoleStore } from './ConsoleStore';
 import { WorkbenchStore } from './WorkbenchStore';
 import { EntityFocusStore } from './EntityFocusStore';
-import { APP_ENTITY, type AppEntityRef } from '@shared/domain';
+import {
+  APP_ENTITY,
+  appEntityExistsInLayout,
+  type AppEntityRef,
+} from '@shared/domain';
 
 export class RootStore {
   readonly connection: ConnectionStore;
@@ -17,7 +21,7 @@ export class RootStore {
   constructor() {
     this.connection = new ConnectionStore();
     this.entityFocus = new EntityFocusStore();
-    this.monitor = new MonitorStore();
+    this.monitor = new MonitorStore(() => this.reconcileEntityFocusWithLayout());
     this.console = new ConsoleStore(this.entityFocus);
     this.workbench = new WorkbenchStore();
     makeAutoObservable(this, {
@@ -31,16 +35,25 @@ export class RootStore {
 
   async selectEntityFocus(entity: AppEntityRef): Promise<void> {
     const seq = ++this.focusRequestSeq;
-    this.entityFocus.select(entity);
+    this.entityFocus.select(this.validEntityOrApp(entity));
     const requestedSessionId = this.entityFocus.sessionId;
-    const loadedSessionId = await this.monitor.loadSessionFocus(requestedSessionId);
+    await this.monitor.loadSessionFocus(requestedSessionId);
     if (seq !== this.focusRequestSeq) {
-      await this.monitor.loadSessionFocus(this.entityFocus.sessionId);
       return;
     }
-    if (loadedSessionId !== requestedSessionId) {
-      this.entityFocus.select(APP_ENTITY);
-      await this.monitor.loadSessionFocus(null);
+    this.reconcileEntityFocusWithLayout();
+  }
+
+  private validEntityOrApp(entity: AppEntityRef): AppEntityRef {
+    return appEntityExistsInLayout(this.monitor.layout, entity) ? entity : APP_ENTITY;
+  }
+
+  private reconcileEntityFocusWithLayout(): void {
+    if (appEntityExistsInLayout(this.monitor.layout, this.entityFocus.selected)) {
+      return;
     }
+    this.focusRequestSeq++;
+    this.entityFocus.select(APP_ENTITY);
+    void this.monitor.loadSessionFocus(null);
   }
 }

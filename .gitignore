@@ -90,6 +90,9 @@ typings/
 
 # Electron-Forge
 out/
+.electron-cache/
+.electron-runtime/
+.electron-executable-path
 
 # Playwright
 test-results/
