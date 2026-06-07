@@ -19,10 +19,10 @@ const KIND_FILTERS: Array<'all' | NotificationKind> = [
 ];
 
 export const NotificationsPane = observer(function NotificationsPane() {
-  const { monitor } = useStore();
-  const entries = monitor.filteredNotifications;
+  const { entityFocus, monitor } = useStore();
+  const focused = entityFocus.sessionId;
+  const entries = monitor.filteredNotifications(focused);
   const total = monitor.notifications.totalSeen;
-  const focused = monitor.focusSessionId;
 
   return (
     <div className="flex h-full flex-col" data-testid="notifications-pane">

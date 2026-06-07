@@ -4,9 +4,9 @@ import { Badge } from '@/components/ui/badge';
 import { useStore } from '@/stores/context';
 
 export const KeystrokesPane = observer(function KeystrokesPane() {
-  const { monitor } = useStore();
+  const { entityFocus, monitor } = useStore();
   const { entries, advanced, totalSeen } = monitor.keystrokes;
-  const sessionFilter = monitor.focusSessionId;
+  const sessionFilter = entityFocus.sessionId;
   const visible = sessionFilter
     ? entries.filter((e) => e.sessionId === sessionFilter)
     : entries;

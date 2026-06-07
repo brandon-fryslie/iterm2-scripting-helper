@@ -1,9 +1,3 @@
-// Canonical in-app types mirroring the iTerm2 protobuf API.
-// Every protobuf message has exactly one corresponding canonical type here.
-// These types are JSON-serializable (they cross IPC) and contain no protobuf imports.
-
-// --- Geometry (from Frame, Size, Point) ---
-
 export interface AppPoint {
   x: number;
   y: number;
@@ -18,8 +12,6 @@ export interface AppFrame {
   origin: AppPoint | null;
   size: AppSize | null;
 }
-
-// --- Layout (from ListSessionsResponse) ---
 
 export interface AppSession {
   sessionId: string;
@@ -57,7 +49,75 @@ export interface AppLayout {
   buriedSessions: AppSession[];
 }
 
-// --- Screen (from GetBufferResponse, CellStyle, LineContents) ---
+export type AppEntityKind = 'app' | 'window' | 'tab' | 'session';
+
+export interface AppEntityAppRef {
+  kind: 'app';
+}
+
+export interface AppEntityWindowRef {
+  kind: 'window';
+  windowId: string;
+}
+
+export interface AppEntityTabRef {
+  kind: 'tab';
+  windowId: string;
+  tabId: string;
+}
+
+export interface AppEntitySessionRef {
+  kind: 'session';
+  windowId: string;
+  tabId: string;
+  sessionId: string;
+}
+
+export type AppEntityRef =
+  | AppEntityAppRef
+  | AppEntityWindowRef
+  | AppEntityTabRef
+  | AppEntitySessionRef;
+
+export const APP_ENTITY: AppEntityAppRef = { kind: 'app' };
+
+export function windowEntityRef(window: AppWindow): AppEntityWindowRef {
+  return { kind: 'window', windowId: window.windowId };
+}
+
+export function tabEntityRef(window: AppWindow, tab: AppTab): AppEntityTabRef {
+  return { kind: 'tab', windowId: window.windowId, tabId: tab.tabId };
+}
+
+export function sessionEntityRef(
+  window: AppWindow,
+  tab: AppTab,
+  session: AppSession,
+): AppEntitySessionRef {
+  return {
+    kind: 'session',
+    windowId: window.windowId,
+    tabId: tab.tabId,
+    sessionId: session.sessionId,
+  };
+}
+
+export function appEntityKey(entity: AppEntityRef): string {
+  switch (entity.kind) {
+    case 'app':
+      return 'app';
+    case 'window':
+      return `window:${entity.windowId}`;
+    case 'tab':
+      return `tab:${entity.windowId}:${entity.tabId}`;
+    case 'session':
+      return `session:${entity.windowId}:${entity.tabId}:${entity.sessionId}`;
+  }
+}
+
+export function isSessionEntity(entity: AppEntityRef): entity is AppEntitySessionRef {
+  return entity.kind === 'session';
+}
 
 export interface AppCellStyleRun {
   fg: string | null;
@@ -84,8 +144,6 @@ export interface AppLine {
   continuation: AppLineContinuation;
 }
 
-// --- Keystroke (from KeystrokeNotification) ---
-
 export type AppKeystrokeAction = 'key-down' | 'key-up' | 'flags-changed';
 export type AppKeystrokeModifier =
   | 'control'
@@ -106,8 +164,6 @@ export interface AppKeystrokeEntry {
   action: AppKeystrokeAction;
 }
 
-// --- Prompt (from PromptNotification) ---
-
 export type AppPromptEventKind = 'prompt' | 'command-start' | 'command-end';
 
 export interface AppPromptEntry {
@@ -121,8 +177,6 @@ export interface AppPromptEntry {
   placeholder: string | null;
   workingDirectory: string | null;
 }
-
-// --- Focus (from FocusChangedNotification) ---
 
 export type AppFocusEventKind =
   | 'app-active'
@@ -143,8 +197,6 @@ export interface AppFocusEntry {
   windowId: string | null;
   windowStatus: AppWindowStatus | null;
 }
-
-// --- Notification (from Notification) ---
 
 export type AppNotificationKind =
   | 'keystroke'
@@ -171,9 +223,7 @@ export interface AppNotificationEntry {
   payload: Record<string, unknown> | null;
 }
 
-// --- Variable (from VariableChangedNotification) ---
-
-export type AppVariableScope = 'session' | 'tab' | 'window' | 'app';
+export type AppVariableScope = AppEntityKind;
 
 export interface AppVariableEntry {
   name: string;
@@ -183,9 +233,6 @@ export interface AppVariableEntry {
   scope: AppVariableScope;
 }
 
-// --- Utilities ---
-
-/** Flatten a tab's split tree into a flat session list. */
 export function flatSessions(tab: AppTab): AppSession[] {
   if (!tab.root) return [];
   const out: AppSession[] = [];

@@ -4,8 +4,8 @@ import { useStore } from '@/stores/context';
 import { cn } from '@/lib/utils';
 
 export const PromptsPane = observer(function PromptsPane() {
-  const { monitor } = useStore();
-  const sessionFilter = monitor.focusSessionId;
+  const { entityFocus, monitor } = useStore();
+  const sessionFilter = entityFocus.sessionId;
   const entries = sessionFilter
     ? monitor.prompts.entries.filter((e) => e.sessionId === sessionFilter)
     : monitor.prompts.entries;

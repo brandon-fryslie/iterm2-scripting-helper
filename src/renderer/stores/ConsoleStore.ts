@@ -1,5 +1,6 @@
 import { makeAutoObservable, runInAction } from 'mobx';
 import type { ActionResult, RpcMethod, RpcArgs } from '@shared/rpc';
+import type { EntityFocusStore } from './EntityFocusStore';
 
 export type ActionKind =
   | 'send-text'
@@ -88,24 +89,25 @@ const DEFAULT_FORMS: ActionForms = {
 
 export class ConsoleStore {
   selectedAction: ActionKind = 'send-text';
-  focusedSessionId = '';
   forms: ActionForms;
   transcript: TranscriptEntry[] = [];
   snippets: Snippet[] = [];
   private nextEntryId = 1;
   private nextSnippetId = 1;
+  private readonly entityFocus: EntityFocusStore;
 
-  constructor() {
+  constructor(entityFocus: EntityFocusStore) {
+    this.entityFocus = entityFocus;
     this.forms = structuredClone(DEFAULT_FORMS);
-    makeAutoObservable(this);
+    makeAutoObservable<ConsoleStore, 'entityFocus'>(this, { entityFocus: false });
   }
 
   setAction(action: ActionKind): void {
     this.selectedAction = action;
   }
 
-  setFocusedSessionId(id: string): void {
-    this.focusedSessionId = id;
+  get focusedSessionId(): string {
+    return this.entityFocus.sessionId ?? '';
   }
 
   updateForm<K extends ActionKind>(action: K, patch: Partial<ActionForms[K]>): void {
