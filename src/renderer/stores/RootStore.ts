@@ -12,6 +12,7 @@ export class RootStore {
   readonly monitor: MonitorStore;
   readonly console: ConsoleStore;
   readonly workbench: WorkbenchStore;
+  private focusRequestSeq = 0;
 
   constructor() {
     this.connection = new ConnectionStore();
@@ -29,10 +30,17 @@ export class RootStore {
   }
 
   async selectEntityFocus(entity: AppEntityRef): Promise<void> {
+    const seq = ++this.focusRequestSeq;
     this.entityFocus.select(entity);
-    const loadedSessionId = await this.monitor.loadSessionFocus(this.entityFocus.sessionId);
-    if (loadedSessionId !== this.entityFocus.sessionId) {
+    const requestedSessionId = this.entityFocus.sessionId;
+    const loadedSessionId = await this.monitor.loadSessionFocus(requestedSessionId);
+    if (seq !== this.focusRequestSeq) {
+      await this.monitor.loadSessionFocus(this.entityFocus.sessionId);
+      return;
+    }
+    if (loadedSessionId !== requestedSessionId) {
       this.entityFocus.select(APP_ENTITY);
+      await this.monitor.loadSessionFocus(null);
     }
   }
 }
