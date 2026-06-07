@@ -9,25 +9,28 @@ const ensureElectronInstallScript = path.join(
   repoRoot,
   'scripts/ensure-electron-install.cjs',
 );
+const playwrightElectronLoader = path.join(
+  path.dirname(require.resolve('playwright-core/package.json')),
+  'lib/server/electron/loader.js',
+);
 
 export function launchApp() {
   const executablePath = resolveElectronExecutablePath();
 
   return electron.launch({
-    ...(executablePath ? { executablePath } : {}),
-    args: [mainEntry],
+    executablePath,
+    args: ['-r', playwrightElectronLoader, mainEntry],
     cwd: repoRoot,
   });
 }
 
-function resolveElectronExecutablePath(): string | null {
+function resolveElectronExecutablePath(): string {
   const configured = process.env.ELECTRON_EXECUTABLE_PATH;
   if (configured) return configured;
 
   // [LAW:single-enforcer] Electron binary repair stays owned by the verifier script.
-  execFileSync(process.execPath, [ensureElectronInstallScript], {
+  return execFileSync(process.execPath, [ensureElectronInstallScript], {
     cwd: repoRoot,
-    stdio: 'pipe',
-  });
-  return null;
+    encoding: 'utf8',
+  }).trim();
 }
