@@ -63,6 +63,10 @@ async function resolveElectronExecutablePath() {
   await installRuntimeElectron();
 
   if (isUsableElectronExecutable(runtimeExecutablePath)) {
+    fs.writeFileSync(
+      electronPathFile,
+      path.relative(electronDistDir, runtimeExecutablePath),
+    );
     return runtimeExecutablePath;
   }
 
