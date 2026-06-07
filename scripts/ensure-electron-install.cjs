@@ -48,27 +48,38 @@ async function main() {
 }
 
 async function resolveElectronExecutablePath() {
-  if (fs.existsSync(packageExecutablePath)) {
+  if (isUsableElectronExecutable(packageExecutablePath)) {
     fs.writeFileSync(electronPathFile, relativeExecutablePath);
     return packageExecutablePath;
   }
 
   runElectronInstaller();
 
-  if (fs.existsSync(packageExecutablePath)) {
+  if (isUsableElectronExecutable(packageExecutablePath)) {
     fs.writeFileSync(electronPathFile, relativeExecutablePath);
     return packageExecutablePath;
   }
 
   await installRuntimeElectron();
 
-  if (fs.existsSync(runtimeExecutablePath)) {
+  if (isUsableElectronExecutable(runtimeExecutablePath)) {
     return runtimeExecutablePath;
   }
 
   throw new Error(
     `Electron binary missing after install: ${packageExecutablePath}`,
   );
+}
+
+function isUsableElectronExecutable(executablePath) {
+  if (!fs.existsSync(executablePath)) return false;
+
+  const result = spawnSync(executablePath, ['--version'], {
+    encoding: 'utf8',
+    timeout: 10_000,
+  });
+
+  return result.status === 0;
 }
 
 function runElectronInstaller() {
