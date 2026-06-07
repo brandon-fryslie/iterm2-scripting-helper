@@ -55,6 +55,7 @@ import type {
   RegistrationSpec,
 } from '../stores/RegistrationStore';
 import type { CustomEscapeStore } from '../stores/CustomEscapeStore';
+import type { AppEntityRef } from '@shared/domain';
 
 export const DEFAULT_SOCKET_PATH = path.join(
   os.homedir(),
@@ -222,7 +223,7 @@ export class ConnectionOrchestrator extends EventEmitter {
 
     try {
       const dump = await this.fetchAllVariablesForSession(sessionId);
-      this.monitor.variables.applyDump(sessionId, dump);
+      this.monitor.variables.applyDump(sessionVariableEntity(sessionId), dump);
     } catch (err) {
       this.emit('error', err);
     }
@@ -234,6 +235,18 @@ export class ConnectionOrchestrator extends EventEmitter {
 
     await this.subscribeSessionScoped(sessionId);
     await this.fetchScreenBuffer(sessionId).catch(() => void 0);
+  }
+
+  async setFocusedVariables(entity: AppEntityRef): Promise<void> {
+    this.monitor.variables.setFocusedEntity(entity);
+    if (this.protocol.getState() !== 'ready') return;
+
+    try {
+      const dump = await this.fetchAllVariablesForEntity(entity);
+      this.monitor.variables.applyDump(entity, dump);
+    } catch (err) {
+      this.emit('error', err);
+    }
   }
 
   async setKeystrokeAdvanced(advanced: boolean): Promise<void> {
@@ -507,8 +520,14 @@ export class ConnectionOrchestrator extends EventEmitter {
   private async fetchAllVariablesForSession(
     sessionId: string,
   ): Promise<Record<string, unknown>> {
+    return this.fetchAllVariablesForEntity(sessionVariableEntity(sessionId));
+  }
+
+  private async fetchAllVariablesForEntity(
+    entity: AppEntityRef,
+  ): Promise<Record<string, unknown>> {
     const req = create(VariableRequestSchema, {
-      scope: { case: 'sessionId', value: sessionId },
+      scope: variableRequestScope(entity),
       get: ['*'],
     });
     const response = await this.protocol.send({
@@ -758,4 +777,32 @@ function errString(err: unknown): string {
   if (err instanceof AppleScriptError || err instanceof ProtocolError) return err.message;
   if (err instanceof Error) return err.message;
   return String(err);
+}
+
+function variableRequestScope(entity: AppEntityRef):
+  | { case: 'app'; value: boolean }
+  | { case: 'windowId'; value: string }
+  | { case: 'tabId'; value: string }
+  | { case: 'sessionId'; value: string } {
+  // [LAW:types-are-the-program] Variable focus and request scope share one discriminated entity shape.
+  switch (entity.kind) {
+    case 'app':
+      return { case: 'app', value: true };
+    case 'window':
+      return { case: 'windowId', value: entity.windowId };
+    case 'tab':
+      return { case: 'tabId', value: entity.tabId };
+    case 'session':
+      return { case: 'sessionId', value: entity.sessionId };
+  }
+}
+
+function sessionVariableEntity(sessionId: string): AppEntityRef {
+  // [LAW:single-enforcer] Session variable snapshots are keyed by protocol session identity.
+  return {
+    kind: 'session',
+    windowId: '',
+    tabId: '',
+    sessionId,
+  };
 }

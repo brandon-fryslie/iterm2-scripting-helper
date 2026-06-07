@@ -36,8 +36,12 @@ export class RootStore {
   async selectEntityFocus(entity: AppEntityRef): Promise<void> {
     const seq = ++this.focusRequestSeq;
     this.entityFocus.select(this.validEntityOrApp(entity));
+    const selectedEntity = this.entityFocus.selected;
     const requestedSessionId = this.entityFocus.sessionId;
-    await this.monitor.loadSessionFocus(requestedSessionId);
+    await Promise.all([
+      this.monitor.loadSessionFocus(requestedSessionId),
+      this.monitor.loadVariableFocus(selectedEntity),
+    ]);
     if (seq !== this.focusRequestSeq) {
       return;
     }
@@ -54,6 +58,9 @@ export class RootStore {
     }
     this.focusRequestSeq++;
     this.entityFocus.select(APP_ENTITY);
-    void this.monitor.loadSessionFocus(null);
+    void Promise.all([
+      this.monitor.loadSessionFocus(null),
+      this.monitor.loadVariableFocus(APP_ENTITY),
+    ]);
   }
 }

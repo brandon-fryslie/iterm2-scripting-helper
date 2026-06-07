@@ -1,4 +1,5 @@
 import type {
+  AppEntityRef,
   AppLayout,
   AppWindow,
   AppSession,
@@ -19,6 +20,7 @@ import type {
 } from './domain';
 
 export type {
+  AppEntityRef,
   AppLayout,
   AppWindow,
   AppSession,
@@ -80,7 +82,7 @@ export interface WireFrameEvent {
 }
 
 export interface VariableSnapshot {
-  sessionId: string | null;
+  entity: AppEntityRef;
   variables: AppVariableEntry[];
 }
 
@@ -313,6 +315,10 @@ export type RpcSchema = {
   'monitor/focus-session': {
     args: { sessionId: string | null };
     result: { focusedSessionId: string | null };
+  };
+  'monitor/focus-variables': {
+    args: { entity: AppEntityRef };
+    result: VariableSnapshot;
   };
   'monitor/keystrokes': {
     args: void;

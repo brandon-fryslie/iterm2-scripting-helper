@@ -254,11 +254,12 @@ export interface AppNotificationEntry {
   payload: Record<string, unknown> | null;
 }
 
-export type AppVariableScope = AppEntityKind;
+export type AppVariableScope = 'app' | 'window' | 'tab' | 'session' | 'user';
 
 export interface AppVariableEntry {
   name: string;
   value: string;
+  previousValue: string | null;
   live: boolean;
   updatedAt: number;
   scope: AppVariableScope;

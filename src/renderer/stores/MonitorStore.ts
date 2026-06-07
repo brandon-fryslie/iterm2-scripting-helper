@@ -1,5 +1,6 @@
 import { makeAutoObservable, runInAction } from 'mobx';
 import type {
+  AppEntityRef,
   LayoutSnapshot,
   VariableSnapshot,
   WireLogSnapshot,
@@ -10,9 +11,10 @@ import type {
   FocusLogSnapshot,
   ScreenSnapshot,
 } from '@shared/rpc';
+import { APP_ENTITY } from '@shared/domain';
 
 const EMPTY_LAYOUT: LayoutSnapshot = { windows: [], lastUpdatedAt: 0 };
-const EMPTY_VARIABLES: VariableSnapshot = { sessionId: null, variables: [] };
+const EMPTY_VARIABLES: VariableSnapshot = { entity: APP_ENTITY, variables: [] };
 const EMPTY_WIRE: WireLogSnapshot = { entries: [], totalSeen: 0, capacity: 0 };
 const EMPTY_NOTIFICATIONS: NotificationLogSnapshot = {
   entries: [],
@@ -159,6 +161,11 @@ export class MonitorStore {
       sessionId,
     });
     return focusedSessionId;
+  }
+
+  async loadVariableFocus(entity: AppEntityRef): Promise<void> {
+    const snap = await window.ipc.invoke('monitor/focus-variables', { entity });
+    runInAction(() => this.applyVariables(snap));
   }
 
   async setKeystrokeAdvanced(advanced: boolean): Promise<void> {

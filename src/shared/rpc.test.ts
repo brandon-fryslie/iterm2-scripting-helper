@@ -21,6 +21,7 @@ describe('RpcSchema', () => {
       | 'monitor/wire-log'
       | 'monitor/notifications'
       | 'monitor/focus-session'
+      | 'monitor/focus-variables'
       | 'monitor/keystrokes'
       | 'monitor/prompts'
       | 'monitor/focus-log'
@@ -73,6 +74,24 @@ describe('RpcSchema', () => {
   it('monitor/focus-session takes a sessionId', () => {
     expectTypeOf<RpcArgs<'monitor/focus-session'>>().toEqualTypeOf<{
       sessionId: string | null;
+    }>();
+  });
+
+  it('monitor/focus-variables takes an entity focus', () => {
+    expectTypeOf<RpcArgs<'monitor/focus-variables'>>().toEqualTypeOf<{
+      entity: { kind: 'app' } | {
+        kind: 'window';
+        windowId: string;
+      } | {
+        kind: 'tab';
+        windowId: string;
+        tabId: string;
+      } | {
+        kind: 'session';
+        windowId: string;
+        tabId: string;
+        sessionId: string;
+      };
     }>();
   });
 

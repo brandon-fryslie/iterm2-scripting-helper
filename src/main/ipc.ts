@@ -118,6 +118,10 @@ export function registerIpc(
       await orchestrator.setFocusedSession(sessionId);
       return { focusedSessionId: monitor.variables.focusedSessionId };
     },
+    'monitor/focus-variables': async ({ entity }) => {
+      await orchestrator.setFocusedVariables(entity);
+      return monitor.variables.snapshot();
+    },
     'monitor/keystrokes': async () => monitor.keystrokes.snapshot(),
     'monitor/prompts': async () => monitor.prompts.snapshot(),
     'monitor/focus-log': async () => monitor.focus.snapshot(),
