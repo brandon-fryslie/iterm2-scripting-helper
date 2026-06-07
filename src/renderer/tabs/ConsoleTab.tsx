@@ -6,7 +6,7 @@ import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
 import { Separator } from '@/components/ui/separator';
 import { useStore } from '@/stores/context';
-import { SessionPicker } from './console/SessionPicker';
+import { FocusTarget } from './console/FocusTarget';
 import type { ActionKind } from '@/stores/ConsoleStore';
 import {
   SendTextForm,
@@ -55,7 +55,7 @@ export const ConsoleTab = observer(function ConsoleTab() {
 
   return (
     <div className="grid gap-4" data-testid="tab-console-placeholder">
-      <SessionPicker />
+      <FocusTarget />
 
       <Card>
         <CardHeader className="flex flex-row items-center justify-between gap-2 pb-2">

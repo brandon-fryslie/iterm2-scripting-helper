@@ -47,7 +47,7 @@ export const SendTextForm = observer(function SendTextForm() {
       <Field label="Session override">
         <Input
           value={f.sessionId}
-          placeholder={c.focusedSessionId || '(use picker above)'}
+          placeholder={c.focusedSessionId || '(select a session)'}
           onChange={(e) => c.updateForm('send-text', { sessionId: e.target.value })}
           data-testid="send-text-session-input"
         />
@@ -80,7 +80,7 @@ export const InjectForm = observer(function InjectForm() {
       <Field label="Session override">
         <Input
           value={f.sessionId}
-          placeholder={c.focusedSessionId || '(use picker above)'}
+          placeholder={c.focusedSessionId || '(select a session)'}
           onChange={(e) => c.updateForm('inject', { sessionId: e.target.value })}
         />
       </Field>
@@ -125,7 +125,7 @@ export const ActivateForm = observer(function ActivateForm() {
           <Input
             value={f.id}
             placeholder={
-              f.kind === 'session' ? c.focusedSessionId || '(picker)' : ''
+              f.kind === 'session' ? c.focusedSessionId || '(selected session)' : ''
             }
             onChange={(e) => c.updateForm('activate', { id: e.target.value })}
             data-testid="activate-id-input"
@@ -244,7 +244,7 @@ export const RestartSessionForm = observer(function RestartSessionForm() {
       <Field label="Session override">
         <Input
           value={f.sessionId}
-          placeholder={c.focusedSessionId || '(use picker above)'}
+          placeholder={c.focusedSessionId || '(select a session)'}
           onChange={(e) =>
             c.updateForm('restart-session', { sessionId: e.target.value })
           }

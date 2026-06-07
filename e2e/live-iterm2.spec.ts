@@ -1,10 +1,9 @@
-import { test, expect, _electron as electron } from '@playwright/test';
+import { test, expect } from '@playwright/test';
 import path from 'node:path';
 import { existsSync } from 'node:fs';
 import os from 'node:os';
+import { launchApp } from './launch-app';
 
-const repoRoot = path.resolve(__dirname, '..');
-const mainEntry = path.join(repoRoot, '.vite/build/main.js');
 const socketPath = path.join(
   os.homedir(),
   'Library/Application Support/iTerm2/private/socket',
@@ -20,7 +19,7 @@ test.describe('live iTerm2', () => {
   });
 
   test('Settings: negotiates cookie + connects + list-sessions', async () => {
-    const app = await electron.launch({ args: [mainEntry], cwd: repoRoot });
+    const app = await launchApp();
     const win = await app.firstWindow();
 
     await win.getByTestId('tab-trigger-settings').click();
@@ -43,7 +42,7 @@ test.describe('live iTerm2', () => {
   });
 
   test('Monitor: layout + variables + wire + notifications cross-link on focus', async () => {
-    const app = await electron.launch({ args: [mainEntry], cwd: repoRoot });
+    const app = await launchApp();
     const win = await app.firstWindow();
 
     await win.getByTestId('tab-trigger-settings').click();
@@ -73,7 +72,7 @@ test.describe('live iTerm2', () => {
   });
 
   test('Workbench v2: status-bar registration + custom-escape subscriber round-trip', async () => {
-    const app = await electron.launch({ args: [mainEntry], cwd: repoRoot });
+    const app = await launchApp();
     const win = await app.firstWindow();
 
     await win.getByTestId('tab-trigger-settings').click();
@@ -193,7 +192,7 @@ test.describe('live iTerm2', () => {
   });
 
   test('Workbench: profile edit applies; dynamic profile round-trips; escape template emits', async () => {
-    const app = await electron.launch({ args: [mainEntry], cwd: repoRoot });
+    const app = await launchApp();
     const win = await app.firstWindow();
 
     await win.getByTestId('tab-trigger-settings').click();
@@ -296,7 +295,7 @@ test.describe('live iTerm2', () => {
   });
 
   test('Console: send text + activate + snippet re-fires', async () => {
-    const app = await electron.launch({ args: [mainEntry], cwd: repoRoot });
+    const app = await launchApp();
     const win = await app.firstWindow();
 
     await win.getByTestId('tab-trigger-settings').click();
@@ -356,7 +355,7 @@ test.describe('live iTerm2', () => {
   });
 
   test('Monitor: screen renders + keystrokes + prompts panes populate', async () => {
-    const app = await electron.launch({ args: [mainEntry], cwd: repoRoot });
+    const app = await launchApp();
     const win = await app.firstWindow();
 
     await win.getByTestId('tab-trigger-settings').click();

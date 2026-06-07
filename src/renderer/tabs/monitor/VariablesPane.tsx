@@ -3,8 +3,8 @@ import { Badge } from '@/components/ui/badge';
 import { useStore } from '@/stores/context';
 
 export const VariablesPane = observer(function VariablesPane() {
-  const { monitor } = useStore();
-  const focused = monitor.focusSessionId;
+  const { entityFocus, monitor } = useStore();
+  const focused = entityFocus.sessionId;
   const snap = monitor.variables;
 
   if (!focused) {
@@ -14,7 +14,7 @@ export const VariablesPane = observer(function VariablesPane() {
         data-testid="variables-pane"
         data-empty="true"
       >
-        Click a session in Layout to load its variable tree.
+        Select a session in Layout to load its variable tree.
       </div>
     );
   }
@@ -70,11 +70,3 @@ export const VariablesPane = observer(function VariablesPane() {
     </div>
   );
 });
-
-function EmptyHint({ children }: { children: React.ReactNode }) {
-  return (
-    <div className="flex h-full items-center justify-center p-4 text-center text-xs text-muted-foreground">
-      {children}
-    </div>
-  );
-}

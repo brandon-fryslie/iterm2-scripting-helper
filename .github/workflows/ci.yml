@@ -18,4 +18,5 @@ jobs:
           node-version: 24
           cache: pnpm
       - run: pnpm install --frozen-lockfile
+      # [LAW:verifiable-goals] PR CI runs the same full contract as local `pnpm test`.
       - run: pnpm test

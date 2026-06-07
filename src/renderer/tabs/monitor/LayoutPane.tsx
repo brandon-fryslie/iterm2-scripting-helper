@@ -1,10 +1,17 @@
 import { observer } from 'mobx-react-lite';
 import { useStore } from '@/stores/context';
 import { cn } from '@/lib/utils';
-import { flatSessions } from '@shared/domain';
+import {
+  appEntityKey,
+  flatSessions,
+  sessionEntityRef,
+  tabEntityRef,
+  windowEntityRef,
+} from '@shared/domain';
 
 export const LayoutPane = observer(function LayoutPane() {
-  const { monitor } = useStore();
+  const root = useStore();
+  const { entityFocus, monitor } = root;
   const layout = monitor.layout;
 
   if (layout.windows.length === 0) {
@@ -34,24 +41,50 @@ export const LayoutPane = observer(function LayoutPane() {
         session(s)
       </div>
       {layout.windows.map((w) => (
-        <div key={w.windowId} className="rounded border p-2">
-          <div className="font-mono text-muted-foreground">
+        <div
+          key={w.windowId}
+          className={cn(
+            'rounded border p-2',
+            entityFocus.key === appEntityKey(windowEntityRef(w)) && 'border-primary',
+          )}
+        >
+          <button
+            className="block w-full text-left font-mono text-muted-foreground"
+            onClick={() => void root.selectEntityFocus(windowEntityRef(w))}
+            data-testid={`layout-window-${w.windowId}`}
+            data-focused={
+              entityFocus.key === appEntityKey(windowEntityRef(w)) ? 'true' : 'false'
+            }
+          >
             window {w.windowId.slice(0, 8)}…
-          </div>
+          </button>
           {w.tabs.map((t) => {
             const sessions = flatSessions(t);
             const single = sessions.length === 1;
+            const tabRef = tabEntityRef(w, t);
+            const tabFocused = entityFocus.key === appEntityKey(tabRef);
             return (
               <div key={t.tabId} className={cn('mt-1', !single && 'ml-3')}>
                 {!single && (
-                  <div className="text-muted-foreground">tab {t.tabId}</div>
+                  <button
+                    className={cn(
+                      'block w-full rounded px-2 py-1 text-left font-mono text-muted-foreground hover:bg-accent',
+                      tabFocused && 'bg-accent font-semibold text-foreground',
+                    )}
+                    onClick={() => void root.selectEntityFocus(tabRef)}
+                    data-testid={`layout-tab-${t.tabId}`}
+                    data-focused={tabFocused ? 'true' : 'false'}
+                  >
+                    tab {t.tabId}
+                  </button>
                 )}
                 {sessions.map((s) => {
-                  const focused = monitor.focusSessionId === s.sessionId;
+                  const sessionRef = sessionEntityRef(w, t, s);
+                  const focused = entityFocus.key === appEntityKey(sessionRef);
                   return (
                     <button
                       key={s.sessionId}
-                      onClick={() => void monitor.focusSession(s.sessionId)}
+                      onClick={() => void root.selectEntityFocus(sessionRef)}
                       data-testid={`layout-session-${s.sessionId}`}
                       data-focused={focused ? 'true' : 'false'}
                       className={cn(

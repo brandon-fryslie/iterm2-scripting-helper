@@ -10,8 +10,8 @@ import { styledLinesToAnsi } from './screenToAnsi';
 import { Badge } from '@/components/ui/badge';
 
 export const ScreenPane = observer(function ScreenPane() {
-  const { monitor } = useStore();
-  const focused = monitor.focusSessionId;
+  const { entityFocus, monitor } = useStore();
+  const focused = entityFocus.sessionId;
   const snap = monitor.screen;
 
   if (!focused) {
@@ -21,7 +21,7 @@ export const ScreenPane = observer(function ScreenPane() {
         data-testid="screen-pane"
         data-empty="true"
       >
-        Click a session in Layout to render its screen.
+        Select a session in Layout to render its screen.
       </div>
     );
   }
@@ -56,7 +56,7 @@ export const ScreenPane = observer(function ScreenPane() {
 });
 
 const XTermScreen = observer(function XTermScreen() {
-  const { monitor } = useStore();
+  const { entityFocus, monitor } = useStore();
   const containerRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -87,7 +87,7 @@ const XTermScreen = observer(function XTermScreen() {
     observer.observe(container);
 
     const dataDisposable = term.onData((data) => {
-      const sessionId = monitor.focusSessionId;
+      const sessionId = entityFocus.sessionId;
       if (!sessionId) return;
       void window.ipc.invoke('actions/send-text', { sessionId, text: data });
     });
@@ -158,7 +158,7 @@ const XTermScreen = observer(function XTermScreen() {
       observer.disconnect();
       term.dispose();
     };
-  }, [monitor]);
+  }, [entityFocus, monitor]);
 
   return <div ref={containerRef} className="h-full w-full" />;
 });

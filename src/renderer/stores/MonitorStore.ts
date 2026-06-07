@@ -56,18 +56,22 @@ export class MonitorStore {
   prompts: PromptLogSnapshot = EMPTY_PROMPTS;
   focus: FocusLogSnapshot = EMPTY_FOCUS;
   screen: ScreenSnapshot = EMPTY_SCREEN;
-  focusSessionId: string | null = null;
   notificationKindFilter: NotificationKind | 'all' = 'all';
   wireDirectionFilter: 'all' | 'out' | 'in' = 'all';
   activeEventTab: ActiveEventTab = 'keystrokes';
   mirrorsHydrated = false;
+  private readonly onLayoutApplied: () => void;
 
-  constructor() {
-    makeAutoObservable(this);
+  constructor(onLayoutApplied: () => void = () => undefined) {
+    this.onLayoutApplied = onLayoutApplied;
+    makeAutoObservable<MonitorStore, 'onLayoutApplied'>(this, {
+      onLayoutApplied: false,
+    });
   }
 
   applyLayout(snap: LayoutSnapshot): void {
     this.layout = snap;
+    this.onLayoutApplied();
   }
 
   applyVariables(snap: VariableSnapshot): void {
@@ -98,10 +102,6 @@ export class MonitorStore {
     this.screen = snap;
   }
 
-  setFocus(sessionId: string | null): void {
-    this.focusSessionId = sessionId;
-  }
-
   setNotificationKindFilter(k: NotificationKind | 'all'): void {
     this.notificationKindFilter = k;
   }
@@ -114,9 +114,8 @@ export class MonitorStore {
     this.activeEventTab = tab;
   }
 
-  get filteredNotifications() {
+  filteredNotifications(sessionFilter: string | null) {
     const kindFilter = this.notificationKindFilter;
-    const sessionFilter = this.focusSessionId;
     return this.notifications.entries.filter((e) => {
       if (kindFilter !== 'all' && e.kind !== kindFilter) return false;
       if (sessionFilter && e.sessionId && e.sessionId !== sessionFilter) return false;
@@ -152,16 +151,14 @@ export class MonitorStore {
       this.screen = screen;
       this.mirrorsHydrated = true;
     });
+    this.onLayoutApplied();
   }
 
-  async focusSession(sessionId: string | null): Promise<void> {
-    this.setFocus(sessionId);
+  async loadSessionFocus(sessionId: string | null): Promise<string | null> {
     const { focusedSessionId } = await window.ipc.invoke('monitor/focus-session', {
       sessionId,
     });
-    runInAction(() => {
-      this.focusSessionId = focusedSessionId;
-    });
+    return focusedSessionId;
   }
 
   async setKeystrokeAdvanced(advanced: boolean): Promise<void> {
