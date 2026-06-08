@@ -188,7 +188,7 @@ export class ConnectionOrchestrator extends EventEmitter {
       });
       this.store.syncFromProtocol(this.protocol.getState(), this.protocol.getProtocolVersion());
 
-      await this.fetchInitialLayout();
+      await this.refreshLayout();
       await this.subscribeGlobalNotifications();
     } catch (err) {
       this.store.setError(errString(err));
@@ -361,7 +361,9 @@ export class ConnectionOrchestrator extends EventEmitter {
       .catch((err) => this.emit('error', err));
   }
 
-  private async fetchInitialLayout(): Promise<void> {
+  async refreshLayout(): Promise<void> {
+    if (this.protocol.getState() !== 'ready') return;
+
     const response = await this.protocol.send({
       submessage: {
         case: 'listSessionsRequest' as const,
@@ -370,6 +372,10 @@ export class ConnectionOrchestrator extends EventEmitter {
     });
     if (response.submessage.case === 'listSessionsResponse') {
       this.monitor.layout.apply(convertLayout(response.submessage.value));
+      return;
+    }
+    if (response.submessage.case === 'error') {
+      throw new ProtocolError(response.submessage.value);
     }
   }
 
