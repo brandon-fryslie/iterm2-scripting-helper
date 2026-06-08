@@ -85,4 +85,20 @@ describe('entity focus refs', () => {
       }),
     ).toBe(false);
   });
+
+  it('includes minimized sessions in the tab session list', () => {
+    expect(
+      flatSessions({
+        ...tab,
+        minimizedSessions: [
+          {
+            sessionId: 'minimized-session',
+            title: 'buried shell',
+            frame: null,
+            gridSize: null,
+          },
+        ],
+      }).map((session) => session.sessionId),
+    ).toEqual(['session-1', 'minimized-session']);
+  });
 });

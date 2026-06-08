@@ -13,7 +13,11 @@ import type {
 } from '@shared/rpc';
 import { APP_ENTITY } from '@shared/domain';
 
-const EMPTY_LAYOUT: LayoutSnapshot = { windows: [], lastUpdatedAt: 0 };
+const EMPTY_LAYOUT: LayoutSnapshot = {
+  windows: [],
+  buriedSessions: [],
+  lastUpdatedAt: 0,
+};
 const EMPTY_VARIABLES: VariableSnapshot = { entity: APP_ENTITY, variables: [] };
 const EMPTY_WIRE: WireLogSnapshot = { entries: [], totalSeen: 0, capacity: 0 };
 const EMPTY_NOTIFICATIONS: NotificationLogSnapshot = {

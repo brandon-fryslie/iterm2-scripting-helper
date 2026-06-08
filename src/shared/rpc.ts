@@ -44,6 +44,7 @@ export type {
 export type SessionSummary = AppSession;
 export interface LayoutSnapshot {
   windows: AppWindow[];
+  buriedSessions: AppSession[];
   lastUpdatedAt: number;
 }
 export type KeystrokeAction = AppKeystrokeAction;
