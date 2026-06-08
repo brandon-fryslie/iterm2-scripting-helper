@@ -74,4 +74,12 @@ describe('VariableStore', () => {
       },
     ]);
   });
+
+  it('returns IPC-cloneable snapshots', () => {
+    const store = new VariableStore();
+    store.setFocusedEntity(SESSION_ENTITY);
+    store.applyDump(SESSION_ENTITY, { 'session.name': 'alpha' });
+
+    expect(structuredClone(store.snapshot())).toEqual(store.snapshot());
+  });
 });

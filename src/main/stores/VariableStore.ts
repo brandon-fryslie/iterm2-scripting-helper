@@ -23,6 +23,7 @@ export class VariableStore {
   constructor() {
     makeAutoObservable<VariableStore, 'byFocus'>(this, {
       byFocus: observable.shallow,
+      focusedEntity: observable.ref,
     });
   }
 
