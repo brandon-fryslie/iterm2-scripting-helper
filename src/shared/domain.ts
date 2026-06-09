@@ -184,50 +184,10 @@ export type AppKeystrokeModifier =
   | 'function'
   | 'numpad';
 
-export interface AppKeystrokeEntry {
-  seq: number;
-  at: number;
-  sessionId: string;
-  characters: string;
-  charactersIgnoringModifiers: string;
-  modifiers: AppKeystrokeModifier[];
-  keyCode: number;
-  action: AppKeystrokeAction;
-}
-
-export type AppPromptEventKind = 'prompt' | 'command-start' | 'command-end';
-
-export interface AppPromptEntry {
-  seq: number;
-  at: number;
-  sessionId: string;
-  uniquePromptId: string;
-  kind: AppPromptEventKind;
-  command: string | null;
-  status: number | null;
-  placeholder: string | null;
-  workingDirectory: string | null;
-}
-
-export type AppFocusEventKind =
-  | 'app-active'
-  | 'app-inactive'
-  | 'window'
-  | 'selected-tab'
-  | 'session'
-  | 'unknown';
-
+// [LAW:one-source-of-truth] The canonical-string targets for the keystroke/focus protocol enums. The
+// converters' lookup tables map raw protocol values to these names when building a notification's
+// information-complete spine payload.
 export type AppWindowStatus = 'became-key' | 'is-current' | 'resigned-key';
-
-export interface AppFocusEntry {
-  seq: number;
-  at: number;
-  kind: AppFocusEventKind;
-  summary: string;
-  sessionId: string | null;
-  windowId: string | null;
-  windowStatus: AppWindowStatus | null;
-}
 
 export type AppNotificationKind =
   | 'keystroke'
@@ -244,15 +204,6 @@ export type AppNotificationKind =
   | 'profile-changed'
   | 'location-changed'
   | 'unknown';
-
-export interface AppNotificationEntry {
-  seq: number;
-  at: number;
-  kind: AppNotificationKind;
-  sessionId: string | null;
-  summary: string;
-  payload: Record<string, unknown> | null;
-}
 
 export type AppVariableScope = 'app' | 'window' | 'tab' | 'session' | 'user';
 

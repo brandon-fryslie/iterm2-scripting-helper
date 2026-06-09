@@ -7,16 +7,6 @@ import type {
   AppVariableChange,
   AppVariableScope,
   AppProbeResult,
-  AppKeystrokeEntry,
-  AppKeystrokeAction,
-  AppKeystrokeModifier,
-  AppPromptEntry,
-  AppPromptEventKind,
-  AppFocusEntry,
-  AppFocusEventKind,
-  AppWindowStatus,
-  AppNotificationEntry,
-  AppNotificationKind,
   AppCellStyleRun,
   AppLine,
   AppEvent,
@@ -35,16 +25,6 @@ export type {
   AppVariableChange,
   AppVariableScope,
   AppProbeResult,
-  AppKeystrokeEntry,
-  AppKeystrokeAction,
-  AppKeystrokeModifier,
-  AppPromptEntry,
-  AppPromptEventKind,
-  AppFocusEntry,
-  AppFocusEventKind,
-  AppWindowStatus,
-  AppNotificationEntry,
-  AppNotificationKind,
   AppCellStyleRun,
   AppLine,
   AppEvent,
@@ -61,11 +41,6 @@ export interface LayoutSnapshot {
   buriedSessions: AppSession[];
   lastUpdatedAt: number;
 }
-export type KeystrokeAction = AppKeystrokeAction;
-export type KeystrokeModifier = AppKeystrokeModifier;
-export type PromptEventKind = AppPromptEventKind;
-export type FocusEventKind = AppFocusEventKind;
-export type NotificationKind = AppNotificationKind;
 
 export interface ConnectionSnapshot {
   state:
@@ -105,46 +80,6 @@ export interface WatchlistSnapshot {
   names: string[];
 }
 
-export interface WireLogEntry {
-  seq: number;
-  at: number;
-  direction: 'out' | 'in';
-  size: number;
-  kind: string;
-  id: string;
-}
-
-export interface WireLogSnapshot {
-  entries: WireLogEntry[];
-  totalSeen: number;
-  capacity: number;
-}
-
-export interface NotificationLogSnapshot {
-  entries: AppNotificationEntry[];
-  totalSeen: number;
-  capacity: number;
-}
-
-export interface KeystrokeLogSnapshot {
-  entries: AppKeystrokeEntry[];
-  totalSeen: number;
-  capacity: number;
-  advanced: boolean;
-}
-
-export interface PromptLogSnapshot {
-  entries: AppPromptEntry[];
-  totalSeen: number;
-  capacity: number;
-}
-
-export interface FocusLogSnapshot {
-  entries: AppFocusEntry[];
-  totalSeen: number;
-  capacity: number;
-}
-
 export interface ScreenSnapshot {
   sessionId: string | null;
   lines: AppLine[];
@@ -158,22 +93,6 @@ export interface ScreenSnapshot {
 // [LAW:one-source-of-truth] One ActionResult shape, defined in domain.ts (the lower layer) and reused
 // here so the value returned to the renderer and the value recorded on the spine cannot drift.
 export type ActionResult = AppActionResult;
-
-// One entry of the console transcript — a projection of an 'action' spine event.
-export interface ActionLogEntry {
-  seq: number;
-  at: number;
-  entity: AppEntityRef;
-  action: AppActionKind;
-  args: Record<string, unknown>;
-  result: ActionResult;
-}
-
-export interface ActionLogSnapshot {
-  entries: ActionLogEntry[];
-  totalSeen: number;
-  capacity: number;
-}
 
 export type ActivateTarget =
   | { kind: 'window'; id: string }
@@ -335,23 +254,10 @@ export type RpcSchema = {
     args: void;
     result: VariableSnapshot;
   };
-  'monitor/wire-log': {
-    args: void;
-    result: WireLogSnapshot;
-  };
-  'monitor/notifications': {
-    args: void;
-    result: NotificationLogSnapshot;
-  };
   // The whole spine, for the unified activity timeline (449.7.9) and provenance walking.
   'monitor/events': {
     args: void;
     result: AppEventLogSnapshot;
-  };
-  // The console transcript as a projection of the spine's 'action' events.
-  'monitor/actions': {
-    args: void;
-    result: ActionLogSnapshot;
   };
   'monitor/focus-session': {
     args: { sessionId: string | null };
@@ -373,25 +279,9 @@ export type RpcSchema = {
     args: { name: string; watched: boolean };
     result: WatchlistSnapshot;
   };
-  'monitor/keystrokes': {
-    args: void;
-    result: KeystrokeLogSnapshot;
-  };
-  'monitor/prompts': {
-    args: void;
-    result: PromptLogSnapshot;
-  };
-  'monitor/focus-log': {
-    args: void;
-    result: FocusLogSnapshot;
-  };
   'monitor/screen': {
     args: void;
     result: ScreenSnapshot;
-  };
-  'monitor/set-keystroke-advanced': {
-    args: { advanced: boolean };
-    result: { advanced: boolean };
   };
   // [LAW:dataflow-not-control-flow] Every action carries the focused `entity` it is scoped to as a
   // value. The main process records it on the action's spine event — it does not re-derive a target
@@ -495,12 +385,7 @@ export type EventSchema = {
   'layout-snapshot': import('../main/stores/LayoutStore').LayoutSnapshot;
   'variables-snapshot': VariableSnapshot;
   'watchlist-snapshot': WatchlistSnapshot;
-  'wire-snapshot': WireLogSnapshot;
-  'notifications-snapshot': NotificationLogSnapshot;
   'screen-snapshot': ScreenSnapshot;
-  'keystrokes-snapshot': KeystrokeLogSnapshot;
-  'prompts-snapshot': PromptLogSnapshot;
-  'focus-snapshot': FocusLogSnapshot;
   'dynamic-profiles-snapshot': DynamicProfileSnapshot;
   'registrations-snapshot': RegistrationSnapshot;
   'custom-escape-snapshot': CustomEscapeSnapshot;

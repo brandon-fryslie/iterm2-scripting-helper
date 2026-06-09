@@ -8,9 +8,6 @@ import { LayoutStore } from './stores/LayoutStore';
 import { VariableStore } from './stores/VariableStore';
 import { WatchlistStore } from './stores/WatchlistStore';
 import { AppEventLog } from './stores/AppEventLog';
-import { KeystrokeLogStore } from './stores/KeystrokeLogStore';
-import { PromptLogStore } from './stores/PromptLogStore';
-import { FocusLogStore } from './stores/FocusLogStore';
 import { ScreenStreamStore } from './stores/ScreenStreamStore';
 import { DynamicProfileStore } from './stores/DynamicProfileStore';
 import { RegistrationStore, registrationSnapshot } from './stores/RegistrationStore';
@@ -51,9 +48,6 @@ const layoutStore = new LayoutStore();
 const appEventLog = new AppEventLog();
 const variableStore = new VariableStore(appEventLog);
 const watchlistStore = new WatchlistStore();
-const keystrokeLogStore = new KeystrokeLogStore();
-const promptLogStore = new PromptLogStore();
-const focusLogStore = new FocusLogStore();
 const screenStreamStore = new ScreenStreamStore();
 const dynamicProfileStore = new DynamicProfileStore();
 const registrationStore = new RegistrationStore();
@@ -64,9 +58,6 @@ const monitorStores = {
   variables: variableStore,
   watchlist: watchlistStore,
   appEvents: appEventLog,
-  keystrokes: keystrokeLogStore,
-  prompts: promptLogStore,
-  focus: focusLogStore,
   screen: screenStreamStore,
   registrations: registrationStore,
   customEscape: customEscapeStore,
@@ -126,10 +117,9 @@ autorun(() => {
   broadcast('custom-escape-snapshot', customEscapeStore.snapshot());
 });
 
-// Keystrokes, prompts, notifications, wire, focus are pulled on demand via
-// monitor/* RPCs. Their ring buffers can mutate tens of times per second
-// under load and the IPC channel doesn't handle firehose broadcasts well.
-// A post-MVP heartbeat-based delta push will replace this polling story.
+// The event spine is pulled on demand via monitor/events (the activity timeline polls it). It can
+// mutate tens of times per second under load and the IPC channel doesn't handle firehose broadcasts
+// well. A post-MVP heartbeat-based delta push will replace this polling story.
 
 app.whenReady().then(() => {
   registerIpc(connectionStore, orchestrator, monitorStores, {
