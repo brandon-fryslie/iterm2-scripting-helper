@@ -1,4 +1,6 @@
 import { makeAutoObservable } from 'mobx';
+import { invocationProjection, type AppEventLog } from './AppEventLog';
+import type { RegistrationSnapshot } from '@shared/rpc';
 
 export type RegistrationRole = 'generic' | 'session-title' | 'status-bar' | 'context-menu';
 
@@ -92,4 +94,17 @@ export class RegistrationStore {
       responseTemplate: r.responseTemplate,
     }));
   }
+}
+
+// [LAW:one-source-of-truth] The single builder of the registrations snapshot shape: active specs from
+// the store, invocations projected from the spine. Both the IPC handler and the broadcast call this,
+// so the shape is defined once and the two sources are joined in exactly one place.
+export function registrationSnapshot(
+  registrations: RegistrationStore,
+  appEvents: AppEventLog,
+): RegistrationSnapshot {
+  return {
+    registrations: registrations.list(),
+    ...invocationProjection(appEvents),
+  };
 }

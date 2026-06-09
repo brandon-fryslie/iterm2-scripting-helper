@@ -22,7 +22,6 @@ import {
   wireLogProjection,
   notificationLogProjection,
   actionLogProjection,
-  invocationProjection,
 } from './stores/AppEventLog';
 import type { AppEntityRef, AppActionKind } from '@shared/domain';
 import type { KeystrokeLogStore } from './stores/KeystrokeLogStore';
@@ -30,7 +29,7 @@ import type { PromptLogStore } from './stores/PromptLogStore';
 import type { FocusLogStore } from './stores/FocusLogStore';
 import type { ScreenStreamStore } from './stores/ScreenStreamStore';
 import type { DynamicProfileStore } from './stores/DynamicProfileStore';
-import type { RegistrationStore } from './stores/RegistrationStore';
+import { registrationSnapshot, type RegistrationStore } from './stores/RegistrationStore';
 import type { CustomEscapeStore } from './stores/CustomEscapeStore';
 import { ConnectionOrchestrator } from './drivers/ConnectionOrchestrator';
 import type { DynamicProfileWatcher } from './drivers/DynamicProfileWatcher';
@@ -242,12 +241,8 @@ export function registerIpc(
         };
       }
     },
-    // [LAW:one-source-of-truth] Registration specs come from the store; invocations are a projection
-    // of the spine. Assembled here at the boundary so neither side owns a duplicate of the other.
-    'workbench/registrations': async () => ({
-      registrations: monitor.registrations.list(),
-      ...invocationProjection(monitor.appEvents),
-    }),
+    'workbench/registrations': async () =>
+      registrationSnapshot(monitor.registrations, monitor.appEvents),
     'workbench/subscribe-custom-escape': async ({ sessionId, identity }) => {
       try {
         const id = `ce-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;

@@ -7,13 +7,13 @@ import { ConnectionStore } from './stores/ConnectionStore';
 import { LayoutStore } from './stores/LayoutStore';
 import { VariableStore } from './stores/VariableStore';
 import { WatchlistStore } from './stores/WatchlistStore';
-import { AppEventLog, invocationProjection } from './stores/AppEventLog';
+import { AppEventLog } from './stores/AppEventLog';
 import { KeystrokeLogStore } from './stores/KeystrokeLogStore';
 import { PromptLogStore } from './stores/PromptLogStore';
 import { FocusLogStore } from './stores/FocusLogStore';
 import { ScreenStreamStore } from './stores/ScreenStreamStore';
 import { DynamicProfileStore } from './stores/DynamicProfileStore';
-import { RegistrationStore } from './stores/RegistrationStore';
+import { RegistrationStore, registrationSnapshot } from './stores/RegistrationStore';
 import { CustomEscapeStore } from './stores/CustomEscapeStore';
 import { ConnectionOrchestrator } from './drivers/ConnectionOrchestrator';
 import { DynamicProfileWatcher } from './drivers/DynamicProfileWatcher';
@@ -111,21 +111,15 @@ autorun(() => {
   broadcast('dynamic-profiles-snapshot', dynamicProfileStore.snapshot());
 });
 
-// [LAW:one-source-of-truth] The registrations snapshot is registration specs (from the store) plus
-// the invocation list (a projection of the spine). Two triggers, no shared mutable mirror: the
-// autorun re-broadcasts when a spec changes (observable), and the orchestrator's 'invocation' event
-// re-broadcasts when a new invocation lands on the spine (which is not a MobX observable).
-const registrationsSnapshot = () => ({
-  registrations: registrationStore.list(),
-  ...invocationProjection(appEventLog),
-});
-
+// The registrations snapshot is built by the single shared builder. Two triggers, no shared mutable
+// mirror: the autorun re-broadcasts when a spec changes (observable), and the orchestrator's
+// 'invocation' event re-broadcasts when a new invocation lands on the spine (not a MobX observable).
 autorun(() => {
-  broadcast('registrations-snapshot', registrationsSnapshot());
+  broadcast('registrations-snapshot', registrationSnapshot(registrationStore, appEventLog));
 });
 
 orchestrator.on('invocation', () => {
-  broadcast('registrations-snapshot', registrationsSnapshot());
+  broadcast('registrations-snapshot', registrationSnapshot(registrationStore, appEventLog));
 });
 
 autorun(() => {
