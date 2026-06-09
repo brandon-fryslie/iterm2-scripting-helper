@@ -9,6 +9,7 @@ import { EscapeSequenceEditor } from './workbench/EscapeSequenceEditor';
 import { RegistrationEditor } from './workbench/RegistrationEditor';
 import { CustomEscapeSubscriber } from './workbench/CustomEscapeSubscriber';
 import { TriggersViewer } from './workbench/TriggersViewer';
+import { ArtifactScopeBanner } from './workbench/ArtifactScopeBanner';
 
 const RAIL: Array<{ id: WorkbenchArtifact; label: string }> = [
   { id: 'profile', label: 'Profiles' },
@@ -50,7 +51,8 @@ export const WorkbenchTab = observer(function WorkbenchTab() {
           </Button>
         ))}
       </aside>
-      <section>
+      <section className="space-y-4">
+        <ArtifactScopeBanner artifact={workbench.artifact} />
         {workbench.artifact === 'profile' && <ProfileEditor />}
         {workbench.artifact === 'dynamic-profile' && <DynamicProfileEditor />}
         {workbench.artifact === 'escape-sequence' && <EscapeSequenceEditor />}
