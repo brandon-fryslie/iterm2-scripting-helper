@@ -24,6 +24,9 @@ export const MonitorTab = observer(function MonitorTab() {
     const unsubVars = window.ipc.on('variables-snapshot', (s) =>
       monitor.applyVariables(s),
     );
+    const unsubWatchlist = window.ipc.on('watchlist-snapshot', (s) =>
+      monitor.applyWatchlist(s),
+    );
     const unsubScreen = window.ipc.on('screen-snapshot', (s) => monitor.applyScreen(s));
 
     const poll = setInterval(() => {
@@ -37,6 +40,7 @@ export const MonitorTab = observer(function MonitorTab() {
     return () => {
       unsubLayout();
       unsubVars();
+      unsubWatchlist();
       unsubScreen();
       clearInterval(poll);
     };

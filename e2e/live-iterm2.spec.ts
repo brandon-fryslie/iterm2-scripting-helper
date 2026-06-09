@@ -80,9 +80,18 @@ test.describe('live iTerm2', () => {
       'loading',
       { timeout: 10_000 },
     );
-    await expect(
-      win.locator('[data-testid^="variable-hostname"]'),
-    ).toBeVisible({ timeout: 10_000 });
+    // hostname is a default-watched path, so it surfaces in the focused session's scope group...
+    const sessionScope = win.getByTestId('variable-scope-session');
+    await expect(sessionScope.getByTestId('variable-hostname')).toBeVisible({
+      timeout: 10_000,
+    });
+    // ...and in the pinned Watching section, which persists across focus and updates live.
+    const watchlist = win.getByTestId('variables-watchlist');
+    await expect(watchlist).toBeVisible();
+    await expect(watchlist.getByTestId('variable-hostname')).toHaveAttribute(
+      'data-watched',
+      'true',
+    );
 
     expect(cloneErrors.filter((e) => /could not be cloned/i.test(e))).toEqual([]);
 

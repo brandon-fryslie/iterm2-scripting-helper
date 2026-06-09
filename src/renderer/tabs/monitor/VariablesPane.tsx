@@ -1,11 +1,17 @@
 import { useMemo, useState } from 'react';
-import { Search } from 'lucide-react';
+import { Pin, PinOff, Search } from 'lucide-react';
 import { observer } from 'mobx-react-lite';
 import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { useStore } from '@/stores/context';
 import { cn } from '@/lib/utils';
-import { appEntityKey, type AppVariableEntry, type AppVariableScope } from '@shared/domain';
+import {
+  appEntityKey,
+  type AppVariableChange,
+  type AppVariableEntry,
+  type AppVariableScope,
+} from '@shared/domain';
 
 const VARIABLE_SCOPES: readonly AppVariableScope[] = [
   'app',
@@ -19,6 +25,7 @@ export const VariablesPane = observer(function VariablesPane() {
   const { entityFocus, monitor } = useStore();
   const [query, setQuery] = useState('');
   const snap = monitor.variables;
+  const watchedNames = monitor.watchlist.names;
   const focusReady = appEntityKey(snap.entity) === entityFocus.key;
   const visibleVariables = useMemo(
     () => filterVariables(snap.variables, query),
@@ -26,6 +33,16 @@ export const VariablesPane = observer(function VariablesPane() {
   );
   const grouped = useMemo(() => groupVariables(visibleVariables), [visibleVariables]);
   const totalChanged = snap.variables.filter(hasChanged).length;
+  const watched = useMemo(() => new Set(watchedNames), [watchedNames]);
+  const byName = useMemo(
+    () => new Map(snap.variables.map((variable) => [variable.name, variable])),
+    [snap.variables],
+  );
+  const watchItems = useMemo(
+    () => watchedNames.map((name) => ({ name, entry: byName.get(name) ?? null })),
+    [watchedNames, byName],
+  );
+  const toggleWatched = (name: string): void => void monitor.toggleWatched(name);
 
   if (!focusReady) {
     return (
@@ -66,6 +83,7 @@ export const VariablesPane = observer(function VariablesPane() {
       </div>
 
       <div className="flex-1 overflow-auto p-3">
+        <WatchlistSection items={watchItems} onToggleWatched={toggleWatched} />
         {snap.variables.length === 0 ? (
           <EmptyVariables focusKind={entityFocus.kind} />
         ) : visibleVariables.length === 0 ? (
@@ -79,6 +97,8 @@ export const VariablesPane = observer(function VariablesPane() {
                 key={scope}
                 scope={scope}
                 variables={grouped.get(scope) ?? []}
+                watched={watched}
+                onToggleWatched={toggleWatched}
               />
             ))}
           </div>
@@ -99,12 +119,80 @@ function EmptyVariables({ focusKind }: { focusKind: string }) {
   );
 }
 
+function WatchlistSection({
+  items,
+  onToggleWatched,
+}: {
+  items: Array<{ name: string; entry: AppVariableEntry | null }>;
+  onToggleWatched: (name: string) => void;
+}) {
+  if (items.length === 0) return null;
+
+  return (
+    <section data-testid="variables-watchlist" className="mb-3">
+      <div className="sticky top-0 z-10 flex items-center gap-2 border-b bg-background py-1">
+        <Pin className="h-3.5 w-3.5 text-primary" />
+        <span className="font-semibold uppercase tracking-wide text-muted-foreground">
+          Watching
+        </span>
+        <Badge variant="outline">{items.length}</Badge>
+      </div>
+      <div className="divide-y">
+        {items.map(({ name, entry }) =>
+          entry ? (
+            <VariableRow
+              key={name}
+              variable={entry}
+              watched
+              onToggleWatched={onToggleWatched}
+            />
+          ) : (
+            <UnobservedWatchRow
+              key={name}
+              name={name}
+              onToggleWatched={onToggleWatched}
+            />
+          ),
+        )}
+      </div>
+    </section>
+  );
+}
+
+function UnobservedWatchRow({
+  name,
+  onToggleWatched,
+}: {
+  name: string;
+  onToggleWatched: (name: string) => void;
+}) {
+  return (
+    <div
+      className="flex items-center justify-between gap-2 py-2"
+      data-testid={`watched-variable-${name}`}
+      data-observed="false"
+    >
+      <code className="min-w-0 truncate text-[11px] font-semibold text-muted-foreground">
+        {name}
+      </code>
+      <div className="flex items-center gap-1">
+        <span className="text-[11px] text-muted-foreground">not present in focus</span>
+        <WatchToggle name={name} watched onToggleWatched={onToggleWatched} />
+      </div>
+    </div>
+  );
+}
+
 function VariableScopeGroup({
   scope,
   variables,
+  watched,
+  onToggleWatched,
 }: {
   scope: AppVariableScope;
   variables: AppVariableEntry[];
+  watched: Set<string>;
+  onToggleWatched: (name: string) => void;
 }) {
   if (variables.length === 0) return null;
 
@@ -118,14 +206,27 @@ function VariableScopeGroup({
       </div>
       <div className="divide-y">
         {variables.map((variable) => (
-          <VariableRow key={variable.name} variable={variable} />
+          <VariableRow
+            key={variable.name}
+            variable={variable}
+            watched={watched.has(variable.name)}
+            onToggleWatched={onToggleWatched}
+          />
         ))}
       </div>
     </section>
   );
 }
 
-function VariableRow({ variable }: { variable: AppVariableEntry }) {
+function VariableRow({
+  variable,
+  watched,
+  onToggleWatched,
+}: {
+  variable: AppVariableEntry;
+  watched: boolean;
+  onToggleWatched: (name: string) => void;
+}) {
   const changed = hasChanged(variable);
 
   return (
@@ -137,6 +238,7 @@ function VariableRow({ variable }: { variable: AppVariableEntry }) {
       data-testid={`variable-${variable.name}`}
       data-live={variable.live ? 'true' : 'false'}
       data-changed={changed ? 'true' : 'false'}
+      data-watched={watched ? 'true' : 'false'}
     >
       <div className="flex min-w-0 items-center justify-between gap-2">
         <code className="min-w-0 truncate text-[11px] font-semibold">{variable.name}</code>
@@ -145,6 +247,11 @@ function VariableRow({ variable }: { variable: AppVariableEntry }) {
           <Badge variant={variable.live ? 'default' : 'outline'}>
             {variable.live ? 'live' : 'static'}
           </Badge>
+          <WatchToggle
+            name={variable.name}
+            watched={watched}
+            onToggleWatched={onToggleWatched}
+          />
         </div>
       </div>
       <ValueLine label="current" value={variable.value} />
@@ -152,7 +259,69 @@ function VariableRow({ variable }: { variable: AppVariableEntry }) {
       <div className="text-[11px] text-muted-foreground">
         Changed {formatRelativeTime(variable.updatedAt)}
       </div>
+      <VariableHistory name={variable.name} history={variable.history} />
     </div>
+  );
+}
+
+function WatchToggle({
+  name,
+  watched,
+  onToggleWatched,
+}: {
+  name: string;
+  watched: boolean;
+  onToggleWatched: (name: string) => void;
+}) {
+  return (
+    <Button
+      type="button"
+      variant="ghost"
+      size="icon-xs"
+      aria-label={watched ? `Unpin ${name}` : `Pin ${name}`}
+      aria-pressed={watched}
+      data-testid={`watch-toggle-${name}`}
+      onClick={() => onToggleWatched(name)}
+    >
+      {watched ? (
+        <PinOff className="text-muted-foreground" />
+      ) : (
+        <Pin className="text-muted-foreground" />
+      )}
+    </Button>
+  );
+}
+
+function VariableHistory({
+  name,
+  history,
+}: {
+  name: string;
+  history: AppVariableChange[];
+}) {
+  // history[0] is the current value; prior changes are what's interesting for debugging.
+  const priorChanges = history.slice(1);
+  if (priorChanges.length === 0) return null;
+
+  return (
+    <details className="text-[11px]" data-testid={`variable-history-${name}`}>
+      <summary className="cursor-pointer select-none text-muted-foreground">
+        {priorChanges.length} prior {priorChanges.length === 1 ? 'change' : 'changes'}
+      </summary>
+      <ol className="mt-1 space-y-1">
+        {priorChanges.map((change, index) => (
+          <li
+            key={`${change.at}-${index}`}
+            className="grid grid-cols-[minmax(0,1fr)_auto] items-baseline gap-2"
+          >
+            <code className="min-w-0 break-words rounded bg-muted px-1.5 py-0.5 text-muted-foreground">
+              {change.value}
+            </code>
+            <span className="text-muted-foreground">{formatRelativeTime(change.at)}</span>
+          </li>
+        ))}
+      </ol>
+    </details>
   );
 }
 

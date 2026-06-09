@@ -6,6 +6,7 @@ import { registerIpc, broadcast } from './ipc';
 import { ConnectionStore } from './stores/ConnectionStore';
 import { LayoutStore } from './stores/LayoutStore';
 import { VariableStore } from './stores/VariableStore';
+import { WatchlistStore } from './stores/WatchlistStore';
 import { WireLogStore } from './stores/WireLogStore';
 import { NotificationHub } from './stores/NotificationHub';
 import { KeystrokeLogStore } from './stores/KeystrokeLogStore';
@@ -49,6 +50,7 @@ function createWindow(): void {
 const connectionStore = new ConnectionStore();
 const layoutStore = new LayoutStore();
 const variableStore = new VariableStore();
+const watchlistStore = new WatchlistStore();
 const wireLogStore = new WireLogStore();
 const notificationHub = new NotificationHub();
 const keystrokeLogStore = new KeystrokeLogStore();
@@ -62,6 +64,7 @@ const customEscapeStore = new CustomEscapeStore();
 const monitorStores = {
   layout: layoutStore,
   variables: variableStore,
+  watchlist: watchlistStore,
   wire: wireLogStore,
   notifications: notificationHub,
   keystrokes: keystrokeLogStore,
@@ -97,6 +100,10 @@ autorun(() => {
 
 autorun(() => {
   broadcast('variables-snapshot', variableStore.snapshot());
+});
+
+autorun(() => {
+  broadcast('watchlist-snapshot', watchlistStore.snapshot());
 });
 
 autorun(() => {

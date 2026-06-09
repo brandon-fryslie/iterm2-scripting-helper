@@ -15,6 +15,7 @@ import type {
 import type { ConnectionStore } from './stores/ConnectionStore';
 import type { LayoutStore } from './stores/LayoutStore';
 import type { VariableStore } from './stores/VariableStore';
+import type { WatchlistStore } from './stores/WatchlistStore';
 import type { WireLogStore } from './stores/WireLogStore';
 import type { NotificationHub } from './stores/NotificationHub';
 import type { KeystrokeLogStore } from './stores/KeystrokeLogStore';
@@ -43,6 +44,7 @@ type Handlers = { [M in RpcMethod]: (args: RpcArgs<M>) => Promise<RpcResult<M>> 
 export interface MonitorStoresRef {
   layout: LayoutStore;
   variables: VariableStore;
+  watchlist: WatchlistStore;
   wire: WireLogStore;
   notifications: NotificationHub;
   keystrokes: KeystrokeLogStore;
@@ -126,6 +128,11 @@ export function registerIpc(
     'monitor/focus-variables': async ({ entity }) => {
       await orchestrator.setFocusedVariables(entity);
       return monitor.variables.snapshot();
+    },
+    'monitor/watchlist': async () => monitor.watchlist.snapshot(),
+    'monitor/set-watched': async ({ name, watched }) => {
+      await orchestrator.setWatched(name, watched);
+      return monitor.watchlist.snapshot();
     },
     'monitor/keystrokes': async () => monitor.keystrokes.snapshot(),
     'monitor/prompts': async () => monitor.prompts.snapshot(),

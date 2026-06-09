@@ -3,6 +3,7 @@ import type {
   AppEntityRef,
   LayoutSnapshot,
   VariableSnapshot,
+  WatchlistSnapshot,
   WireLogSnapshot,
   NotificationLogSnapshot,
   NotificationKind,
@@ -19,6 +20,7 @@ const EMPTY_LAYOUT: LayoutSnapshot = {
   lastUpdatedAt: 0,
 };
 const EMPTY_VARIABLES: VariableSnapshot = { entity: APP_ENTITY, variables: [] };
+const EMPTY_WATCHLIST: WatchlistSnapshot = { names: [] };
 const EMPTY_WIRE: WireLogSnapshot = { entries: [], totalSeen: 0, capacity: 0 };
 const EMPTY_NOTIFICATIONS: NotificationLogSnapshot = {
   entries: [],
@@ -56,6 +58,7 @@ export type ActiveEventTab = 'keystrokes' | 'prompts' | 'notifications' | 'focus
 export class MonitorStore {
   layout: LayoutSnapshot = EMPTY_LAYOUT;
   variables: VariableSnapshot = EMPTY_VARIABLES;
+  watchlist: WatchlistSnapshot = EMPTY_WATCHLIST;
   wire: WireLogSnapshot = EMPTY_WIRE;
   notifications: NotificationLogSnapshot = EMPTY_NOTIFICATIONS;
   keystrokes: KeystrokeLogSnapshot = EMPTY_KEYSTROKES;
@@ -82,6 +85,22 @@ export class MonitorStore {
 
   applyVariables(snap: VariableSnapshot): void {
     this.variables = snap;
+  }
+
+  applyWatchlist(snap: WatchlistSnapshot): void {
+    this.watchlist = snap;
+  }
+
+  isWatched(name: string): boolean {
+    return this.watchlist.names.includes(name);
+  }
+
+  async toggleWatched(name: string): Promise<void> {
+    const snap = await window.ipc.invoke('monitor/set-watched', {
+      name,
+      watched: !this.isWatched(name),
+    });
+    runInAction(() => this.applyWatchlist(snap));
   }
 
   applyWire(snap: WireLogSnapshot): void {
@@ -135,20 +154,31 @@ export class MonitorStore {
   }
 
   async hydrate(): Promise<void> {
-    const [layout, variables, wire, notifications, keystrokes, prompts, focus, screen] =
-      await Promise.all([
-        window.ipc.invoke('monitor/layout', undefined as never),
-        window.ipc.invoke('monitor/variables', undefined as never),
-        window.ipc.invoke('monitor/wire-log', undefined as never),
-        window.ipc.invoke('monitor/notifications', undefined as never),
-        window.ipc.invoke('monitor/keystrokes', undefined as never),
-        window.ipc.invoke('monitor/prompts', undefined as never),
-        window.ipc.invoke('monitor/focus-log', undefined as never),
-        window.ipc.invoke('monitor/screen', undefined as never),
-      ]);
+    const [
+      layout,
+      variables,
+      watchlist,
+      wire,
+      notifications,
+      keystrokes,
+      prompts,
+      focus,
+      screen,
+    ] = await Promise.all([
+      window.ipc.invoke('monitor/layout', undefined as never),
+      window.ipc.invoke('monitor/variables', undefined as never),
+      window.ipc.invoke('monitor/watchlist', undefined as never),
+      window.ipc.invoke('monitor/wire-log', undefined as never),
+      window.ipc.invoke('monitor/notifications', undefined as never),
+      window.ipc.invoke('monitor/keystrokes', undefined as never),
+      window.ipc.invoke('monitor/prompts', undefined as never),
+      window.ipc.invoke('monitor/focus-log', undefined as never),
+      window.ipc.invoke('monitor/screen', undefined as never),
+    ]);
     runInAction(() => {
       this.layout = layout;
       this.variables = variables;
+      this.watchlist = watchlist;
       this.wire = wire;
       this.notifications = notifications;
       this.keystrokes = keystrokes;

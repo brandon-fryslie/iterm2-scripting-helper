@@ -256,6 +256,11 @@ export interface AppNotificationEntry {
 
 export type AppVariableScope = 'app' | 'window' | 'tab' | 'session' | 'user';
 
+export interface AppVariableChange {
+  value: string;
+  at: number;
+}
+
 export interface AppVariableEntry {
   name: string;
   value: string;
@@ -263,6 +268,9 @@ export interface AppVariableEntry {
   live: boolean;
   updatedAt: number;
   scope: AppVariableScope;
+  // [LAW:one-source-of-truth] Bounded change record, most-recent-first; value/previousValue/updatedAt
+  // are projections of history[0]/history[1] and never tracked independently.
+  history: AppVariableChange[];
 }
 
 export function flatSessions(tab: AppTab): AppSession[] {
