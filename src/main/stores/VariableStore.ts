@@ -73,11 +73,11 @@ export class VariableStore {
       const nextValue = JSON.stringify(value);
       const priorHistory = previous?.get(name)?.history ?? [];
       const scope = variableScopeFromName(name, entity.kind);
-      this.emitIfChanged(entity, name, nextValue, priorHistory, scope, 'dump', frameSeq);
-      map.set(name, {
-        scope,
-        history: recordChange(priorHistory, nextValue, now),
-      });
+      const { history, changed } = recordChange(priorHistory, nextValue, now);
+      if (changed) {
+        this.appendChange(entity, name, nextValue, priorHistory[0]?.value ?? null, scope, 'dump', frameSeq);
+      }
+      map.set(name, { scope, history });
     }
     this.byFocus.set(focusKey, map);
   }
@@ -95,36 +95,34 @@ export class VariableStore {
     const map = new Map(this.byFocus.get(focusKey) ?? []);
     const priorHistory = map.get(name)?.history ?? [];
     const recordScope = variableScopeFromName(name, scope);
-    this.emitIfChanged(
-      entityForScope(scope, sessionId),
-      name,
-      jsonValue,
-      priorHistory,
-      recordScope,
-      'subscription',
-      frameSeq,
-    );
-    map.set(name, {
-      scope: recordScope,
-      history: recordChange(priorHistory, jsonValue, Date.now()),
-    });
+    const { history, changed } = recordChange(priorHistory, jsonValue, Date.now());
+    if (changed) {
+      this.appendChange(
+        entityForScope(scope, sessionId),
+        name,
+        jsonValue,
+        priorHistory[0]?.value ?? null,
+        recordScope,
+        'subscription',
+        frameSeq,
+      );
+    }
+    map.set(name, { scope: recordScope, history });
     this.byFocus.set(focusKey, map);
   }
 
-  // [LAW:single-enforcer] One gate: a value identical to the most recent one is not a change, so it
-  // produces neither a history entry (see recordChange) nor a spine event. The two stay in lockstep
-  // because the same dedup test governs both.
-  private emitIfChanged(
+  // [LAW:single-enforcer] This only appends; the "is it a change?" decision is recordChange's alone
+  // (its `changed` flag gates this call), so the history entry and the spine event are produced from
+  // exactly one verdict and cannot disagree about what counts as a change.
+  private appendChange(
     entity: AppEntityRef,
     name: string,
     value: string,
-    priorHistory: readonly AppVariableChange[],
+    previousValue: string | null,
     scope: AppVariableScope,
     source: AppVariableChangeSource,
     frameSeq: number,
   ): void {
-    const previousValue = priorHistory[0]?.value ?? null;
-    if (previousValue === value) return;
     this.appEvents.append({
       kind: 'variable-change',
       at: Date.now(),
@@ -168,16 +166,24 @@ export class VariableStore {
   }
 }
 
-// [LAW:single-enforcer] The one place that constructs a history guarantees its non-empty,
-// most-recent-first, bounded invariant; every reader may assume history[0] exists.
+// [LAW:single-enforcer] The one place that both decides whether an observation is a change and
+// constructs the resulting history. Its `changed` verdict is the sole authority callers gate the
+// spine event on, so the timeline and the per-variable history can never disagree about what counts
+// as a change. Guarantees the history's non-empty, most-recent-first, bounded invariant; every
+// reader may assume history[0] exists.
 function recordChange(
   history: readonly AppVariableChange[],
   value: string,
   at: number,
-): NonEmptyHistory {
+): { history: NonEmptyHistory; changed: boolean } {
   const head = history[0];
-  if (head && head.value === value) return [head, ...history.slice(1)];
-  return [{ value, at }, ...history.slice(0, VARIABLE_HISTORY_LIMIT - 1)];
+  if (head && head.value === value) {
+    return { history: [head, ...history.slice(1)], changed: false };
+  }
+  return {
+    history: [{ value, at }, ...history.slice(0, VARIABLE_HISTORY_LIMIT - 1)],
+    changed: true,
+  };
 }
 
 export function variableFocusKey(entity: AppEntityRef): string {
