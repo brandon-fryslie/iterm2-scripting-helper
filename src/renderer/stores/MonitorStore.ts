@@ -1,6 +1,7 @@
 import { makeAutoObservable, runInAction } from 'mobx';
 import type {
   AppEntityRef,
+  AppProbeResult,
   LayoutSnapshot,
   VariableSnapshot,
   WatchlistSnapshot,
@@ -68,6 +69,10 @@ export class MonitorStore {
   notificationKindFilter: NotificationKind | 'all' = 'all';
   wireDirectionFilter: 'all' | 'out' | 'in' = 'all';
   activeEventTab: ActiveEventTab = 'keystrokes';
+  // [LAW:one-source-of-truth] The result is self-describing (carries the entity + expression it was
+  // evaluated against), so it stays accurate even after focus moves; no parallel "what was probed".
+  probeResult: AppProbeResult | null = null;
+  probePending = false;
   mirrorsHydrated = false;
   private readonly onLayoutApplied: () => void;
 
@@ -200,6 +205,24 @@ export class MonitorStore {
   async loadVariableFocus(entity: AppEntityRef): Promise<void> {
     const snap = await window.ipc.invoke('monitor/focus-variables', { entity });
     runInAction(() => this.applyVariables(snap));
+  }
+
+  async runProbe(entity: AppEntityRef, expression: string): Promise<void> {
+    this.probePending = true;
+    try {
+      const result = await window.ipc.invoke('monitor/probe-variable', { entity, expression });
+      runInAction(() => {
+        this.probeResult = result;
+      });
+    } finally {
+      runInAction(() => {
+        this.probePending = false;
+      });
+    }
+  }
+
+  clearProbe(): void {
+    this.probeResult = null;
   }
 
   async setKeystrokeAdvanced(advanced: boolean): Promise<void> {

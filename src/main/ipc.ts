@@ -129,6 +129,8 @@ export function registerIpc(
       await orchestrator.setFocusedVariables(entity);
       return monitor.variables.snapshot();
     },
+    'monitor/probe-variable': async ({ entity, expression }) =>
+      orchestrator.probeVariable(entity, expression),
     'monitor/watchlist': async () => monitor.watchlist.snapshot(),
     'monitor/set-watched': async ({ name, watched }) => {
       await orchestrator.setWatched(name, watched);

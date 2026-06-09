@@ -22,6 +22,7 @@ describe('RpcSchema', () => {
       | 'monitor/notifications'
       | 'monitor/focus-session'
       | 'monitor/focus-variables'
+      | 'monitor/probe-variable'
       | 'monitor/watchlist'
       | 'monitor/set-watched'
       | 'monitor/keystrokes'

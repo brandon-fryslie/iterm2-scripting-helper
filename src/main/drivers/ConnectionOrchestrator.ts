@@ -19,6 +19,7 @@ import {
   ServerOriginatedRPCResultRequestSchema,
   NotificationType,
   VariableScope,
+  VariableResponse_Status,
   PromptMonitorMode,
   RPCRegistrationRequest_Role,
   RPCRegistrationRequest_StatusBarComponentAttributes_Knob_Type,
@@ -56,7 +57,8 @@ import type {
   RegistrationSpec,
 } from '../stores/RegistrationStore';
 import type { CustomEscapeStore } from '../stores/CustomEscapeStore';
-import type { AppEntityRef } from '@shared/domain';
+import type { AppEntityRef, AppProbeResult } from '@shared/domain';
+import { normalizeProbeTarget, describeVariableStatus } from '../probe';
 
 export const DEFAULT_SOCKET_PATH = path.join(
   os.homedir(),
@@ -232,6 +234,54 @@ export class ConnectionOrchestrator extends EventEmitter {
       this.monitor.variables.applyDump(entity, dump);
     } catch (err) {
       this.emit('error', err);
+    }
+  }
+
+  // [LAW:composability] Resolve one variable path against any entity scope and return a
+  // self-describing result. Sibling of fetchAllVariablesForEntity (get:['*']); both flow through the
+  // single variableRequestScope enforcer. The result IS the error surface — there is no fire-and-
+  // forget path here, so a bad scope or path comes back as an `error` outcome the caller renders in
+  // context, not an emit('error') the user has to correlate. [LAW:no-silent-failure]
+  async probeVariable(entity: AppEntityRef, expression: string): Promise<AppProbeResult> {
+    const target = normalizeProbeTarget(expression);
+    if ('reject' in target) {
+      return { outcome: 'error', entity, expression, message: target.reject };
+    }
+    if (this.protocol.getState() !== 'ready') {
+      return { outcome: 'error', entity, expression, message: 'Not connected to iTerm2.' };
+    }
+    const req = create(VariableRequestSchema, {
+      scope: variableRequestScope(entity),
+      get: [target.path],
+    });
+    try {
+      const response = await this.protocol.send({
+        submessage: { case: 'variableRequest' as const, value: req },
+      });
+      if (response.submessage.case === 'error') {
+        return { outcome: 'error', entity, expression, message: response.submessage.value };
+      }
+      if (response.submessage.case !== 'variableResponse') {
+        return {
+          outcome: 'error',
+          entity,
+          expression,
+          message: `Unexpected response: ${response.submessage.case ?? '<none>'}`,
+        };
+      }
+      const variableResponse = response.submessage.value;
+      if (variableResponse.status !== VariableResponse_Status.OK) {
+        return {
+          outcome: 'error',
+          entity,
+          expression,
+          message: describeVariableStatus(variableResponse.status),
+        };
+      }
+      // iTerm2 encodes an unset variable as the JSON string "null"; surface it verbatim.
+      return { outcome: 'value', entity, expression, value: variableResponse.values[0] ?? 'null' };
+    } catch (err) {
+      return { outcome: 'error', entity, expression, message: errString(err) };
     }
   }
 
