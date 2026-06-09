@@ -502,21 +502,46 @@ export class ConnectionOrchestrator extends EventEmitter {
     if (!sessionId || this.protocol.getState() !== 'ready') return;
     const desired = new Set(this.monitor.watchlist.names());
     const sessionSubs = this.activeVariableSubs.filter((s) => s.sessionId === sessionId);
+    // [LAW:one-source-of-truth] `active` tracks only confirmed-live subscriptions and is updated
+    // solely from toggle outcomes, so a failed subscribe stays absent and is retried next reconcile
+    // rather than being recorded as live and silently never updating.
     const active = new Set(sessionSubs.map((s) => s.name));
     const toAdd = [...desired].filter((name) => !active.has(name));
     const toRemove = sessionSubs.filter((s) => !desired.has(s.name));
 
-    for (const name of toAdd) {
-      await this.toggleVariableSubscription(sessionId, name, true).catch(() => void 0);
-    }
-    for (const sub of toRemove) {
-      await this.toggleVariableSubscription(sessionId, sub.name, false).catch(() => void 0);
-    }
+    const added = await this.applyVariableToggles(sessionId, toAdd, true);
+    added.forEach((name) => active.add(name));
+    const removed = await this.applyVariableToggles(
+      sessionId,
+      toRemove.map((s) => s.name),
+      false,
+    );
+    removed.forEach((name) => active.delete(name));
 
     this.activeVariableSubs = [
       ...this.activeVariableSubs.filter((s) => s.sessionId !== sessionId),
-      ...[...desired].map((name) => ({ name, sessionId })),
+      ...[...active].map((name) => ({ name, sessionId })),
     ];
+  }
+
+  // [LAW:no-silent-failure] Surfaces every toggle failure via the same `error` channel as the
+  // variable dump, and returns the names that actually toggled so the caller's tracker reflects
+  // real protocol state instead of intent.
+  private async applyVariableToggles(
+    sessionId: string,
+    names: readonly string[],
+    subscribe: boolean,
+  ): Promise<string[]> {
+    const succeeded: string[] = [];
+    for (const name of names) {
+      try {
+        await this.toggleVariableSubscription(sessionId, name, subscribe);
+        succeeded.push(name);
+      } catch (err) {
+        this.emit('error', err);
+      }
+    }
+    return succeeded;
   }
 
   private async toggleVariableSubscription(
