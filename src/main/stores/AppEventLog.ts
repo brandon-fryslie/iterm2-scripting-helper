@@ -44,9 +44,7 @@ export class AppEventLog {
     this.head = (this.head + 1) % this.capacity;
     if (this.length < this.capacity) this.length += 1;
     this.totals.set(full.kind, (this.totals.get(full.kind) ?? 0) + 1);
-    if (full.frameSeq !== null && full.frameSeq > this.maxFrameSeq) {
-      this.maxFrameSeq = full.frameSeq;
-    }
+    if (full.frameSeq > this.maxFrameSeq) this.maxFrameSeq = full.frameSeq;
     return full;
   }
 
@@ -89,12 +87,12 @@ export class AppEventLog {
 
   snapshot(): AppEventLogSnapshot {
     const events = this.events();
-    const framed = events.find((e) => e.frameSeq !== null);
     return {
       events,
       totalSeen: [...this.totals.values()].reduce((a, b) => a + b, 0),
       capacity: this.capacity,
-      oldestFrameSeq: framed?.frameSeq ?? null,
+      // Events are appended in frameSeq order, so the oldest retained event carries the oldest frame.
+      oldestFrameSeq: events[0]?.frameSeq ?? null,
     };
   }
 
@@ -117,7 +115,7 @@ export function wireLogProjection(log: AppEventLog): WireLogSnapshot {
     .map((e) => ({
       // [LAW:one-source-of-truth] The wire entry's identity IS the frame seq; the store no longer
       // mints a private counter for protocol-event identity.
-      seq: e.frameSeq as number,
+      seq: e.frameSeq,
       at: e.at,
       direction: e.payload.direction,
       size: e.payload.size,

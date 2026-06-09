@@ -336,19 +336,22 @@ interface AppEventBase {
   // Monotonic append order across the whole log; the log is its single owner.
   seq: number;
   at: number;
-  // The protocol frame this event was produced from. Read-side events always carry one; the write
-  // side (449.7.6) will produce events with no inbound frame, hence the null.
-  frameSeq: number | null;
   entity: AppEntityRef;
   // The seq of a prior event this one was caused by (action -> notification -> change). Always null
   // on the read side; the write side links invocations to their effects.
   causedBy: number | null;
 }
 
+// [LAW:types-are-the-program] `frameSeq` lives on each variant, not the base, because it is the one
+// field whose nullability varies by kind. Every read-side event is produced FROM a protocol frame,
+// so it always carries a real frameSeq — a wire-frame event with no frame is not a state that can
+// exist, and the type refuses to represent it (no `| null`, no cast at the read site). The write
+// side (449.7.6) introduces its own variants that may omit frameSeq; that is the moment the null
+// becomes a real state, modelled then on the variant that actually has it.
 export type AppEvent =
-  | (AppEventBase & { kind: 'wire-frame'; payload: AppWireFramePayload })
-  | (AppEventBase & { kind: 'notification'; payload: AppNotificationPayload })
-  | (AppEventBase & { kind: 'variable-change'; payload: AppVariableChangePayload });
+  | (AppEventBase & { kind: 'wire-frame'; frameSeq: number; payload: AppWireFramePayload })
+  | (AppEventBase & { kind: 'notification'; frameSeq: number; payload: AppNotificationPayload })
+  | (AppEventBase & { kind: 'variable-change'; frameSeq: number; payload: AppVariableChangePayload });
 
 export interface AppEventLogSnapshot {
   events: AppEvent[];
