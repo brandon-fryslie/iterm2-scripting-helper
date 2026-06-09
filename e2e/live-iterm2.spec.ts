@@ -263,6 +263,11 @@ test.describe('live iTerm2', () => {
 
     // Profiles tab: pick a profile, apply an edit, verify success.
     await win.getByTestId('workbench-rail-profile').click();
+    // Scope banner must tell the truth about each artifact's scope (449.7.7).
+    await expect(win.getByTestId('artifact-scope-banner')).toHaveAttribute(
+      'data-scope',
+      'profile',
+    );
     await win.getByTestId('workbench-refresh-profiles').click();
     // Wait for profiles to populate in the select
     await expect(win.getByTestId('workbench-profile-select')).toBeVisible({ timeout: 10_000 });
@@ -287,6 +292,10 @@ test.describe('live iTerm2', () => {
 
     // Dynamic Profiles: write a temp file, verify it appears in the snapshot.
     await win.getByTestId('workbench-rail-dynamic-profile').click();
+    await expect(win.getByTestId('artifact-scope-banner')).toHaveAttribute(
+      'data-scope',
+      'connection',
+    );
     const tempBasename = `workbench-test-${Date.now()}.json`;
     const write = await win.evaluate(async (args) => {
       return window.ipc.invoke('workbench/save-dynamic-profile', {
@@ -325,6 +334,11 @@ test.describe('live iTerm2', () => {
 
     // Escape Sequence: build a SetMark sequence and emit to session.
     await win.getByTestId('workbench-rail-escape-sequence').click();
+    // Entity-scoped artifact: banner says so, and the editor anchors its target to focus.
+    await expect(win.getByTestId('artifact-scope-banner')).toHaveAttribute(
+      'data-scope',
+      'entity',
+    );
     const emit = await win.evaluate(async (args) => {
       const text = '\x1b]1337;SetMark\x1b\\';
       return window.ipc.invoke('actions/send-text', {

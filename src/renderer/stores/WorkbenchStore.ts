@@ -385,15 +385,17 @@ export class WorkbenchStore {
     runInAction(() => this.applyCustomEscapeSnapshot(snap));
   }
 
-  async subscribeCustomEscape(): Promise<void> {
-    const { sessionId, identity } = this.customEscapeForm;
+  // [LAW:effects-at-boundaries] The effective target session is resolved at the UI seam from
+  // entityFocus + the explicit override, then handed in as a value; the store never reaches for
+  // ambient focus.
+  async subscribeCustomEscape(sessionId: string): Promise<void> {
     if (!sessionId) {
       this.customEscapeLastError = 'session required';
       return;
     }
     const result = await window.ipc.invoke('workbench/subscribe-custom-escape', {
       sessionId,
-      identity,
+      identity: this.customEscapeForm.identity,
     });
     runInAction(() => {
       this.customEscapeLastError = result.ok ? null : result.error ?? 'subscribe failed';

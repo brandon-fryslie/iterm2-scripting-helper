@@ -11,12 +11,14 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { useStore } from '@/stores/context';
-import { flatSessions } from '@shared/domain';
+import { ExpressionProbe } from '@/components/ExpressionProbe';
+import { flatSessions, sessionEntityRef } from '@shared/domain';
+import type { AppEntitySessionRef } from '@shared/domain';
 import { ESCAPE_TEMPLATES } from '@shared/escape-sequences';
 import type { EscapeTemplate } from '@shared/escape-sequences';
 
 export const EscapeSequenceEditor = observer(function EscapeSequenceEditor() {
-  const { workbench, monitor } = useStore();
+  const { workbench, monitor, entityFocus } = useStore();
 
   useEffect(() => {
     void workbench.refreshCustomEscape();
@@ -30,12 +32,23 @@ export const EscapeSequenceEditor = observer(function EscapeSequenceEditor() {
     sequence = template.build(values);
   }
 
-  const sessions: Array<{ sessionId: string; title: string }> = [];
+  const sessions: Array<{ sessionId: string; title: string; ref: AppEntitySessionRef }> = [];
   for (const w of monitor.layout.windows) {
     for (const t of w.tabs) {
-      for (const s of flatSessions(t)) sessions.push({ sessionId: s.sessionId, title: s.title });
+      for (const s of flatSessions(t)) {
+        sessions.push({ sessionId: s.sessionId, title: s.title, ref: sessionEntityRef(w, t, s) });
+      }
     }
   }
+
+  // [LAW:one-source-of-truth] The editor acts on the focused session by default; the picker is
+  // an explicit override layered on top (empty = follow focus), never a second authority for
+  // "which entity". The full ref is resolved from the layout so emitted events carry real
+  // window/tab provenance, not a synthesized partial.
+  const targetId = workbench.escapeTemplateTarget || entityFocus.sessionId || '';
+  const targetRef = sessions.find((s) => s.sessionId === targetId)?.ref ?? null;
+  const usingFocus = workbench.escapeTemplateTarget === '';
+  const targetTitle = sessions.find((s) => s.sessionId === targetId)?.title;
 
   return (
     <div className="grid gap-4" data-testid="workbench-escape-editor">
@@ -106,15 +119,33 @@ export const EscapeSequenceEditor = observer(function EscapeSequenceEditor() {
           ) : (
             <p className="text-xs text-muted-foreground">Select a template above.</p>
           )}
+          <div
+            className="text-xs text-muted-foreground"
+            data-testid="escape-effective-target"
+            data-target={targetId || 'none'}
+          >
+            {targetRef ? (
+              <>
+                Emitting to{' '}
+                <span className="font-mono text-foreground">
+                  {targetTitle || targetId.slice(0, 12) + '…'}
+                </span>{' '}
+                {usingFocus ? '(focused session)' : '(override)'}
+              </>
+            ) : (
+              'No target session — focus a session or override below.'
+            )}
+          </div>
           <div className="flex flex-wrap items-center gap-2">
             <Select
-              value={workbench.escapeTemplateTarget}
-              onValueChange={(v) => workbench.setEscapeTarget(v)}
+              value={workbench.escapeTemplateTarget || '__focus__'}
+              onValueChange={(v) => workbench.setEscapeTarget(v === '__focus__' ? '' : v)}
             >
               <SelectTrigger className="max-w-[300px]" data-testid="escape-target-select">
-                <SelectValue placeholder="Pick a target session…" />
+                <SelectValue placeholder="Follow focus" />
               </SelectTrigger>
               <SelectContent>
+                <SelectItem value="__focus__">Follow focus</SelectItem>
                 {sessions.map((s) => (
                   <SelectItem key={s.sessionId} value={s.sessionId}>
                     {s.title || s.sessionId.slice(0, 12) + '…'}
@@ -124,23 +155,16 @@ export const EscapeSequenceEditor = observer(function EscapeSequenceEditor() {
             </Select>
             <Button
               onClick={async () => {
-                if (!sequence) return;
+                if (!sequence || !targetRef) return;
                 const result = await window.ipc.invoke('actions/send-text', {
-                  // Scoped to the session this editor targets; window/tab unknown from a session id
-                  // alone, matching the spine's session-entity convention.
-                  entity: {
-                    kind: 'session',
-                    windowId: '',
-                    tabId: '',
-                    sessionId: workbench.escapeTemplateTarget,
-                  },
-                  sessionId: workbench.escapeTemplateTarget,
+                  entity: targetRef,
+                  sessionId: targetRef.sessionId,
                   text: sequence,
                   suppressBroadcast: true,
                 });
                 workbench.recordEscape(sequence, result);
               }}
-              disabled={!sequence || !workbench.escapeTemplateTarget}
+              disabled={!sequence || !targetRef}
               data-testid="escape-send"
             >
               Emit to session
@@ -151,6 +175,19 @@ export const EscapeSequenceEditor = observer(function EscapeSequenceEditor() {
               </span>
             )}
           </div>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader className="pb-2">
+          <CardTitle className="text-base">Resolve a variable against focus</CardTitle>
+        </CardHeader>
+        <CardContent className="grid gap-2 p-0 text-sm">
+          <p className="px-3 pt-3 text-xs text-muted-foreground">
+            Evaluate a path against the focused entity to find the literal value to paste into a
+            template field — e.g. <code>session.name</code> or <code>{'\\(user.foo)'}</code>.
+          </p>
+          <ExpressionProbe />
         </CardContent>
       </Card>
     </div>

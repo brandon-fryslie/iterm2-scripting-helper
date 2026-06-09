@@ -15,7 +15,7 @@ import { useStore } from '@/stores/context';
 import { flatSessions } from '@shared/domain';
 
 export const CustomEscapeSubscriber = observer(function CustomEscapeSubscriber() {
-  const { workbench, monitor } = useStore();
+  const { workbench, monitor, entityFocus } = useStore();
 
   useEffect(() => {
     void workbench.refreshCustomEscape();
@@ -33,6 +33,12 @@ export const CustomEscapeSubscriber = observer(function CustomEscapeSubscriber()
     for (const t of w.tabs) for (const s of flatSessions(t)) sessions.push({ sessionId: s.sessionId, title: s.title });
   }
 
+  // [LAW:one-source-of-truth] Subscribe to the focused session by default; the picker is an
+  // explicit override (empty = follow focus), not a competing source for "which session".
+  const targetId = form.sessionId || entityFocus.sessionId || '';
+  const usingFocus = form.sessionId === '';
+  const targetTitle = sessions.find((s) => s.sessionId === targetId)?.title;
+
   return (
     <div className="grid gap-4" data-testid="workbench-custom-escape">
       <Card>
@@ -48,13 +54,16 @@ export const CustomEscapeSubscriber = observer(function CustomEscapeSubscriber()
           <label className="grid grid-cols-[10rem_1fr] items-center gap-2 text-xs">
             <span className="text-muted-foreground">Session</span>
             <Select
-              value={form.sessionId}
-              onValueChange={(v) => workbench.updateCustomEscapeForm({ sessionId: v })}
+              value={form.sessionId || '__focus__'}
+              onValueChange={(v) =>
+                workbench.updateCustomEscapeForm({ sessionId: v === '__focus__' ? '' : v })
+              }
             >
               <SelectTrigger data-testid="custom-escape-session">
-                <SelectValue placeholder="Pick a session…" />
+                <SelectValue placeholder="Follow focus" />
               </SelectTrigger>
               <SelectContent>
+                <SelectItem value="__focus__">Follow focus</SelectItem>
                 {sessions.map((s) => (
                   <SelectItem key={s.sessionId} value={s.sessionId}>
                     {s.title || s.sessionId.slice(0, 12) + '…'}
@@ -63,6 +72,23 @@ export const CustomEscapeSubscriber = observer(function CustomEscapeSubscriber()
               </SelectContent>
             </Select>
           </label>
+          <div
+            className="text-xs text-muted-foreground"
+            data-testid="custom-escape-effective-target"
+            data-target={targetId || 'none'}
+          >
+            {targetId ? (
+              <>
+                Subscribing to{' '}
+                <span className="font-mono text-foreground">
+                  {targetTitle || targetId.slice(0, 12) + '…'}
+                </span>{' '}
+                {usingFocus ? '(focused session)' : '(override)'}
+              </>
+            ) : (
+              'No target session — focus a session or override above.'
+            )}
+          </div>
           <label className="grid grid-cols-[10rem_1fr] items-center gap-2 text-xs">
             <span className="text-muted-foreground">Identity filter</span>
             <Input
@@ -76,8 +102,8 @@ export const CustomEscapeSubscriber = observer(function CustomEscapeSubscriber()
           </label>
           <div className="flex items-center gap-2">
             <Button
-              onClick={() => void workbench.subscribeCustomEscape()}
-              disabled={!form.sessionId}
+              onClick={() => void workbench.subscribeCustomEscape(targetId)}
+              disabled={!targetId}
               data-testid="custom-escape-subscribe"
             >
               Subscribe
