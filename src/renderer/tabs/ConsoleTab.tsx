@@ -49,10 +49,7 @@ export const ConsoleTab = observer(function ConsoleTab() {
     if (monitor.layout.windows.length === 0) {
       void monitor.hydrate();
     }
-    // The transcript is a projection of the main-process spine; pull the current state on mount so
-    // actions fired in a prior view of this session are present.
-    void consoleStore.refreshTranscript();
-  }, [monitor, consoleStore]);
+  }, [monitor]);
 
   const Form = FORM_COMPONENTS[consoleStore.selectedAction];
 
@@ -143,77 +140,6 @@ export const ConsoleTab = observer(function ConsoleTab() {
           </CardContent>
         </Card>
       )}
-
-      <Card>
-        <CardHeader className="flex flex-row items-center justify-between gap-2 pb-2">
-          <CardTitle className="text-base">Transcript</CardTitle>
-          <div className="flex items-center gap-2">
-            <span className="text-xs text-muted-foreground">
-              {consoleStore.transcript.length} entry(s)
-            </span>
-            <Button
-              size="sm"
-              variant="ghost"
-              onClick={() => consoleStore.clearTranscript()}
-            >
-              Clear
-            </Button>
-          </div>
-        </CardHeader>
-        <CardContent className="max-h-[40vh] overflow-auto">
-          {consoleStore.transcript.length === 0 ? (
-            <p className="text-xs text-muted-foreground">
-              Fire an action to log its request + response here.
-            </p>
-          ) : (
-            <ul className="space-y-2 font-mono text-xs">
-              {consoleStore.transcript
-                .slice()
-                .reverse()
-                .map((e) => (
-                  <li
-                    key={e.id}
-                    className="rounded border p-2"
-                    data-testid={`transcript-${e.id}`}
-                    data-ok={e.result.ok ? 'true' : 'false'}
-                  >
-                    <div className="flex items-center gap-2">
-                      <Badge variant="outline">{e.action}</Badge>
-                      <Badge variant={e.result.ok ? 'default' : 'destructive'}>
-                        {e.result.ok ? 'ok' : 'error'}
-                      </Badge>
-                      <span className="text-muted-foreground">
-                        {e.result.latencyMs} ms
-                      </span>
-                      <span className="ml-auto text-muted-foreground">
-                        {new Date(e.at).toISOString().slice(11, 23)}
-                      </span>
-                    </div>
-                    <details className="mt-1 text-muted-foreground">
-                      <summary className="cursor-pointer">args</summary>
-                      <pre className="mt-1 whitespace-pre-wrap">
-                        {JSON.stringify(e.args, null, 2)}
-                      </pre>
-                    </details>
-                    {e.result.error && (
-                      <div className="mt-1 text-destructive">{e.result.error}</div>
-                    )}
-                    {e.result.payload && (
-                      <details className="mt-1 text-muted-foreground">
-                        <summary className="cursor-pointer">
-                          response ({e.result.responseCase ?? '—'})
-                        </summary>
-                        <pre className="mt-1 whitespace-pre-wrap">
-                          {JSON.stringify(e.result.payload, null, 2)}
-                        </pre>
-                      </details>
-                    )}
-                  </li>
-                ))}
-            </ul>
-          )}
-        </CardContent>
-      </Card>
     </div>
   );
 });
