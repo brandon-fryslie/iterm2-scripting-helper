@@ -3,6 +3,7 @@ import { ConnectionStore } from './ConnectionStore';
 import { MonitorStore } from './MonitorStore';
 import { ConsoleStore } from './ConsoleStore';
 import { WorkbenchStore } from './WorkbenchStore';
+import { ActivityStore } from './ActivityStore';
 import { EntityFocusStore } from './EntityFocusStore';
 import {
   APP_ENTITY,
@@ -16,6 +17,7 @@ export class RootStore {
   readonly monitor: MonitorStore;
   readonly console: ConsoleStore;
   readonly workbench: WorkbenchStore;
+  readonly activity: ActivityStore;
   private focusRequestSeq = 0;
 
   constructor() {
@@ -24,12 +26,14 @@ export class RootStore {
     this.monitor = new MonitorStore(() => this.reconcileEntityFocusWithLayout());
     this.console = new ConsoleStore(this.entityFocus);
     this.workbench = new WorkbenchStore();
+    this.activity = new ActivityStore();
     makeAutoObservable(this, {
       connection: false,
       entityFocus: false,
       monitor: false,
       console: false,
       workbench: false,
+      activity: false,
     });
   }
 

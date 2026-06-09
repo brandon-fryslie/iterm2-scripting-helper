@@ -1,5 +1,5 @@
-import { makeAutoObservable, runInAction } from 'mobx';
-import type { ActionResult, ActionLogEntry, RpcMethod, RpcArgs } from '@shared/rpc';
+import { makeAutoObservable } from 'mobx';
+import type { ActionResult, RpcMethod, RpcArgs } from '@shared/rpc';
 import type { EntityFocusStore } from './EntityFocusStore';
 
 export type ActionKind =
@@ -27,19 +27,6 @@ const ACTION_METHODS: Record<ActionKind, ActionMethod> = {
   close: 'actions/close',
   'raw-protobuf': 'actions/raw-protobuf',
 };
-
-export interface TranscriptEntry {
-  id: number;
-  at: number;
-  action: ActionKind;
-  args: unknown;
-  result: ActionResult;
-}
-
-function entryFromSpine(e: ActionLogEntry): TranscriptEntry {
-  // The spine's seq is the entry identity — the console no longer mints its own counter.
-  return { id: e.seq, at: e.at, action: e.action, args: e.args, result: e.result };
-}
 
 export interface Snippet {
   id: string;
@@ -100,12 +87,6 @@ const DEFAULT_FORMS: ActionForms = {
 export class ConsoleStore {
   selectedAction: ActionKind = 'send-text';
   forms: ActionForms;
-  // [LAW:one-source-of-truth] The transcript is a projection of the main-process event spine, not a
-  // private array this store appends to. `transcriptEntries` is the last pulled projection;
-  // `clearedBeforeSeq` is a view-only watermark so "Clear" hides past entries without mutating the
-  // append-only spine.
-  transcriptEntries: TranscriptEntry[] = [];
-  clearedBeforeSeq = 0;
   snippets: Snippet[] = [];
   private nextSnippetId = 1;
   private readonly entityFocus: EntityFocusStore;
@@ -114,17 +95,6 @@ export class ConsoleStore {
     this.entityFocus = entityFocus;
     this.forms = structuredClone(DEFAULT_FORMS);
     makeAutoObservable<ConsoleStore, 'entityFocus'>(this, { entityFocus: false });
-  }
-
-  get transcript(): TranscriptEntry[] {
-    return this.transcriptEntries.filter((e) => e.id > this.clearedBeforeSeq);
-  }
-
-  async refreshTranscript(): Promise<void> {
-    const snap = await window.ipc.invoke('monitor/actions', undefined as never);
-    runInAction(() => {
-      this.transcriptEntries = snap.entries.map(entryFromSpine);
-    });
   }
 
   setAction(action: ActionKind): void {
@@ -208,8 +178,7 @@ export class ConsoleStore {
     // records it on the action event. The override (if the user typed one) stays inside `args`.
     const entity = this.entityFocus.selected;
     const result = (await window.ipc.invoke(method, { ...(args as object), entity } as never)) as ActionResult;
-    // The transcript is the spine; re-project it now that this action has been appended there.
-    await this.refreshTranscript();
+    // The action is appended to the spine by the main process; the Activity timeline projects it.
     return result;
   }
 
@@ -233,12 +202,5 @@ export class ConsoleStore {
     const snippet = this.snippets.find((s) => s.id === id);
     if (!snippet) return null;
     return this.fire(snippet.action, snippet.args);
-  }
-
-  clearTranscript(): void {
-    // View-only: advance the watermark past every entry currently shown. The spine is append-only and
-    // is never mutated from the renderer.
-    const newest = this.transcriptEntries.reduce((max, e) => Math.max(max, e.id), this.clearedBeforeSeq);
-    this.clearedBeforeSeq = newest;
   }
 }

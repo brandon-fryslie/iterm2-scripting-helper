@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect } from 'react';
 import { observer } from 'mobx-react-lite';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -46,7 +46,6 @@ const DEFAULT_KNOB: KnobSpec = {
 
 export const RegistrationEditor = observer(function RegistrationEditor() {
   const { workbench } = useStore();
-  const [selectedId, setSelectedId] = useState<string | null>(null);
 
   useEffect(() => {
     void workbench.refreshRegistrations();
@@ -57,9 +56,6 @@ export const RegistrationEditor = observer(function RegistrationEditor() {
   }, [workbench]);
 
   const form = workbench.registrationForm;
-  const invocations = workbench.registrationsSnapshot.invocations.filter(
-    (i) => !selectedId || i.registrationId === selectedId,
-  );
 
   return (
     <div className="grid gap-4" data-testid="workbench-registrations">
@@ -300,7 +296,8 @@ export const RegistrationEditor = observer(function RegistrationEditor() {
         <CardHeader className="pb-2 flex flex-row items-center justify-between">
           <CardTitle className="text-base">Active registrations</CardTitle>
           <span className="text-xs text-muted-foreground">
-            {workbench.registrationsSnapshot.totalInvocations} invocation(s) seen
+            {workbench.registrationsSnapshot.totalInvocations} invocation(s) seen ·
+            in the Activity timeline
           </span>
         </CardHeader>
         <CardContent>
@@ -308,92 +305,34 @@ export const RegistrationEditor = observer(function RegistrationEditor() {
             <p className="text-xs text-muted-foreground">None registered yet.</p>
           ) : (
             <ul className="grid gap-2 text-xs">
-              {workbench.registrationsSnapshot.registrations.map((r) => {
-                const active = selectedId === r.id;
-                return (
-                  <li
-                    key={r.id}
-                    className="rounded border p-2"
-                    data-testid={`registration-${r.id}`}
-                  >
-                    <div className="flex items-center gap-2">
-                      <Badge variant="outline">{r.role}</Badge>
-                      <span className="font-mono">{r.name}</span>
-                      <span className="ml-auto flex items-center gap-2">
-                        <Button
-                          size="sm"
-                          variant={active ? 'default' : 'outline'}
-                          onClick={() => setSelectedId(active ? null : r.id)}
-                        >
-                          {active ? 'all invocations' : 'filter'}
-                        </Button>
-                        <Button
-                          size="sm"
-                          variant="ghost"
-                          onClick={() => void workbench.unregisterRpc(r.id)}
-                          data-testid={`registration-unregister-${r.id}`}
-                        >
-                          Unregister
-                        </Button>
-                      </span>
+              {workbench.registrationsSnapshot.registrations.map((r) => (
+                <li
+                  key={r.id}
+                  className="rounded border p-2"
+                  data-testid={`registration-${r.id}`}
+                >
+                  <div className="flex items-center gap-2">
+                    <Badge variant="outline">{r.role}</Badge>
+                    <span className="font-mono">{r.name}</span>
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      className="ml-auto"
+                      onClick={() => void workbench.unregisterRpc(r.id)}
+                      data-testid={`registration-unregister-${r.id}`}
+                    >
+                      Unregister
+                    </Button>
+                  </div>
+                  {r.statusBar && (
+                    <div className="mt-1 text-muted-foreground">
+                      id=<code>{r.statusBar.uniqueIdentifier}</code> ·{' '}
+                      {r.statusBar.knobs.length} knob(s) · cadence{' '}
+                      {r.statusBar.updateCadence}s
                     </div>
-                    {r.statusBar && (
-                      <div className="mt-1 text-muted-foreground">
-                        id=<code>{r.statusBar.uniqueIdentifier}</code> ·{' '}
-                        {r.statusBar.knobs.length} knob(s) · cadence{' '}
-                        {r.statusBar.updateCadence}s
-                      </div>
-                    )}
-                  </li>
-                );
-              })}
-            </ul>
-          )}
-        </CardContent>
-      </Card>
-
-      <Card>
-        <CardHeader className="pb-2">
-          <CardTitle className="text-base">Invocation log</CardTitle>
-        </CardHeader>
-        <CardContent className="max-h-[40vh] overflow-auto">
-          {invocations.length === 0 ? (
-            <p className="text-xs text-muted-foreground">
-              iTerm2 hasn't invoked a registered RPC yet. For status bar components,
-              add the component to a profile via Settings → Profiles → Session → Status
-              Bar.
-            </p>
-          ) : (
-            <ul className="grid gap-2 text-xs">
-              {invocations
-                .slice()
-                .reverse()
-                .map((i) => (
-                  <li
-                    key={i.seq}
-                    className="rounded border p-2"
-                    data-testid={`invocation-${i.seq}`}
-                  >
-                    <div className="flex items-center gap-2">
-                      <Badge variant={i.error ? 'destructive' : 'default'}>
-                        {i.error ? 'err' : 'ok'}
-                      </Badge>
-                      <span className="font-mono text-muted-foreground">
-                        {i.registrationId}
-                      </span>
-                      <span className="ml-auto text-muted-foreground">
-                        {new Date(i.at).toISOString().slice(11, 23)}
-                      </span>
-                    </div>
-                    <details className="mt-1 text-muted-foreground">
-                      <summary className="cursor-pointer">args</summary>
-                      <pre className="mt-1 whitespace-pre-wrap">
-                        {JSON.stringify(i.args, null, 2)}
-                      </pre>
-                    </details>
-                    {i.error && <div className="mt-1 text-destructive">{i.error}</div>}
-                  </li>
-                ))}
+                  )}
+                </li>
+              ))}
             </ul>
           )}
         </CardContent>

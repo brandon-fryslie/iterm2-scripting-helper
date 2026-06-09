@@ -64,11 +64,11 @@ test.describe('live iTerm2', () => {
     await win.getByTestId('tab-trigger-monitor').click();
     await expect(win.getByTestId('layout-pane')).toBeVisible();
     await expect(win.getByTestId('variables-pane')).toBeVisible();
-    // Footer panes are tabbed; each mounts only while its tab is active.
-    await win.getByRole('tab', { name: 'Wire' }).click();
-    await expect(win.getByTestId('wire-pane')).toBeVisible();
-    await win.getByRole('tab', { name: 'Notifications' }).click();
-    await expect(win.getByTestId('notifications-pane')).toBeVisible();
+    // Wire frames and notifications are no longer separate panes — they are facets of the one
+    // Activity timeline that every event stream projects through.
+    await expect(win.getByTestId('activity-timeline')).toBeVisible();
+    await expect(win.getByTestId('activity-facet-frame')).toBeVisible();
+    await expect(win.getByTestId('activity-facet-notification')).toBeVisible();
 
     const firstSession = win.locator('[data-testid^="layout-session-"]').first();
     await expect(firstSession).toBeVisible({ timeout: 10_000 });
@@ -364,36 +364,34 @@ test.describe('live iTerm2', () => {
 
     await win.getByTestId('tab-trigger-console').click();
 
-    // Send text — fire without text (safe no-op on shell); asserts RPC succeeds.
+    // Send text — fire without text (safe no-op on shell).
     await win.getByTestId('action-send-text').click();
     await win
       .getByTestId('send-text-session-input')
       .fill(probe.sessionId);
     await win.getByTestId('send-text-input').fill('');
     await win.getByTestId('action-fire').click();
-    await expect(
-      win.locator('[data-testid^="transcript-"]').first(),
-    ).toHaveAttribute('data-ok', 'true', { timeout: 10_000 });
 
     // Activate a real tab
     await win.getByTestId('action-activate').click();
     await win.getByTestId('activate-id-input').fill(probe.tabId);
     await win.getByTestId('action-fire').click();
-    const firstEntry = win.locator('[data-testid^="transcript-"]').first();
-    await expect(firstEntry).toHaveAttribute('data-ok', 'true', { timeout: 10_000 });
 
     // Save as snippet + re-fire
-    const beforeSnippet = await win.locator('[data-testid^="transcript-"]').count();
     await win.getByTestId('snippet-name').fill('activate-head-tab');
     await win.getByTestId('snippet-save').click();
     const snippet = win.locator('[data-testid^="snippet-snip-"]').first();
     await expect(snippet).toBeVisible();
     await snippet.locator('[data-testid^="snippet-fire-"]').click();
 
-    await expect(win.locator('[data-testid^="transcript-"]')).toHaveCount(
-      beforeSnippet + 1,
-      { timeout: 10_000 },
+    // Actions feed the unified Activity timeline (no Console-local transcript). The three fires
+    // surface as three action events on the spine, and every one succeeded (no ✗ in its summary).
+    await win.getByTestId('tab-trigger-monitor').click();
+    const actionRows = win.locator(
+      '[data-testid^="activity-row-"][data-facet="action"]',
     );
+    await expect(actionRows).toHaveCount(3, { timeout: 10_000 });
+    await expect(actionRows.filter({ hasText: '✗' })).toHaveCount(0);
 
     await app.close();
   });
@@ -411,12 +409,11 @@ test.describe('live iTerm2', () => {
     );
 
     await win.getByTestId('tab-trigger-monitor').click();
-    // Footer panes are tabbed; each mounts only while its tab is active.
-    await expect(win.getByTestId('keystrokes-pane')).toBeVisible();
-    await win.getByRole('tab', { name: 'Prompts' }).click();
-    await expect(win.getByTestId('prompts-pane')).toBeVisible();
-    await win.getByRole('tab', { name: 'Focus' }).click();
-    await expect(win.getByTestId('focus-pane')).toBeVisible();
+    // Keystrokes, prompts and focus are facets of the one Activity timeline, not separate panes.
+    await expect(win.getByTestId('activity-timeline')).toBeVisible();
+    await expect(win.getByTestId('activity-facet-keystroke')).toBeVisible();
+    await expect(win.getByTestId('activity-facet-prompt')).toBeVisible();
+    await expect(win.getByTestId('activity-facet-focus')).toBeVisible();
 
     const firstSession = win.locator('[data-testid^="layout-session-"]').first();
     await expect(firstSession).toBeVisible({ timeout: 10_000 });
