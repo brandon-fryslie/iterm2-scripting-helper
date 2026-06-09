@@ -41,6 +41,9 @@ async function fire(
   try {
     const response = await orchestrator.sendRequest(envelope);
     const latencyMs = Date.now() - started;
+    // The response echoes the request's protocol id — the foreign key joining this action to the
+    // request/response wire frames it produced.
+    const requestId = response.id.toString();
     if (response.submessage.case === 'error') {
       return {
         ok: false,
@@ -48,6 +51,7 @@ async function fire(
         latencyMs,
         responseCase: 'error',
         payload: null,
+        requestId,
       };
     }
     return {
@@ -56,6 +60,7 @@ async function fire(
       latencyMs,
       responseCase: response.submessage.case ?? null,
       payload: extractPayload(response),
+      requestId,
     };
   } catch (err) {
     return {
@@ -64,6 +69,7 @@ async function fire(
       latencyMs: Date.now() - started,
       responseCase: null,
       payload: null,
+      requestId: null,
     };
   }
 }
@@ -94,6 +100,7 @@ export async function actionInject(
       latencyMs: 0,
       responseCase: null,
       payload: null,
+      requestId: null,
     };
   }
   const data = new Uint8Array(clean.length / 2);
@@ -289,6 +296,7 @@ export async function actionRawProtobuf(
         latencyMs: 0,
         responseCase: null,
         payload: null,
+        requestId: null,
       };
     }
     envelope = { submessage: parsed.submessage };
@@ -299,12 +307,14 @@ export async function actionRawProtobuf(
       latencyMs: 0,
       responseCase: null,
       payload: null,
+      requestId: null,
     };
   }
   const started = Date.now();
   try {
     const response = await orchestrator.sendRequest(envelope);
     const latencyMs = Date.now() - started;
+    const requestId = response.id.toString();
     if (response.submessage.case === 'error') {
       return {
         ok: false,
@@ -312,6 +322,7 @@ export async function actionRawProtobuf(
         latencyMs,
         responseCase: 'error',
         payload: null,
+        requestId,
       };
     }
     return {
@@ -326,6 +337,7 @@ export async function actionRawProtobuf(
           2,
         ),
       },
+      requestId,
     };
   } catch (err) {
     return {
@@ -334,6 +346,7 @@ export async function actionRawProtobuf(
       latencyMs: Date.now() - started,
       responseCase: null,
       payload: null,
+      requestId: null,
     };
   }
 }

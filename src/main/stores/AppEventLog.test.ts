@@ -3,12 +3,14 @@ import {
   AppEventLog,
   wireLogProjection,
   notificationLogProjection,
+  actionLogProjection,
+  invocationProjection,
 } from './AppEventLog';
-import { APP_ENTITY, type AppEvent } from '@shared/domain';
+import { APP_ENTITY, type AppEventInput } from '@shared/domain';
 
 const SESSION = { kind: 'session', windowId: '', tabId: '', sessionId: 's1' } as const;
 
-function wireFrame(frameSeq: number, direction: 'out' | 'in' = 'in'): Omit<AppEvent, 'seq'> {
+function wireFrame(frameSeq: number, direction: 'out' | 'in' = 'in'): AppEventInput {
   return {
     kind: 'wire-frame',
     at: 1_000 + frameSeq,
@@ -19,7 +21,7 @@ function wireFrame(frameSeq: number, direction: 'out' | 'in' = 'in'): Omit<AppEv
   };
 }
 
-function notification(frameSeq: number): Omit<AppEvent, 'seq'> {
+function notification(frameSeq: number): AppEventInput {
   return {
     kind: 'notification',
     at: 1_000 + frameSeq,
@@ -30,7 +32,7 @@ function notification(frameSeq: number): Omit<AppEvent, 'seq'> {
   };
 }
 
-function variableChange(frameSeq: number, source: 'subscription' | 'dump'): Omit<AppEvent, 'seq'> {
+function variableChange(frameSeq: number, source: 'subscription' | 'dump'): AppEventInput {
   return {
     kind: 'variable-change',
     at: 1_000 + frameSeq,
@@ -38,6 +40,47 @@ function variableChange(frameSeq: number, source: 'subscription' | 'dump'): Omit
     entity: SESSION,
     causedBy: null,
     payload: { name: 'session.name', value: '"beta"', previousValue: '"alpha"', scope: 'session', source },
+  };
+}
+
+function action(ok: boolean): AppEventInput {
+  // [LAW:types-are-the-program] No frameSeq: an action is not decoded from a frame.
+  return {
+    kind: 'action',
+    at: 2_000,
+    entity: SESSION,
+    causedBy: null,
+    payload: {
+      action: 'send-text',
+      args: { sessionId: 's1', text: 'hi' },
+      result: {
+        ok,
+        error: ok ? null : 'boom',
+        latencyMs: 3,
+        responseCase: ok ? 'sendTextResponse' : 'error',
+        payload: null,
+        requestId: ok ? '42' : null,
+      },
+    },
+  };
+}
+
+function invocation(frameSeq: number, causedBy: number): AppEventInput {
+  return {
+    kind: 'invocation',
+    at: 3_000,
+    frameSeq,
+    entity: APP_ENTITY,
+    causedBy,
+    payload: {
+      rpcName: 'my_rpc',
+      registrationId: 'reg-1',
+      requestId: 'r-1',
+      args: { x: 1 },
+      responded: true,
+      responseJson: '"ok"',
+      error: null,
+    },
   };
 }
 
@@ -131,6 +174,84 @@ describe('AppEventLog', () => {
     expect(log.resolveFrame(1)).toEqual({ status: 'unknown', frameSeq: 1 });
     // seq restarts so a fresh connection's log is not haunted by the prior one's identities.
     expect(log.append(wireFrame(1)).seq).toBe(1);
+  });
+
+  it('projects the console transcript from action events, carrying the requestId join key', () => {
+    const log = new AppEventLog();
+    log.append(wireFrame(1, 'out'));
+    const a = log.append(action(true));
+
+    const snap = actionLogProjection(log);
+    expect(snap.entries).toEqual([
+      {
+        seq: a.seq,
+        at: 2_000,
+        entity: SESSION,
+        action: 'send-text',
+        args: { sessionId: 's1', text: 'hi' },
+        result: {
+          ok: true,
+          error: null,
+          latencyMs: 3,
+          responseCase: 'sendTextResponse',
+          payload: null,
+          requestId: '42',
+        },
+      },
+    ]);
+    expect(snap.totalSeen).toBe(1);
+  });
+
+  it('an action (no frameSeq) does not blank the eviction watermark or get pulled into a frame join', () => {
+    const log = new AppEventLog();
+    // Action is the OLDEST retained event but carries no frame; oldestFrameSeq must skip past it to
+    // the first frame-bearing event rather than collapsing to null.
+    log.append(action(true));
+    log.append(wireFrame(5));
+    log.append(variableChange(5, 'subscription'));
+
+    expect(log.snapshot().oldestFrameSeq).toBe(5);
+    const resolution = log.resolveFrame(5);
+    expect(resolution.status).toBe('found');
+    if (resolution.status !== 'found') throw new Error('expected found');
+    // The frameSeq-less action is never joined to a frame.
+    expect(resolution.events.some((e) => e.kind === 'action')).toBe(false);
+    expect(resolution.events.map((e) => e.kind).sort()).toEqual([
+      'variable-change',
+      'wire-frame',
+    ]);
+  });
+
+  it('projects invocations from the spine and links each back to its triggering notification', () => {
+    const log = new AppEventLog();
+    log.append(wireFrame(9));
+    const notif = log.append(notification(9));
+    const inv = log.append(invocation(9, notif.seq));
+
+    const { invocations, totalInvocations } = invocationProjection(log);
+    expect(totalInvocations).toBe(1);
+    expect(invocations).toEqual([
+      {
+        seq: inv.seq,
+        at: 3_000,
+        registrationId: 'reg-1',
+        requestId: 'r-1',
+        args: { x: 1 },
+        responded: true,
+        responseJson: '"ok"',
+        error: null,
+      },
+    ]);
+    // causedBy is a walkable seq pointer to the notification, and both share the frame they came from.
+    expect(inv.causedBy).toBe(notif.seq);
+    expect(log.resolveFrame(9).status).toBe('found');
+    const frame9 = log.resolveFrame(9);
+    if (frame9.status !== 'found') throw new Error('expected found');
+    expect(frame9.events.map((e) => e.kind).sort()).toEqual([
+      'invocation',
+      'notification',
+      'wire-frame',
+    ]);
   });
 
   it('produces an IPC-cloneable snapshot', () => {

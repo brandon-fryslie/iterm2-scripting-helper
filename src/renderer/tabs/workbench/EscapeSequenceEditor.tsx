@@ -126,6 +126,14 @@ export const EscapeSequenceEditor = observer(function EscapeSequenceEditor() {
               onClick={async () => {
                 if (!sequence) return;
                 const result = await window.ipc.invoke('actions/send-text', {
+                  // Scoped to the session this editor targets; window/tab unknown from a session id
+                  // alone, matching the spine's session-entity convention.
+                  entity: {
+                    kind: 'session',
+                    windowId: '',
+                    tabId: '',
+                    sessionId: workbench.escapeTemplateTarget,
+                  },
                   sessionId: workbench.escapeTemplateTarget,
                   text: sequence,
                   suppressBroadcast: true,

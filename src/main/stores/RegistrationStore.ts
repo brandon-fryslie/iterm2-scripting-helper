@@ -43,38 +43,12 @@ export interface RegistrationSpec {
   responseTemplate: string;
 }
 
-export interface Invocation {
-  seq: number;
-  at: number;
-  registrationId: string;
-  requestId: string;
-  args: Record<string, unknown>;
-  responded: boolean;
-  responseJson: string;
-  error: string | null;
-}
-
-export interface InvocationSnapshot {
-  entries: Invocation[];
-  totalSeen: number;
-  capacity: number;
-}
-
-export interface RegistrationSnapshot {
-  registrations: RegistrationSpec[];
-  invocations: Invocation[];
-  totalInvocations: number;
-}
-
-const INVOCATION_CAPACITY = 500;
-
+// [LAW:decomposition] This store owns ONLY the set of active registration specs. Invocations (the
+// server's calls into those registrations) live on the unified event spine as 'invocation' events,
+// not in a private ring here — one source of truth for the timeline, projected back via
+// invocationProjection(appEvents).
 export class RegistrationStore {
   private readonly registrations = new Map<string, RegistrationSpec>();
-  private readonly invocationRing: (Invocation | undefined)[] = new Array(INVOCATION_CAPACITY);
-  private head = 0;
-  private length = 0;
-  private nextSeq = 1;
-  totalInvocations = 0;
 
   constructor() {
     makeAutoObservable(this);
@@ -95,30 +69,12 @@ export class RegistrationStore {
     return null;
   }
 
-  recordInvocation(partial: Omit<Invocation, 'seq'>): Invocation {
-    const entry: Invocation = { ...partial, seq: this.nextSeq++ };
-    this.invocationRing[this.head] = entry;
-    this.head = (this.head + 1) % INVOCATION_CAPACITY;
-    if (this.length < INVOCATION_CAPACITY) this.length += 1;
-    this.totalInvocations += 1;
-    return entry;
-  }
-
-  clearInvocations(): void {
-    this.invocationRing.fill(undefined);
-    this.head = 0;
-    this.length = 0;
-    this.totalInvocations = 0;
-    this.nextSeq = 1;
-  }
-
   clearAll(): void {
     this.registrations.clear();
-    this.clearInvocations();
   }
 
-  snapshot(): RegistrationSnapshot {
-    const registrations = Array.from(this.registrations.values()).map((r) => ({
+  list(): RegistrationSpec[] {
+    return Array.from(this.registrations.values()).map((r) => ({
       id: r.id,
       role: r.role,
       name: r.name,
@@ -135,28 +91,5 @@ export class RegistrationStore {
       contextMenu: r.contextMenu ? { ...r.contextMenu } : undefined,
       responseTemplate: r.responseTemplate,
     }));
-
-    const invocations: Invocation[] = [];
-    const start = (this.head - this.length + INVOCATION_CAPACITY) % INVOCATION_CAPACITY;
-    for (let i = 0; i < this.length; i++) {
-      const e = this.invocationRing[(start + i) % INVOCATION_CAPACITY];
-      if (e) {
-        invocations.push({
-          seq: e.seq,
-          at: e.at,
-          registrationId: e.registrationId,
-          requestId: e.requestId,
-          args: { ...e.args },
-          responded: e.responded,
-          responseJson: e.responseJson,
-          error: e.error,
-        });
-      }
-    }
-    return {
-      registrations,
-      invocations,
-      totalInvocations: this.totalInvocations,
-    };
   }
 }

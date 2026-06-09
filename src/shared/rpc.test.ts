@@ -21,6 +21,7 @@ describe('RpcSchema', () => {
       | 'monitor/wire-log'
       | 'monitor/notifications'
       | 'monitor/events'
+      | 'monitor/actions'
       | 'monitor/focus-session'
       | 'monitor/focus-variables'
       | 'monitor/probe-variable'

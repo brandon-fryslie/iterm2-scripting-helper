@@ -300,7 +300,39 @@ export type AppProbeResult =
 // share one `frameSeq` and join on it like a foreign key — with zero timestamp
 // windowing ([LAW:no-ambient-temporal-coupling]).
 
-export type AppEventKind = 'wire-frame' | 'notification' | 'variable-change';
+export type AppEventKind =
+  | 'wire-frame'
+  | 'notification'
+  | 'variable-change'
+  | 'action'
+  | 'invocation';
+
+// The eight things a user can do to the focused entity. One closed set ([LAW:no-mode-explosion]):
+// every console affordance is one of these, distinguished by `kind` and the shape of its payload.
+export type AppActionKind =
+  | 'send-text'
+  | 'inject'
+  | 'activate'
+  | 'menu-item'
+  | 'invoke-function'
+  | 'restart-session'
+  | 'close'
+  | 'raw-protobuf';
+
+// [LAW:one-source-of-truth] The canonical result of firing an action, used both as the value returned
+// to the renderer and as the `result` recorded on the action AppEvent. `requestId` is the protocol
+// message id of the request this action put on the wire — the foreign key that joins the action to
+// the request/response wire frames it produced — or null when the action never reached the wire
+// (local validation failed, or not connected). It is the action's honest tie to the spine: an action
+// is not decoded from a frame, so it carries no frameSeq; it joins by the id it caused instead.
+export interface AppActionResult {
+  ok: boolean;
+  error: string | null;
+  latencyMs: number;
+  responseCase: string | null;
+  payload: Record<string, unknown> | null;
+  requestId: string | null;
+}
 
 export interface AppWireFramePayload {
   direction: 'out' | 'in';
@@ -332,6 +364,25 @@ export interface AppVariableChangePayload {
   source: AppVariableChangeSource;
 }
 
+export interface AppActionPayload {
+  action: AppActionKind;
+  // The resolved protocol args the action was fired with. Any explicit target override the user typed
+  // lives here as action-local data; the entity the action was scoped to lives on the event's `entity`.
+  args: Record<string, unknown>;
+  result: AppActionResult;
+}
+
+export interface AppInvocationPayload {
+  rpcName: string;
+  // The registration this RPC matched, or '' when iTerm2 invoked a name we have no registration for.
+  registrationId: string;
+  requestId: string;
+  args: Record<string, unknown>;
+  responded: boolean;
+  responseJson: string;
+  error: string | null;
+}
+
 interface AppEventBase {
   // Monotonic append order across the whole log; the log is its single owner.
   seq: number;
@@ -351,7 +402,31 @@ interface AppEventBase {
 export type AppEvent =
   | (AppEventBase & { kind: 'wire-frame'; frameSeq: number; payload: AppWireFramePayload })
   | (AppEventBase & { kind: 'notification'; frameSeq: number; payload: AppNotificationPayload })
-  | (AppEventBase & { kind: 'variable-change'; frameSeq: number; payload: AppVariableChangePayload });
+  | (AppEventBase & { kind: 'variable-change'; frameSeq: number; payload: AppVariableChangePayload })
+  // [LAW:types-are-the-program] An action is user-originated: it is the CAUSE of frames, not a
+  // projection of one, so it carries NO frameSeq (the field is absent, not nullable) and causedBy is
+  // null (nothing prior caused the user's intent). Its tie to the wire is `payload.result.requestId`,
+  // joining to the request/response frames it produced. The append-only log lands the action AFTER
+  // those frames, so a frame can never point back at it — consistent with causedBy meaning "a PRIOR
+  // event".
+  | (AppEventBase & { kind: 'action'; payload: AppActionPayload })
+  // An invocation IS produced from the inbound server-RPC notification frame, so it carries that
+  // frameSeq, and causedBy is the seq of the notification event that announced it — the one honest
+  // seq-pointer causal link in the spine (the notification is genuinely prior).
+  | (AppEventBase & { kind: 'invocation'; frameSeq: number; payload: AppInvocationPayload });
+
+// [LAW:types-are-the-program] A producer hands the log everything but the seq. This must distribute
+// over the union so each variant keeps its OWN shape — a plain `Omit<AppEvent, 'seq'>` would intersect
+// the members and drop `frameSeq` (absent on the action variant) from all of them.
+type DistributiveOmit<T, K extends keyof never> = T extends unknown ? Omit<T, K> : never;
+export type AppEventInput = DistributiveOmit<AppEvent, 'seq'>;
+
+// [LAW:single-enforcer] The one place that knows which event variants are frame-derived. An action is
+// the sole frameSeq-absent variant; everything that joins, evicts, or bookkeeps by frame asks here
+// rather than reaching for `.frameSeq` (which the action variant does not have).
+export function eventFrameSeq(event: AppEvent): number | null {
+  return event.kind === 'action' ? null : event.frameSeq;
+}
 
 export interface AppEventLogSnapshot {
   events: AppEvent[];

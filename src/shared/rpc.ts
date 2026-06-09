@@ -22,6 +22,8 @@ import type {
   AppEvent,
   AppEventKind,
   AppEventLogSnapshot,
+  AppActionKind,
+  AppActionResult,
 } from './domain';
 
 export type {
@@ -48,6 +50,8 @@ export type {
   AppEvent,
   AppEventKind,
   AppEventLogSnapshot,
+  AppActionKind,
+  AppActionResult,
 };
 
 // Re-export domain types under old names for backward compat during migration
@@ -151,12 +155,24 @@ export interface ScreenSnapshot {
   lastError: string | null;
 }
 
-export interface ActionResult {
-  ok: boolean;
-  error: string | null;
-  latencyMs: number;
-  responseCase: string | null;
-  payload: Record<string, unknown> | null;
+// [LAW:one-source-of-truth] One ActionResult shape, defined in domain.ts (the lower layer) and reused
+// here so the value returned to the renderer and the value recorded on the spine cannot drift.
+export type ActionResult = AppActionResult;
+
+// One entry of the console transcript — a projection of an 'action' spine event.
+export interface ActionLogEntry {
+  seq: number;
+  at: number;
+  entity: AppEntityRef;
+  action: AppActionKind;
+  args: Record<string, unknown>;
+  result: ActionResult;
+}
+
+export interface ActionLogSnapshot {
+  entries: ActionLogEntry[];
+  totalSeen: number;
+  capacity: number;
 }
 
 export type ActivateTarget =
@@ -332,6 +348,11 @@ export type RpcSchema = {
     args: void;
     result: AppEventLogSnapshot;
   };
+  // The console transcript as a projection of the spine's 'action' events.
+  'monitor/actions': {
+    args: void;
+    result: ActionLogSnapshot;
+  };
   'monitor/focus-session': {
     args: { sessionId: string | null };
     result: { focusedSessionId: string | null };
@@ -372,16 +393,21 @@ export type RpcSchema = {
     args: { advanced: boolean };
     result: { advanced: boolean };
   };
+  // [LAW:dataflow-not-control-flow] Every action carries the focused `entity` it is scoped to as a
+  // value. The main process records it on the action's spine event — it does not re-derive a target
+  // by branching on which fields the args happen to contain. Explicit per-action target overrides
+  // stay inside the action's own args (action-local data).
   'actions/send-text': {
-    args: { sessionId: string; text: string; suppressBroadcast?: boolean };
+    args: { entity: AppEntityRef; sessionId: string; text: string; suppressBroadcast?: boolean };
     result: ActionResult;
   };
   'actions/inject': {
-    args: { sessionIds: string[]; bytesHex: string };
+    args: { entity: AppEntityRef; sessionIds: string[]; bytesHex: string };
     result: ActionResult;
   };
   'actions/activate': {
     args: {
+      entity: AppEntityRef;
       target: ActivateTarget;
       orderWindowFront?: boolean;
       selectSession?: boolean;
@@ -391,23 +417,23 @@ export type RpcSchema = {
     result: ActionResult;
   };
   'actions/menu-item': {
-    args: { identifier: string; queryOnly?: boolean };
+    args: { entity: AppEntityRef; identifier: string; queryOnly?: boolean };
     result: ActionResult;
   };
   'actions/invoke-function': {
-    args: { invocation: string; scope: InvokeScope; timeout?: number };
+    args: { entity: AppEntityRef; invocation: string; scope: InvokeScope; timeout?: number };
     result: ActionResult;
   };
   'actions/restart-session': {
-    args: { sessionId: string; onlyIfExited?: boolean };
+    args: { entity: AppEntityRef; sessionId: string; onlyIfExited?: boolean };
     result: ActionResult;
   };
   'actions/close': {
-    args: { kind: CloseTargetKind; ids: string[]; force?: boolean };
+    args: { entity: AppEntityRef; kind: CloseTargetKind; ids: string[]; force?: boolean };
     result: ActionResult;
   };
   'actions/raw-protobuf': {
-    args: { envelopeJson: string };
+    args: { entity: AppEntityRef; envelopeJson: string };
     result: ActionResult;
   };
   'workbench/list-profiles': {

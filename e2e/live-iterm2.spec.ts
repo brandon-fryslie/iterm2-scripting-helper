@@ -205,6 +205,7 @@ test.describe('live iTerm2', () => {
       .join('');
     await win.evaluate(async (args) => {
       return window.ipc.invoke('actions/inject', {
+        entity: { kind: 'session', windowId: '', tabId: '', sessionId: args.sessionId },
         sessionIds: [args.sessionId],
         bytesHex: args.bytesHex,
       });
@@ -327,6 +328,7 @@ test.describe('live iTerm2', () => {
     const emit = await win.evaluate(async (args) => {
       const text = '\x1b]1337;SetMark\x1b\\';
       return window.ipc.invoke('actions/send-text', {
+        entity: { kind: 'session', windowId: '', tabId: '', sessionId: args.sessionId },
         sessionId: args.sessionId,
         text,
       });

@@ -7,7 +7,7 @@ import { ConnectionStore } from './stores/ConnectionStore';
 import { LayoutStore } from './stores/LayoutStore';
 import { VariableStore } from './stores/VariableStore';
 import { WatchlistStore } from './stores/WatchlistStore';
-import { AppEventLog } from './stores/AppEventLog';
+import { AppEventLog, invocationProjection } from './stores/AppEventLog';
 import { KeystrokeLogStore } from './stores/KeystrokeLogStore';
 import { PromptLogStore } from './stores/PromptLogStore';
 import { FocusLogStore } from './stores/FocusLogStore';
@@ -111,8 +111,21 @@ autorun(() => {
   broadcast('dynamic-profiles-snapshot', dynamicProfileStore.snapshot());
 });
 
+// [LAW:one-source-of-truth] The registrations snapshot is registration specs (from the store) plus
+// the invocation list (a projection of the spine). Two triggers, no shared mutable mirror: the
+// autorun re-broadcasts when a spec changes (observable), and the orchestrator's 'invocation' event
+// re-broadcasts when a new invocation lands on the spine (which is not a MobX observable).
+const registrationsSnapshot = () => ({
+  registrations: registrationStore.list(),
+  ...invocationProjection(appEventLog),
+});
+
 autorun(() => {
-  broadcast('registrations-snapshot', registrationStore.snapshot());
+  broadcast('registrations-snapshot', registrationsSnapshot());
+});
+
+orchestrator.on('invocation', () => {
+  broadcast('registrations-snapshot', registrationsSnapshot());
 });
 
 autorun(() => {

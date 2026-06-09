@@ -63,6 +63,7 @@ import {
   APP_ENTITY,
   type AppEntityRef,
   type AppProbeResult,
+  type AppInvocationPayload,
 } from '@shared/domain';
 import { normalizeProbeTarget, describeVariableStatus } from '../probe';
 
@@ -145,7 +146,7 @@ export class ConnectionOrchestrator extends EventEmitter {
       // [LAW:no-ambient-temporal-coupling] The notification carries the frameSeq of the frame it was
       // decoded from, so it joins to that wire frame (and any resulting variable change) by foreign
       // key, never by timestamp window or emit order.
-      this.monitor.appEvents.append({
+      const notifEvent = this.monitor.appEvents.append({
         kind: 'notification',
         at: Date.now(),
         frameSeq,
@@ -158,7 +159,10 @@ export class ConnectionOrchestrator extends EventEmitter {
           detail: classified.payload,
         },
       });
-      this.routeNotification(n, frameSeq);
+      // A server-originated RPC invocation (handled inside routeNotification) is the effect of THIS
+      // notification, so it links back to it via causedBy — the spine's one honest seq-pointer
+      // causal edge. The notification's seq travels as a value, not a timestamp guess.
+      this.routeNotification(n, frameSeq, notifEvent.seq);
       this.emit('notification', { notification: n, frameSeq });
     });
     this.protocol.on('state', () =>
@@ -368,9 +372,7 @@ export class ConnectionOrchestrator extends EventEmitter {
   }
 
   async unregisterRpc(id: string): Promise<void> {
-    const spec = this.monitor.registrations
-      .snapshot()
-      .registrations.find((r) => r.id === id);
+    const spec = this.monitor.registrations.list().find((r) => r.id === id);
     if (!spec) return;
     const req = buildRegistrationRequest({ ...spec });
     await this.sendNotificationRequestRaw(
@@ -735,7 +737,7 @@ export class ConnectionOrchestrator extends EventEmitter {
     this.screenFetchPending = false;
   }
 
-  private routeNotification(n: Notification, frameSeq: number): void {
+  private routeNotification(n: Notification, frameSeq: number, causeSeq: number): void {
     if (n.layoutChangedNotification?.listSessionsResponse) {
       this.monitor.layout.apply(convertLayout(n.layoutChangedNotification.listSessionsResponse));
     }
@@ -778,6 +780,8 @@ export class ConnectionOrchestrator extends EventEmitter {
       void this.handleServerRpc(
         n.serverOriginatedRpcNotification.requestId,
         n.serverOriginatedRpcNotification.rpc,
+        frameSeq,
+        causeSeq,
       );
     }
   }
@@ -785,6 +789,8 @@ export class ConnectionOrchestrator extends EventEmitter {
   private async handleServerRpc(
     requestId: string,
     rpc: { name: string; arguments: Array<{ name: string; jsonValue: string }> },
+    frameSeq: number,
+    causeSeq: number,
   ): Promise<void> {
     const spec = this.monitor.registrations.findByName(rpc.name);
     const args: Record<string, unknown> = {};
@@ -796,46 +802,61 @@ export class ConnectionOrchestrator extends EventEmitter {
       }
     }
     if (!spec) {
-      await this.respondToServerRpcException(
-        requestId,
-        `no registration for name=${rpc.name}`,
+      const error = `no registration for name=${rpc.name}`;
+      await this.respondToServerRpcException(requestId, error);
+      this.appendInvocation(
+        { rpcName: rpc.name, registrationId: '', requestId, args, responded: true, responseJson: '', error },
+        frameSeq,
+        causeSeq,
       );
-      this.monitor.registrations.recordInvocation({
-        at: Date.now(),
-        registrationId: '',
-        requestId,
-        args,
-        responded: true,
-        responseJson: '',
-        error: `no registration for name=${rpc.name}`,
-      });
       return;
     }
     try {
       JSON.parse(spec.responseTemplate);
       await this.respondToServerRpc(requestId, spec.responseTemplate);
-      this.monitor.registrations.recordInvocation({
-        at: Date.now(),
-        registrationId: spec.id,
-        requestId,
-        args,
-        responded: true,
-        responseJson: spec.responseTemplate,
-        error: null,
-      });
+      this.appendInvocation(
+        {
+          rpcName: rpc.name,
+          registrationId: spec.id,
+          requestId,
+          args,
+          responded: true,
+          responseJson: spec.responseTemplate,
+          error: null,
+        },
+        frameSeq,
+        causeSeq,
+      );
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       await this.respondToServerRpcException(requestId, msg);
-      this.monitor.registrations.recordInvocation({
-        at: Date.now(),
-        registrationId: spec.id,
-        requestId,
-        args,
-        responded: true,
-        responseJson: '',
-        error: msg,
-      });
+      this.appendInvocation(
+        { rpcName: rpc.name, registrationId: spec.id, requestId, args, responded: true, responseJson: '', error: msg },
+        frameSeq,
+        causeSeq,
+      );
     }
+  }
+
+  // [LAW:one-source-of-truth] An invocation is one event on the spine, carrying the frameSeq of the
+  // notification frame it was decoded from and causedBy = that notification's seq. Server RPCs are
+  // app-scoped registrations, so the invocation is app-scoped; its session context, when any, is
+  // reachable by walking causedBy to the notification. The emit lets main re-broadcast the
+  // registrations snapshot (whose invocation list is a projection of this spine).
+  private appendInvocation(
+    payload: AppInvocationPayload,
+    frameSeq: number,
+    causeSeq: number,
+  ): void {
+    this.monitor.appEvents.append({
+      kind: 'invocation',
+      at: Date.now(),
+      frameSeq,
+      entity: APP_ENTITY,
+      causedBy: causeSeq,
+      payload,
+    });
+    this.emit('invocation');
   }
 }
 
