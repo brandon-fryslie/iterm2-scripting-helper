@@ -273,6 +273,14 @@ export interface AppVariableEntry {
   history: AppVariableChange[];
 }
 
+// [LAW:types-are-the-program] A probe either resolves to a value (iTerm2 encodes unset as the JSON
+// string "null") or fails with a named, contextual reason — there is no third "unset" state the
+// protocol lets us distinguish from a genuine null. Every variant echoes the evaluated entity scope
+// and the raw expression so the result is self-describing even after focus moves on.
+export type AppProbeResult =
+  | { outcome: 'value'; entity: AppEntityRef; expression: string; value: string }
+  | { outcome: 'error'; entity: AppEntityRef; expression: string; message: string };
+
 export function flatSessions(tab: AppTab): AppSession[] {
   // [LAW:one-source-of-truth] iTerm2 tab sessions include split-tree and minimized sessions.
   if (!tab.root) return tab.minimizedSessions;

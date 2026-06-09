@@ -95,6 +95,21 @@ test.describe('live iTerm2', () => {
 
     expect(cloneErrors.filter((e) => /could not be cloned/i.test(e))).toEqual([]);
 
+    // Expression probe: a variable path resolves against the focused session scope.
+    const probe = win.getByTestId('variable-probe');
+    await probe.getByTestId('variable-probe-input').fill('session.name');
+    await probe.getByTestId('variable-probe-submit').click();
+    const probeResult = win.getByTestId('variable-probe-result');
+    await expect(probeResult).toHaveAttribute('data-outcome', 'value', { timeout: 10_000 });
+    await expect(probeResult).not.toBeEmpty();
+
+    // A multi-reference interpolated template is rejected with context, not a misleading null.
+    await probe.getByTestId('variable-probe-input').fill('\\(session.name)/\\(session.username)');
+    await probe.getByTestId('variable-probe-submit').click();
+    await expect(probeResult).toHaveAttribute('data-outcome', 'error', { timeout: 10_000 });
+
+    expect(cloneErrors.filter((e) => /could not be cloned/i.test(e))).toEqual([]);
+
     await app.close();
   });
 

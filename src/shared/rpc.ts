@@ -6,6 +6,7 @@ import type {
   AppVariableEntry,
   AppVariableChange,
   AppVariableScope,
+  AppProbeResult,
   AppKeystrokeEntry,
   AppKeystrokeAction,
   AppKeystrokeModifier,
@@ -28,6 +29,7 @@ export type {
   AppVariableEntry,
   AppVariableChange,
   AppVariableScope,
+  AppProbeResult,
   AppKeystrokeEntry,
   AppKeystrokeAction,
   AppKeystrokeModifier,
@@ -326,6 +328,10 @@ export type RpcSchema = {
   'monitor/focus-variables': {
     args: { entity: AppEntityRef };
     result: VariableSnapshot;
+  };
+  'monitor/probe-variable': {
+    args: { entity: AppEntityRef; expression: string };
+    result: AppProbeResult;
   };
   'monitor/watchlist': {
     args: void;
