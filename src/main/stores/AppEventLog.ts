@@ -1,10 +1,17 @@
-import type {
-  AppEvent,
-  AppEventKind,
-  AppEventLogSnapshot,
-  AppNotificationEntry,
+import {
+  eventFrameSeq,
+  type AppEvent,
+  type AppEventInput,
+  type AppEventKind,
+  type AppEventLogSnapshot,
+  type AppNotificationEntry,
 } from '@shared/domain';
-import type { WireLogSnapshot, NotificationLogSnapshot } from '@shared/rpc';
+import type {
+  WireLogSnapshot,
+  NotificationLogSnapshot,
+  ActionLogSnapshot,
+  Invocation,
+} from '@shared/rpc';
 
 // [LAW:carrying-cost] One ring now holds wire frames, notifications, and variable changes
 // interleaved, where three islands each held their own. Sized generously so a single domain's churn
@@ -38,13 +45,14 @@ export class AppEventLog {
 
   // [LAW:single-enforcer] The one place a seq is minted. Producers hand the log everything but the
   // seq; the log owns append order so no two events can claim the same identity.
-  append(event: Omit<AppEvent, 'seq'>): AppEvent {
+  append(event: AppEventInput): AppEvent {
     const full = { ...event, seq: this.nextSeq++ } as AppEvent;
     this.ring[this.head] = full;
     this.head = (this.head + 1) % this.capacity;
     if (this.length < this.capacity) this.length += 1;
     this.totals.set(full.kind, (this.totals.get(full.kind) ?? 0) + 1);
-    if (full.frameSeq > this.maxFrameSeq) this.maxFrameSeq = full.frameSeq;
+    const fs = eventFrameSeq(full);
+    if (fs !== null && fs > this.maxFrameSeq) this.maxFrameSeq = fs;
     return full;
   }
 
@@ -77,7 +85,7 @@ export class AppEventLog {
   // production. Distinguishes a frame still in the ring (found) from one that scrolled out (evicted,
   // loud) from one that never existed (unknown).
   resolveFrame(frameSeq: number): FrameResolution {
-    const events = this.events().filter((e) => e.frameSeq === frameSeq);
+    const events = this.events().filter((e) => eventFrameSeq(e) === frameSeq);
     if (events.length > 0) return { status: 'found', events };
     if (frameSeq >= 1 && frameSeq <= this.maxFrameSeq) {
       return { status: 'evicted', frameSeq };
@@ -91,8 +99,10 @@ export class AppEventLog {
       events,
       totalSeen: [...this.totals.values()].reduce((a, b) => a + b, 0),
       capacity: this.capacity,
-      // Events are appended in frameSeq order, so the oldest retained event carries the oldest frame.
-      oldestFrameSeq: events[0]?.frameSeq ?? null,
+      // Frame-derived events are appended in frameSeq order, so the oldest one that carries a frame
+      // carries the oldest frame. Actions (frameSeq-absent) are skipped — they are not frames and
+      // must not blank out the eviction watermark just by being the oldest retained event.
+      oldestFrameSeq: events.map(eventFrameSeq).find((fs) => fs !== null) ?? null,
     };
   }
 
@@ -146,4 +156,47 @@ export function notificationLogProjection(log: AppEventLog): NotificationLogSnap
     totalSeen: log.totalSeen('notification'),
     capacity: log.capacityForProjection(),
   };
+}
+
+// [LAW:one-source-of-truth] The console transcript is a filter of the spine, not a private renderer
+// array. Every fired action is one 'action' event; this projection is what the console reads back.
+export function actionLogProjection(log: AppEventLog): ActionLogSnapshot {
+  const entries = log
+    .events()
+    .filter((e): e is Extract<AppEvent, { kind: 'action' }> => e.kind === 'action')
+    .map((e) => ({
+      seq: e.seq,
+      at: e.at,
+      entity: e.entity,
+      action: e.payload.action,
+      args: e.payload.args,
+      result: e.payload.result,
+    }));
+  return {
+    entries,
+    totalSeen: log.totalSeen('action'),
+    capacity: log.capacityForProjection(),
+  };
+}
+
+// [LAW:one-source-of-truth] Server-originated RPC invocations are a filter of the spine too; the
+// registration store no longer owns a private invocation ring. `seq` is the spine seq (global append
+// order), which serves the same identity role the store's private counter used to.
+export function invocationProjection(
+  log: AppEventLog,
+): { invocations: Invocation[]; totalInvocations: number } {
+  const invocations: Invocation[] = log
+    .events()
+    .filter((e): e is Extract<AppEvent, { kind: 'invocation' }> => e.kind === 'invocation')
+    .map((e) => ({
+      seq: e.seq,
+      at: e.at,
+      registrationId: e.payload.registrationId,
+      requestId: e.payload.requestId,
+      args: e.payload.args,
+      responded: e.payload.responded,
+      responseJson: e.payload.responseJson,
+      error: e.payload.error,
+    }));
+  return { invocations, totalInvocations: log.totalSeen('invocation') };
 }

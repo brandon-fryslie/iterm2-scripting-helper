@@ -11,6 +11,7 @@ import type {
   EventKind,
   EventPayload,
   ListSessionsSummary,
+  ActionResult,
 } from '@shared/rpc';
 import type { ConnectionStore } from './stores/ConnectionStore';
 import type { LayoutStore } from './stores/LayoutStore';
@@ -20,13 +21,15 @@ import {
   type AppEventLog,
   wireLogProjection,
   notificationLogProjection,
+  actionLogProjection,
 } from './stores/AppEventLog';
+import type { AppEntityRef, AppActionKind } from '@shared/domain';
 import type { KeystrokeLogStore } from './stores/KeystrokeLogStore';
 import type { PromptLogStore } from './stores/PromptLogStore';
 import type { FocusLogStore } from './stores/FocusLogStore';
 import type { ScreenStreamStore } from './stores/ScreenStreamStore';
 import type { DynamicProfileStore } from './stores/DynamicProfileStore';
-import type { RegistrationStore } from './stores/RegistrationStore';
+import { registrationSnapshot, type RegistrationStore } from './stores/RegistrationStore';
 import type { CustomEscapeStore } from './stores/CustomEscapeStore';
 import { ConnectionOrchestrator } from './drivers/ConnectionOrchestrator';
 import type { DynamicProfileWatcher } from './drivers/DynamicProfileWatcher';
@@ -68,6 +71,28 @@ export function registerIpc(
   monitor: MonitorStoresRef,
   workbench: WorkbenchStoresRef,
 ): void {
+  // [LAW:single-enforcer] The one place a fired action joins the spine. Every action handler runs its
+  // protocol request through here, so the rule "firing an action appends one 'action' event scoped to
+  // the focused entity" is enforced once, not re-implemented per action. The entity is the value the
+  // renderer fired against; the override (if any) rides along inside `rest` as action-local data.
+  const action =
+    <A extends { entity: AppEntityRef }>(
+      kind: AppActionKind,
+      run: (args: A) => Promise<ActionResult>,
+    ) =>
+    async (args: A): Promise<ActionResult> => {
+      const result = await run(args);
+      const { entity, ...rest } = args;
+      monitor.appEvents.append({
+        kind: 'action',
+        at: Date.now(),
+        entity,
+        causedBy: null,
+        payload: { action: kind, args: rest, result },
+      });
+      return result;
+    };
+
   const handlers: Handlers = {
     'system/ping': async () => ({
       ok: true,
@@ -126,6 +151,7 @@ export function registerIpc(
     'monitor/wire-log': async () => wireLogProjection(monitor.appEvents),
     'monitor/notifications': async () => notificationLogProjection(monitor.appEvents),
     'monitor/events': async () => monitor.appEvents.snapshot(),
+    'monitor/actions': async () => actionLogProjection(monitor.appEvents),
     'monitor/focus-session': async ({ sessionId }) => {
       await orchestrator.setFocusedSession(sessionId);
       return { focusedSessionId: monitor.variables.focusedSessionId };
@@ -149,14 +175,20 @@ export function registerIpc(
       await orchestrator.setKeystrokeAdvanced(advanced);
       return { advanced: monitor.keystrokes.advanced };
     },
-    'actions/send-text': (args) => actionSendText(orchestrator, args),
-    'actions/inject': (args) => actionInject(orchestrator, args),
-    'actions/activate': (args) => actionActivate(orchestrator, args),
-    'actions/menu-item': (args) => actionMenuItem(orchestrator, args),
-    'actions/invoke-function': (args) => actionInvokeFunction(orchestrator, args),
-    'actions/restart-session': (args) => actionRestartSession(orchestrator, args),
-    'actions/close': (args) => actionClose(orchestrator, args),
-    'actions/raw-protobuf': (args) => actionRawProtobuf(orchestrator, args),
+    'actions/send-text': action('send-text', (args) => actionSendText(orchestrator, args)),
+    'actions/inject': action('inject', (args) => actionInject(orchestrator, args)),
+    'actions/activate': action('activate', (args) => actionActivate(orchestrator, args)),
+    'actions/menu-item': action('menu-item', (args) => actionMenuItem(orchestrator, args)),
+    'actions/invoke-function': action('invoke-function', (args) =>
+      actionInvokeFunction(orchestrator, args),
+    ),
+    'actions/restart-session': action('restart-session', (args) =>
+      actionRestartSession(orchestrator, args),
+    ),
+    'actions/close': action('close', (args) => actionClose(orchestrator, args)),
+    'actions/raw-protobuf': action('raw-protobuf', (args) =>
+      actionRawProtobuf(orchestrator, args),
+    ),
     'workbench/list-profiles': () => listProfiles(orchestrator),
     'workbench/set-profile-property': (args) => setProfileProperty(orchestrator, args),
     'workbench/dynamic-profiles': async () => {
@@ -209,7 +241,8 @@ export function registerIpc(
         };
       }
     },
-    'workbench/registrations': async () => monitor.registrations.snapshot(),
+    'workbench/registrations': async () =>
+      registrationSnapshot(monitor.registrations, monitor.appEvents),
     'workbench/subscribe-custom-escape': async ({ sessionId, identity }) => {
       try {
         const id = `ce-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;

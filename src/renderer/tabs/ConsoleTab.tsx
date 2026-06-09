@@ -49,7 +49,10 @@ export const ConsoleTab = observer(function ConsoleTab() {
     if (monitor.layout.windows.length === 0) {
       void monitor.hydrate();
     }
-  }, [monitor]);
+    // The transcript is a projection of the main-process spine; pull the current state on mount so
+    // actions fired in a prior view of this session are present.
+    void consoleStore.refreshTranscript();
+  }, [monitor, consoleStore]);
 
   const Form = FORM_COMPONENTS[consoleStore.selectedAction];
 

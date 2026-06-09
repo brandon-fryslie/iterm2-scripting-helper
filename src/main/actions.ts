@@ -41,6 +41,9 @@ async function fire(
   try {
     const response = await orchestrator.sendRequest(envelope);
     const latencyMs = Date.now() - started;
+    // The response echoes the request's protocol id — the foreign key joining this action to the
+    // request/response wire frames it produced.
+    const requestId = response.id.toString();
     if (response.submessage.case === 'error') {
       return {
         ok: false,
@@ -48,6 +51,7 @@ async function fire(
         latencyMs,
         responseCase: 'error',
         payload: null,
+        requestId,
       };
     }
     return {
@@ -56,6 +60,7 @@ async function fire(
       latencyMs,
       responseCase: response.submessage.case ?? null,
       payload: extractPayload(response),
+      requestId,
     };
   } catch (err) {
     return {
@@ -64,6 +69,7 @@ async function fire(
       latencyMs: Date.now() - started,
       responseCase: null,
       payload: null,
+      requestId: null,
     };
   }
 }
@@ -94,6 +100,7 @@ export async function actionInject(
       latencyMs: 0,
       responseCase: null,
       payload: null,
+      requestId: null,
     };
   }
   const data = new Uint8Array(clean.length / 2);
@@ -289,51 +296,25 @@ export async function actionRawProtobuf(
         latencyMs: 0,
         responseCase: null,
         payload: null,
+        requestId: null,
       };
     }
     envelope = { submessage: parsed.submessage };
   } catch (err) {
+    // The envelope parse is the only phase unique to raw-protobuf; on parse failure there is no
+    // request, so no requestId.
     return {
       ok: false,
       error: `invalid JSON: ${err instanceof Error ? err.message : String(err)}`,
       latencyMs: 0,
       responseCase: null,
       payload: null,
+      requestId: null,
     };
   }
-  const started = Date.now();
-  try {
-    const response = await orchestrator.sendRequest(envelope);
-    const latencyMs = Date.now() - started;
-    if (response.submessage.case === 'error') {
-      return {
-        ok: false,
-        error: response.submessage.value,
-        latencyMs,
-        responseCase: 'error',
-        payload: null,
-      };
-    }
-    return {
-      ok: true,
-      error: null,
-      latencyMs,
-      responseCase: response.submessage.case ?? null,
-      payload: {
-        responseJson: JSON.stringify(
-          toJson(ServerOriginatedMessageSchema, response),
-          null,
-          2,
-        ),
-      },
-    };
-  } catch (err) {
-    return {
-      ok: false,
-      error: err instanceof Error ? err.message : String(err),
-      latencyMs: Date.now() - started,
-      responseCase: null,
-      payload: null,
-    };
-  }
+  // [LAW:single-enforcer] The send/response/error/latency/requestId handling is `fire`'s job; this
+  // action only differs in how it renders the response payload, which is exactly what extractPayload is.
+  return fire(orchestrator, envelope, (msg) => ({
+    responseJson: JSON.stringify(toJson(ServerOriginatedMessageSchema, msg), null, 2),
+  }));
 }

@@ -81,6 +81,7 @@ export async function setProfileProperty(
       submessage: { case: 'setProfilePropertyRequest', value },
     });
     const latencyMs = Date.now() - started;
+    const requestId = response.id.toString();
     if (response.submessage.case === 'error') {
       return {
         ok: false,
@@ -88,6 +89,7 @@ export async function setProfileProperty(
         latencyMs,
         responseCase: 'error',
         payload: null,
+        requestId,
       };
     }
     if (response.submessage.case !== 'setProfilePropertyResponse') {
@@ -97,6 +99,7 @@ export async function setProfileProperty(
         latencyMs,
         responseCase: response.submessage.case ?? null,
         payload: null,
+        requestId,
       };
     }
     return {
@@ -105,6 +108,7 @@ export async function setProfileProperty(
       latencyMs,
       responseCase: 'setProfilePropertyResponse',
       payload: { status: String(response.submessage.value.status) },
+      requestId,
     };
   } catch (err) {
     return {
@@ -113,6 +117,7 @@ export async function setProfileProperty(
       latencyMs: Date.now() - started,
       responseCase: null,
       payload: null,
+      requestId: null,
     };
   }
 }

@@ -89,7 +89,11 @@ const XTermScreen = observer(function XTermScreen() {
     const dataDisposable = term.onData((data) => {
       const sessionId = entityFocus.sessionId;
       if (!sessionId) return;
-      void window.ipc.invoke('actions/send-text', { sessionId, text: data });
+      void window.ipc.invoke('actions/send-text', {
+        entity: entityFocus.selected,
+        sessionId,
+        text: data,
+      });
     });
 
     let lastSessionId: string | null = null;

@@ -13,7 +13,7 @@ import { PromptLogStore } from './stores/PromptLogStore';
 import { FocusLogStore } from './stores/FocusLogStore';
 import { ScreenStreamStore } from './stores/ScreenStreamStore';
 import { DynamicProfileStore } from './stores/DynamicProfileStore';
-import { RegistrationStore } from './stores/RegistrationStore';
+import { RegistrationStore, registrationSnapshot } from './stores/RegistrationStore';
 import { CustomEscapeStore } from './stores/CustomEscapeStore';
 import { ConnectionOrchestrator } from './drivers/ConnectionOrchestrator';
 import { DynamicProfileWatcher } from './drivers/DynamicProfileWatcher';
@@ -111,8 +111,15 @@ autorun(() => {
   broadcast('dynamic-profiles-snapshot', dynamicProfileStore.snapshot());
 });
 
+// The registrations snapshot is built by the single shared builder. Two triggers, no shared mutable
+// mirror: the autorun re-broadcasts when a spec changes (observable), and the orchestrator's
+// 'invocation' event re-broadcasts when a new invocation lands on the spine (not a MobX observable).
 autorun(() => {
-  broadcast('registrations-snapshot', registrationStore.snapshot());
+  broadcast('registrations-snapshot', registrationSnapshot(registrationStore, appEventLog));
+});
+
+orchestrator.on('invocation', () => {
+  broadcast('registrations-snapshot', registrationSnapshot(registrationStore, appEventLog));
 });
 
 autorun(() => {
