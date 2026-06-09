@@ -4,6 +4,7 @@ import type {
   AppWindow,
   AppSession,
   AppVariableEntry,
+  AppVariableChange,
   AppVariableScope,
   AppKeystrokeEntry,
   AppKeystrokeAction,
@@ -25,6 +26,7 @@ export type {
   AppWindow,
   AppSession,
   AppVariableEntry,
+  AppVariableChange,
   AppVariableScope,
   AppKeystrokeEntry,
   AppKeystrokeAction,
@@ -85,6 +87,10 @@ export interface WireFrameEvent {
 export interface VariableSnapshot {
   entity: AppEntityRef;
   variables: AppVariableEntry[];
+}
+
+export interface WatchlistSnapshot {
+  names: string[];
 }
 
 export interface WireLogEntry {
@@ -321,6 +327,14 @@ export type RpcSchema = {
     args: { entity: AppEntityRef };
     result: VariableSnapshot;
   };
+  'monitor/watchlist': {
+    args: void;
+    result: WatchlistSnapshot;
+  };
+  'monitor/set-watched': {
+    args: { name: string; watched: boolean };
+    result: WatchlistSnapshot;
+  };
   'monitor/keystrokes': {
     args: void;
     result: KeystrokeLogSnapshot;
@@ -437,6 +451,7 @@ export type EventSchema = {
   'wire-frame': WireFrameEvent;
   'layout-snapshot': import('../main/stores/LayoutStore').LayoutSnapshot;
   'variables-snapshot': VariableSnapshot;
+  'watchlist-snapshot': WatchlistSnapshot;
   'wire-snapshot': WireLogSnapshot;
   'notifications-snapshot': NotificationLogSnapshot;
   'screen-snapshot': ScreenSnapshot;
