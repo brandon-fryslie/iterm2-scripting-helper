@@ -418,7 +418,7 @@ export type AppEvent =
 // [LAW:types-are-the-program] A producer hands the log everything but the seq. This must distribute
 // over the union so each variant keeps its OWN shape — a plain `Omit<AppEvent, 'seq'>` would intersect
 // the members and drop `frameSeq` (absent on the action variant) from all of them.
-type DistributiveOmit<T, K extends keyof never> = T extends unknown ? Omit<T, K> : never;
+type DistributiveOmit<T, K extends keyof any> = T extends unknown ? Omit<T, K> : never;
 export type AppEventInput = DistributiveOmit<AppEvent, 'seq'>;
 
 // [LAW:single-enforcer] The one place that knows which event variants are frame-derived. An action is
