@@ -1,15 +1,14 @@
-import { useEffect } from 'react';
 import { observer } from 'mobx-react-lite';
 import { Button } from '@/components/ui/button';
 import { useStore } from '@/stores/context';
 import type { WorkbenchArtifact } from '@/stores/WorkbenchStore';
-import { ProfileEditor } from './workbench/ProfileEditor';
-import { DynamicProfileEditor } from './workbench/DynamicProfileEditor';
-import { EscapeSequenceEditor } from './workbench/EscapeSequenceEditor';
-import { RegistrationEditor } from './workbench/RegistrationEditor';
-import { CustomEscapeSubscriber } from './workbench/CustomEscapeSubscriber';
-import { TriggersViewer } from './workbench/TriggersViewer';
-import { ArtifactScopeBanner } from './workbench/ArtifactScopeBanner';
+import { ProfileEditor } from './ProfileEditor';
+import { DynamicProfileEditor } from './DynamicProfileEditor';
+import { EscapeSequenceEditor } from './EscapeSequenceEditor';
+import { RegistrationEditor } from './RegistrationEditor';
+import { CustomEscapeSubscriber } from './CustomEscapeSubscriber';
+import { TriggersViewer } from './TriggersViewer';
+import { ArtifactScopeBanner } from './ArtifactScopeBanner';
 
 const RAIL: Array<{ id: WorkbenchArtifact; label: string }> = [
   { id: 'profile', label: 'Profiles' },
@@ -20,23 +19,15 @@ const RAIL: Array<{ id: WorkbenchArtifact; label: string }> = [
   { id: 'triggers', label: 'Triggers' },
 ];
 
-export const WorkbenchTab = observer(function WorkbenchTab() {
-  const { workbench, monitor } = useStore();
-
-  useEffect(() => {
-    if (!workbench.profilesLoaded) void workbench.refreshProfiles();
-    void workbench.refreshDynamicProfiles();
-    if (monitor.layout.windows.length === 0) void monitor.hydrate();
-    const unsub = window.ipc.on('dynamic-profiles-snapshot', (snap) =>
-      workbench.applyDynamicSnapshot(snap),
-    );
-    return () => unsub();
-  }, [workbench, monitor]);
+// Authored behavior: artifacts that preview and act against the focused entity. The entity-scoped
+// editors default their target to entityFocus; their invocations feed the Activity facet.
+export const AuthorPane = observer(function AuthorPane() {
+  const { workbench } = useStore();
 
   return (
     <div
-      className="grid gap-4 md:grid-cols-[200px_1fr]"
-      data-testid="tab-workbench-placeholder"
+      className="grid gap-4 p-3 md:grid-cols-[200px_1fr]"
+      data-testid="author-pane"
     >
       <aside className="space-y-1" data-testid="workbench-rail">
         {RAIL.map((r) => (

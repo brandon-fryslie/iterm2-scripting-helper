@@ -1,5 +1,5 @@
-import { AppShell } from './shell/AppShell';
+import { EntityWorkspace } from './shell/EntityWorkspace';
 
 export function App() {
-  return <AppShell />;
+  return <EntityWorkspace />;
 }

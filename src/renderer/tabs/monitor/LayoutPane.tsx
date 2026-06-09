@@ -27,7 +27,7 @@ export const LayoutPane = observer(function LayoutPane() {
         data-testid="layout-pane"
         data-empty="true"
       >
-        Connect from the Settings tab to populate this tree.
+        Open Settings (gear) to connect and populate this tree.
       </div>
     );
   }

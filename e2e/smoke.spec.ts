@@ -1,7 +1,7 @@
 import { test, expect } from '@playwright/test';
 import { launchApp } from './launch-app';
 
-test('four-tab shell renders placeholders and IPC ping round-trips', async () => {
+test('Entity Workspace renders co-present facets and IPC ping round-trips', async () => {
   test.skip(
     process.env.CI === 'true',
     'GitHub macOS runners cannot reliably launch the Electron app; run locally.',
@@ -10,12 +10,21 @@ test('four-tab shell renders placeholders and IPC ping round-trips', async () =>
   const app = await launchApp();
   const win = await app.firstWindow();
 
-  for (const id of ['monitor', 'workbench', 'console', 'settings']) {
-    await win.getByTestId(`tab-trigger-${id}`).click();
-    await expect(win.getByTestId(`tab-${id}-placeholder`)).toBeVisible();
-  }
+  // One panel, not a bag of tabs: the entity rail and the observe/act/author facets are all
+  // co-present, no destination to switch to.
+  await expect(win.getByTestId('entity-workspace')).toBeVisible();
+  await expect(win.getByTestId('entity-spine-rail')).toBeVisible();
+  await expect(win.getByTestId('facet-live')).toBeVisible();
+  await expect(win.getByTestId('facet-activity')).toBeVisible();
+  await expect(win.getByTestId('facet-act')).toBeVisible();
+  await expect(win.getByTestId('facet-author')).toBeVisible();
 
+  // Settings is a utility affordance reached from the rail's gear, not a peer tab.
+  await win.getByTestId('settings-gear').click();
+  await expect(win.getByTestId('settings-overlay')).toBeVisible();
   await expect(win.getByTestId('ping-result')).toContainText(/"ok":\s*true/);
+  await win.getByTestId('settings-close').click();
+  await expect(win.getByTestId('settings-overlay')).not.toBeVisible();
 
   await app.close();
 });
