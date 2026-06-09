@@ -2,8 +2,10 @@ import { EventEmitter } from 'node:events';
 import path from 'node:path';
 import os from 'node:os';
 import { existsSync } from 'node:fs';
-import { create } from '@bufbuild/protobuf';
+import { create, fromBinary } from '@bufbuild/protobuf';
 import {
+  ClientOriginatedMessageSchema,
+  ServerOriginatedMessageSchema,
   ListSessionsRequestSchema,
   NotificationRequestSchema,
   VariableRequestSchema,
@@ -41,13 +43,13 @@ import {
   ProtocolDriver,
   ProtocolError,
   type WireFrame,
+  type ProtocolNotification,
 } from './ProtocolDriver';
 import type { ConnectionStore } from '../stores/ConnectionStore';
 import type { LayoutStore } from '../stores/LayoutStore';
 import type { VariableStore } from '../stores/VariableStore';
 import type { WatchlistStore } from '../stores/WatchlistStore';
-import type { WireLogStore } from '../stores/WireLogStore';
-import type { NotificationHub } from '../stores/NotificationHub';
+import { AppEventLog } from '../stores/AppEventLog';
 import type { KeystrokeLogStore } from '../stores/KeystrokeLogStore';
 import type { PromptLogStore } from '../stores/PromptLogStore';
 import type { FocusLogStore } from '../stores/FocusLogStore';
@@ -57,7 +59,11 @@ import type {
   RegistrationSpec,
 } from '../stores/RegistrationStore';
 import type { CustomEscapeStore } from '../stores/CustomEscapeStore';
-import type { AppEntityRef, AppProbeResult } from '@shared/domain';
+import {
+  APP_ENTITY,
+  type AppEntityRef,
+  type AppProbeResult,
+} from '@shared/domain';
 import { normalizeProbeTarget, describeVariableStatus } from '../probe';
 
 export const DEFAULT_SOCKET_PATH = path.join(
@@ -77,8 +83,7 @@ export interface MonitorStores {
   layout: LayoutStore;
   variables: VariableStore;
   watchlist: WatchlistStore;
-  wire: WireLogStore;
-  notifications: NotificationHub;
+  appEvents: AppEventLog;
   keystrokes: KeystrokeLogStore;
   prompts: PromptLogStore;
   focus: FocusLogStore;
@@ -117,14 +122,44 @@ export class ConnectionOrchestrator extends EventEmitter {
 
     this.protocol.on('frame', (frame: WireFrame) => {
       this.store.recordFrame();
-      this.monitor.wire.recordFrame(frame.direction, frame.bytes, frame.at);
+      // [LAW:one-source-of-truth] The wire frame is one AppEvent in the spine, decoded once here at
+      // the boundary; the wire pane is a projection of these, not a separate ring.
+      const decoded = decodeWireFrame(frame.direction, frame.bytes);
+      this.monitor.appEvents.append({
+        kind: 'wire-frame',
+        at: frame.at,
+        frameSeq: frame.frameSeq,
+        entity: APP_ENTITY,
+        causedBy: null,
+        payload: {
+          direction: frame.direction,
+          size: frame.bytes.byteLength,
+          messageKind: decoded.messageKind,
+          requestId: decoded.requestId,
+        },
+      });
       this.emit('frame', frame);
     });
-    this.protocol.on('notification', (n: Notification) => {
+    this.protocol.on('notification', ({ notification: n, frameSeq }: ProtocolNotification) => {
       const classified = classifyNotification(n);
-      const entry = this.monitor.notifications.record(classified);
-      this.routeNotification(n);
-      this.emit('notification', { notification: n, entry });
+      // [LAW:no-ambient-temporal-coupling] The notification carries the frameSeq of the frame it was
+      // decoded from, so it joins to that wire frame (and any resulting variable change) by foreign
+      // key, never by timestamp window or emit order.
+      this.monitor.appEvents.append({
+        kind: 'notification',
+        at: Date.now(),
+        frameSeq,
+        entity: notificationEntity(classified.sessionId),
+        causedBy: null,
+        payload: {
+          kind: classified.kind,
+          sessionId: classified.sessionId,
+          summary: classified.summary,
+          detail: classified.payload,
+        },
+      });
+      this.routeNotification(n, frameSeq);
+      this.emit('notification', { notification: n, frameSeq });
     });
     this.protocol.on('state', () =>
       this.store.syncFromProtocol(this.protocol.getState(), this.protocol.getProtocolVersion()),
@@ -132,8 +167,7 @@ export class ConnectionOrchestrator extends EventEmitter {
     this.protocol.on('close', ({ code, reason }) => {
       this.monitor.layout.clear();
       this.monitor.variables.clearAll();
-      this.monitor.wire.clear();
-      this.monitor.notifications.clear();
+      this.monitor.appEvents.clear();
       this.monitor.keystrokes.clear();
       this.monitor.prompts.clear();
       this.monitor.focus.clear();
@@ -197,9 +231,11 @@ export class ConnectionOrchestrator extends EventEmitter {
     msg: Parameters<ProtocolDriver['send']>[0],
   ): Promise<ServerOriginatedMessage> {
     const started = Date.now();
-    const response = await this.protocol.send(msg);
+    // External callers (actions, workbench, ipc) want only the decoded message; the frame identity
+    // is internal provenance used by the variable dump path, so it is unwrapped here.
+    const { message } = await this.protocol.send(msg);
     this.store.setLatency(Date.now() - started);
-    return response;
+    return message;
   }
 
   async setFocusedSession(sessionId: string | null): Promise<void> {
@@ -213,8 +249,8 @@ export class ConnectionOrchestrator extends EventEmitter {
     if (!sessionId || this.protocol.getState() !== 'ready') return;
 
     try {
-      const dump = await this.fetchAllVariablesForSession(sessionId);
-      this.monitor.variables.applyDump(sessionVariableEntity(sessionId), dump);
+      const { dict, frameSeq } = await this.fetchAllVariablesForSession(sessionId);
+      this.monitor.variables.applyDump(sessionVariableEntity(sessionId), dict, frameSeq);
     } catch (err) {
       this.emit('error', err);
     }
@@ -230,8 +266,8 @@ export class ConnectionOrchestrator extends EventEmitter {
     if (this.protocol.getState() !== 'ready') return;
 
     try {
-      const dump = await this.fetchAllVariablesForEntity(entity);
-      this.monitor.variables.applyDump(entity, dump);
+      const { dict, frameSeq } = await this.fetchAllVariablesForEntity(entity);
+      this.monitor.variables.applyDump(entity, dict, frameSeq);
     } catch (err) {
       this.emit('error', err);
     }
@@ -255,7 +291,7 @@ export class ConnectionOrchestrator extends EventEmitter {
       get: [target.path],
     });
     try {
-      const response = await this.protocol.send({
+      const { message: response } = await this.protocol.send({
         submessage: { case: 'variableRequest' as const, value: req },
       });
       if (response.submessage.case === 'error') {
@@ -408,7 +444,7 @@ export class ConnectionOrchestrator extends EventEmitter {
   async refreshLayout(): Promise<void> {
     if (this.protocol.getState() !== 'ready') return;
 
-    const response = await this.protocol.send({
+    const { message: response } = await this.protocol.send({
       submessage: {
         case: 'listSessionsRequest' as const,
         value: create(ListSessionsRequestSchema, {}),
@@ -535,7 +571,7 @@ export class ConnectionOrchestrator extends EventEmitter {
       notificationType: type,
       ...(args ?? {}),
     });
-    const response = await this.protocol.send({
+    const { message: response } = await this.protocol.send({
       submessage: { case: 'notificationRequest' as const, value: req },
     });
     if (response.submessage.case === 'error') {
@@ -618,27 +654,30 @@ export class ConnectionOrchestrator extends EventEmitter {
 
   private async fetchAllVariablesForSession(
     sessionId: string,
-  ): Promise<Record<string, unknown>> {
+  ): Promise<VariableDump> {
     return this.fetchAllVariablesForEntity(sessionVariableEntity(sessionId));
   }
 
+  // Returns the dict together with the frameSeq of the response frame, so the dump's variable-change
+  // events can be attributed to the exact wire frame that carried them (a dump resolves to a frame
+  // only — there is no notification — and that absence is the live-vs-dump distinction).
   private async fetchAllVariablesForEntity(
     entity: AppEntityRef,
-  ): Promise<Record<string, unknown>> {
+  ): Promise<VariableDump> {
     const req = create(VariableRequestSchema, {
       scope: variableRequestScope(entity),
       get: ['*'],
     });
-    const response = await this.protocol.send({
+    const { message: response, frameSeq } = await this.protocol.send({
       submessage: { case: 'variableRequest' as const, value: req },
     });
-    if (response.submessage.case !== 'variableResponse') return {};
+    if (response.submessage.case !== 'variableResponse') return { dict: {}, frameSeq };
     const values = response.submessage.value.values;
-    if (values.length === 0) return {};
+    if (values.length === 0) return { dict: {}, frameSeq };
     try {
-      return JSON.parse(values[0]) as Record<string, unknown>;
+      return { dict: JSON.parse(values[0]) as Record<string, unknown>, frameSeq };
     } catch {
-      return {};
+      return { dict: {}, frameSeq };
     }
   }
 
@@ -654,7 +693,7 @@ export class ConnectionOrchestrator extends EventEmitter {
     });
     this.monitor.screen.noteFetchStarted();
     try {
-      const response = await this.protocol.send({
+      const { message: response } = await this.protocol.send({
         submessage: { case: 'getBufferRequest' as const, value: req },
       });
       if (response.submessage.case === 'getBufferResponse') {
@@ -696,14 +735,22 @@ export class ConnectionOrchestrator extends EventEmitter {
     this.screenFetchPending = false;
   }
 
-  private routeNotification(n: Notification): void {
+  private routeNotification(n: Notification, frameSeq: number): void {
     if (n.layoutChangedNotification?.listSessionsResponse) {
       this.monitor.layout.apply(convertLayout(n.layoutChangedNotification.listSessionsResponse));
     }
     if (n.variableChangedNotification) {
       const v = n.variableChangedNotification;
       if (v.identifier && v.name) {
-        this.monitor.variables.applyChange(v.identifier, v.name, v.jsonNewValue ?? 'null', variableScopeName(v.scope));
+        // [LAW:no-ambient-temporal-coupling] The change carries the notification's frameSeq, so it
+        // joins to that notification and the wire frame that delivered it by foreign key.
+        this.monitor.variables.applyChange(
+          v.identifier,
+          v.name,
+          v.jsonNewValue ?? 'null',
+          variableScopeName(v.scope),
+          frameSeq,
+        );
       }
     }
     if (n.terminateSessionNotification?.sessionId) {
@@ -870,6 +917,34 @@ function buildRoleAttrs(spec: RegistrationSpec): RegistrationRequestInit | undef
     return { RoleSpecificAttributes: { case: 'contextMenuAttributes', value } };
   }
   return undefined;
+}
+
+interface VariableDump {
+  dict: Record<string, unknown>;
+  frameSeq: number;
+}
+
+// [LAW:one-source-of-truth] Decoded once, here at the boundary that owns the bytes — the wire pane
+// reads messageKind/requestId off the stored event and never re-parses. Mirrors the decode the
+// deleted WireLogStore did, now feeding the unified spine.
+function decodeWireFrame(
+  direction: 'out' | 'in',
+  bytes: Uint8Array,
+): { messageKind: string; requestId: string } {
+  try {
+    const schema = direction === 'out' ? ClientOriginatedMessageSchema : ServerOriginatedMessageSchema;
+    const msg = fromBinary(schema, bytes);
+    return { messageKind: msg.submessage.case ?? '(empty)', requestId: msg.id.toString() };
+  } catch {
+    return { messageKind: '(decode-failed)', requestId: '0' };
+  }
+}
+
+// A notification's scope is whatever entity it names; sessionless notifications are app-scoped. This
+// is best-effort scoping for the unified timeline, not a precise focus ref (window/tab are unknown
+// from a session id alone).
+function notificationEntity(sessionId: string | null): AppEntityRef {
+  return sessionId ? sessionVariableEntity(sessionId) : APP_ENTITY;
 }
 
 function errString(err: unknown): string {
