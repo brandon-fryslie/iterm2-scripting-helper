@@ -2,6 +2,11 @@ import { test, expect } from '@playwright/test';
 import { launchApp } from './launch-app';
 
 test('four-tab shell renders placeholders and IPC ping round-trips', async () => {
+  test.skip(
+    process.env.CI === 'true',
+    'GitHub macOS runners cannot reliably launch the Electron app; run locally.',
+  );
+
   const app = await launchApp();
   const win = await app.firstWindow();
 
