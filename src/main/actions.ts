@@ -301,6 +301,8 @@ export async function actionRawProtobuf(
     }
     envelope = { submessage: parsed.submessage };
   } catch (err) {
+    // The envelope parse is the only phase unique to raw-protobuf; on parse failure there is no
+    // request, so no requestId.
     return {
       ok: false,
       error: `invalid JSON: ${err instanceof Error ? err.message : String(err)}`,
@@ -310,43 +312,9 @@ export async function actionRawProtobuf(
       requestId: null,
     };
   }
-  const started = Date.now();
-  try {
-    const response = await orchestrator.sendRequest(envelope);
-    const latencyMs = Date.now() - started;
-    const requestId = response.id.toString();
-    if (response.submessage.case === 'error') {
-      return {
-        ok: false,
-        error: response.submessage.value,
-        latencyMs,
-        responseCase: 'error',
-        payload: null,
-        requestId,
-      };
-    }
-    return {
-      ok: true,
-      error: null,
-      latencyMs,
-      responseCase: response.submessage.case ?? null,
-      payload: {
-        responseJson: JSON.stringify(
-          toJson(ServerOriginatedMessageSchema, response),
-          null,
-          2,
-        ),
-      },
-      requestId,
-    };
-  } catch (err) {
-    return {
-      ok: false,
-      error: err instanceof Error ? err.message : String(err),
-      latencyMs: Date.now() - started,
-      responseCase: null,
-      payload: null,
-      requestId: null,
-    };
-  }
+  // [LAW:single-enforcer] The send/response/error/latency/requestId handling is `fire`'s job; this
+  // action only differs in how it renders the response payload, which is exactly what extractPayload is.
+  return fire(orchestrator, envelope, (msg) => ({
+    responseJson: JSON.stringify(toJson(ServerOriginatedMessageSchema, msg), null, 2),
+  }));
 }
