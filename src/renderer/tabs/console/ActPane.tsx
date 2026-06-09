@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { observer } from 'mobx-react-lite';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -6,7 +6,7 @@ import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
 import { Separator } from '@/components/ui/separator';
 import { useStore } from '@/stores/context';
-import { FocusTarget } from './console/FocusTarget';
+import { FocusTarget } from './FocusTarget';
 import type { ActionKind } from '@/stores/ConsoleStore';
 import {
   SendTextForm,
@@ -17,7 +17,7 @@ import {
   RestartSessionForm,
   CloseForm,
   RawProtobufForm,
-} from './console/ActionForms';
+} from './ActionForms';
 
 const ACTIONS: Array<{ kind: ActionKind; label: string }> = [
   { kind: 'send-text', label: 'Send text' },
@@ -41,20 +41,16 @@ const FORM_COMPONENTS: Record<ActionKind, React.ComponentType> = {
   'raw-protobuf': RawProtobufForm,
 };
 
-export const ConsoleTab = observer(function ConsoleTab() {
-  const { console: consoleStore, monitor } = useStore();
+// Act: the contextual action bar over the focused entity. Firing an action produces an AppEvent on the
+// spine, so there is no Act-local transcript — the result surfaces in the Activity facet.
+export const ActPane = observer(function ActPane() {
+  const { console: consoleStore } = useStore();
   const [snippetName, setSnippetName] = useState('');
-
-  useEffect(() => {
-    if (monitor.layout.windows.length === 0) {
-      void monitor.hydrate();
-    }
-  }, [monitor]);
 
   const Form = FORM_COMPONENTS[consoleStore.selectedAction];
 
   return (
-    <div className="grid gap-4" data-testid="tab-console-placeholder">
+    <div className="grid gap-4 p-3" data-testid="act-pane">
       <FocusTarget />
 
       <Card>

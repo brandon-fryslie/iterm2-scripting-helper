@@ -1,4 +1,4 @@
-import { test, expect } from '@playwright/test';
+import { test, expect, type Page } from '@playwright/test';
 import path from 'node:path';
 import { existsSync } from 'node:fs';
 import os from 'node:os';
@@ -8,6 +8,23 @@ const socketPath = path.join(
   os.homedir(),
   'Library/Application Support/iTerm2/private/socket',
 );
+
+// Connection/Settings is a utility affordance behind the rail's gear, not a peer tab. Open it, wait
+// for the auto-negotiated session to be ready, then close it so the co-present facets are interactable
+// (the overlay backdrop covers them while open).
+async function connectViaGear(win: Page): Promise<void> {
+  await win.getByTestId('settings-gear').click();
+  await expect(win.getByTestId('connection-state-badge')).toHaveAttribute(
+    'data-state',
+    'ready',
+    { timeout: 20_000 },
+  );
+}
+
+async function closeSettings(win: Page): Promise<void> {
+  await win.getByTestId('settings-close').click();
+  await expect(win.getByTestId('settings-overlay')).not.toBeVisible();
+}
 
 test.describe('live iTerm2', () => {
   test.beforeEach(() => {
@@ -22,14 +39,8 @@ test.describe('live iTerm2', () => {
     const app = await launchApp();
     const win = await app.firstWindow();
 
-    await win.getByTestId('tab-trigger-settings').click();
-    // App auto-connects on startup (main.ts); wait for the negotiated session to be ready.
-
-    await expect(win.getByTestId('connection-state-badge')).toHaveAttribute(
-      'data-state',
-      'ready',
-      { timeout: 20_000 },
-    );
+    // App auto-connects on startup (main.ts); the gear overlay surfaces the negotiated state.
+    await connectViaGear(win);
     await expect(win.getByTestId('protocol-version')).not.toHaveText('(n/a)');
     await expect(win.getByTestId('capability-table')).toBeVisible();
 
@@ -41,7 +52,7 @@ test.describe('live iTerm2', () => {
     await app.close();
   });
 
-  test('Monitor: layout + variables + wire + notifications cross-link on focus', async () => {
+  test('Live state: layout + variables + wire + notifications cross-link on focus', async () => {
     const app = await launchApp();
     const win = await app.firstWindow();
 
@@ -53,19 +64,14 @@ test.describe('live iTerm2', () => {
       if (m.type() === 'error') cloneErrors.push(m.text());
     });
 
-    await win.getByTestId('tab-trigger-settings').click();
-    // App auto-connects on startup (main.ts); wait for the negotiated session to be ready.
-    await expect(win.getByTestId('connection-state-badge')).toHaveAttribute(
-      'data-state',
-      'ready',
-      { timeout: 20_000 },
-    );
+    await connectViaGear(win);
+    await closeSettings(win);
 
-    await win.getByTestId('tab-trigger-monitor').click();
+    // The entity rail, live state, and Activity are co-present facets — no tab to switch to. Wire
+    // frames and notifications are no longer separate panes; they are facets of the one Activity
+    // timeline that every event stream projects through.
     await expect(win.getByTestId('layout-pane')).toBeVisible();
     await expect(win.getByTestId('variables-pane')).toBeVisible();
-    // Wire frames and notifications are no longer separate panes — they are facets of the one
-    // Activity timeline that every event stream projects through.
     await expect(win.getByTestId('activity-timeline')).toBeVisible();
     await expect(win.getByTestId('activity-facet-frame')).toBeVisible();
     await expect(win.getByTestId('activity-facet-notification')).toBeVisible();
@@ -113,17 +119,11 @@ test.describe('live iTerm2', () => {
     await app.close();
   });
 
-  test('Workbench v2: status-bar registration + custom-escape subscriber round-trip', async () => {
+  test('Author v2: status-bar registration + custom-escape subscriber round-trip', async () => {
     const app = await launchApp();
     const win = await app.firstWindow();
 
-    await win.getByTestId('tab-trigger-settings').click();
-    // App auto-connects on startup (main.ts); wait for the negotiated session to be ready.
-    await expect(win.getByTestId('connection-state-badge')).toHaveAttribute(
-      'data-state',
-      'ready',
-      { timeout: 20_000 },
-    );
+    await connectViaGear(win);
 
     const sessionId = await win.evaluate(async () => {
       const layout = await window.ipc.invoke('monitor/layout', undefined as never);
@@ -234,17 +234,11 @@ test.describe('live iTerm2', () => {
     await app.close();
   });
 
-  test('Workbench: profile edit applies; dynamic profile round-trips; escape template emits', async () => {
+  test('Author: profile edit applies; dynamic profile round-trips; escape template emits', async () => {
     const app = await launchApp();
     const win = await app.firstWindow();
 
-    await win.getByTestId('tab-trigger-settings').click();
-    // App auto-connects on startup (main.ts); wait for the negotiated session to be ready.
-    await expect(win.getByTestId('connection-state-badge')).toHaveAttribute(
-      'data-state',
-      'ready',
-      { timeout: 20_000 },
-    );
+    await connectViaGear(win);
 
     // Grab the default profile's GUID and a real sessionId.
     const probe = await win.evaluate(async () => {
@@ -259,9 +253,10 @@ test.describe('live iTerm2', () => {
     expect(probe.sessionId).not.toBe('');
     expect(probe.guid).not.toBe('');
 
-    await win.getByTestId('tab-trigger-workbench').click();
+    // The Author facet is co-present — its artifact rail is reachable without leaving the workspace.
+    await closeSettings(win);
 
-    // Profiles tab: pick a profile, apply an edit, verify success.
+    // Profiles artifact: pick a profile, apply an edit, verify success.
     await win.getByTestId('workbench-rail-profile').click();
     // Scope banner must tell the truth about each artifact's scope (449.7.7).
     await expect(win.getByTestId('artifact-scope-banner')).toHaveAttribute(
@@ -352,17 +347,11 @@ test.describe('live iTerm2', () => {
     await app.close();
   });
 
-  test('Console: send text + activate + snippet re-fires', async () => {
+  test('Act: send text + activate + snippet re-fires, all feeding Activity', async () => {
     const app = await launchApp();
     const win = await app.firstWindow();
 
-    await win.getByTestId('tab-trigger-settings').click();
-    // App auto-connects on startup (main.ts); wait for the negotiated session to be ready.
-    await expect(win.getByTestId('connection-state-badge')).toHaveAttribute(
-      'data-state',
-      'ready',
-      { timeout: 20_000 },
-    );
+    await connectViaGear(win);
 
     // Grab a real sessionId and a real tabId via the main-side snapshot
     const probe = await win.evaluate(async () => {
@@ -376,7 +365,8 @@ test.describe('live iTerm2', () => {
     expect(probe.sessionId).not.toBe('');
     expect(probe.tabId).not.toBe('');
 
-    await win.getByTestId('tab-trigger-console').click();
+    // The Act facet is co-present — no Console tab to switch to.
+    await closeSettings(win);
 
     // Send text — fire without text (safe no-op on shell).
     await win.getByTestId('action-send-text').click();
@@ -398,9 +388,8 @@ test.describe('live iTerm2', () => {
     await expect(snippet).toBeVisible();
     await snippet.locator('[data-testid^="snippet-fire-"]').click();
 
-    // Actions feed the unified Activity timeline (no Console-local transcript). The three fires
-    // surface as three action events on the spine, and every one succeeded (no ✗ in its summary).
-    await win.getByTestId('tab-trigger-monitor').click();
+    // Actions feed the co-present Activity facet (no Act-local transcript). The three fires surface as
+    // three action events on the spine, and every one succeeded (no ✗ in its summary).
     const actionRows = win.locator(
       '[data-testid^="activity-row-"][data-facet="action"]',
     );
@@ -410,19 +399,13 @@ test.describe('live iTerm2', () => {
     await app.close();
   });
 
-  test('Monitor: screen renders + keystrokes + prompts panes populate', async () => {
+  test('Live state: screen renders + keystrokes + prompts facets populate', async () => {
     const app = await launchApp();
     const win = await app.firstWindow();
 
-    await win.getByTestId('tab-trigger-settings').click();
-    // App auto-connects on startup (main.ts); wait for the negotiated session to be ready.
-    await expect(win.getByTestId('connection-state-badge')).toHaveAttribute(
-      'data-state',
-      'ready',
-      { timeout: 20_000 },
-    );
+    await connectViaGear(win);
+    await closeSettings(win);
 
-    await win.getByTestId('tab-trigger-monitor').click();
     // Keystrokes, prompts and focus are facets of the one Activity timeline, not separate panes.
     await expect(win.getByTestId('activity-timeline')).toBeVisible();
     await expect(win.getByTestId('activity-facet-keystroke')).toBeVisible();
