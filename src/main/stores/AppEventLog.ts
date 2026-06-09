@@ -4,14 +4,8 @@ import {
   type AppEventInput,
   type AppEventKind,
   type AppEventLogSnapshot,
-  type AppNotificationEntry,
 } from '@shared/domain';
-import type {
-  WireLogSnapshot,
-  NotificationLogSnapshot,
-  ActionLogSnapshot,
-  Invocation,
-} from '@shared/rpc';
+import type { Invocation } from '@shared/rpc';
 
 // [LAW:carrying-cost] One ring now holds wire frames, notifications, and variable changes
 // interleaved, where three islands each held their own. Sized generously so a single domain's churn
@@ -105,79 +99,10 @@ export class AppEventLog {
       oldestFrameSeq: events.map(eventFrameSeq).find((fs) => fs !== null) ?? null,
     };
   }
-
-  capacityForProjection(): number {
-    return this.capacity;
-  }
 }
 
 // ───────────────────────────────────────────────────────────────────────────
-// Projections — the per-domain panes are pure folds of the one log.
-//
-// [LAW:behavior-not-structure] These reproduce the exact snapshot shapes the renderer already
-// consumes (WireLogSnapshot / NotificationLogSnapshot), so the panes keep working with no change.
-// What was an island ring is now a filter over the spine.
-
-export function wireLogProjection(log: AppEventLog): WireLogSnapshot {
-  const entries = log
-    .events()
-    .filter((e): e is Extract<AppEvent, { kind: 'wire-frame' }> => e.kind === 'wire-frame')
-    .map((e) => ({
-      // [LAW:one-source-of-truth] The wire entry's identity IS the frame seq; the store no longer
-      // mints a private counter for protocol-event identity.
-      seq: e.frameSeq,
-      at: e.at,
-      direction: e.payload.direction,
-      size: e.payload.size,
-      kind: e.payload.messageKind,
-      id: e.payload.requestId,
-    }));
-  return {
-    entries,
-    totalSeen: log.totalSeen('wire-frame'),
-    capacity: log.capacityForProjection(),
-  };
-}
-
-export function notificationLogProjection(log: AppEventLog): NotificationLogSnapshot {
-  const entries: AppNotificationEntry[] = log
-    .events()
-    .filter((e): e is Extract<AppEvent, { kind: 'notification' }> => e.kind === 'notification')
-    .map((e) => ({
-      seq: e.seq,
-      at: e.at,
-      kind: e.payload.kind,
-      sessionId: e.payload.sessionId,
-      summary: e.payload.summary,
-      payload: e.payload.detail,
-    }));
-  return {
-    entries,
-    totalSeen: log.totalSeen('notification'),
-    capacity: log.capacityForProjection(),
-  };
-}
-
-// [LAW:one-source-of-truth] The console transcript is a filter of the spine, not a private renderer
-// array. Every fired action is one 'action' event; this projection is what the console reads back.
-export function actionLogProjection(log: AppEventLog): ActionLogSnapshot {
-  const entries = log
-    .events()
-    .filter((e): e is Extract<AppEvent, { kind: 'action' }> => e.kind === 'action')
-    .map((e) => ({
-      seq: e.seq,
-      at: e.at,
-      entity: e.entity,
-      action: e.payload.action,
-      args: e.payload.args,
-      result: e.payload.result,
-    }));
-  return {
-    entries,
-    totalSeen: log.totalSeen('action'),
-    capacity: log.capacityForProjection(),
-  };
-}
+// Projections — a per-domain view is a pure fold of the one log.
 
 // [LAW:one-source-of-truth] Server-originated RPC invocations are a filter of the spine too; the
 // registration store no longer owns a private invocation ring. `seq` is the spine seq (global append

@@ -32,9 +32,6 @@ import {
 import {
   convertLayout,
   convertGetBuffer,
-  convertKeystroke,
-  convertPrompt,
-  convertFocus,
   classifyNotification,
   variableScopeName,
 } from '@shared/converters';
@@ -50,9 +47,6 @@ import type { LayoutStore } from '../stores/LayoutStore';
 import type { VariableStore } from '../stores/VariableStore';
 import type { WatchlistStore } from '../stores/WatchlistStore';
 import { AppEventLog } from '../stores/AppEventLog';
-import type { KeystrokeLogStore } from '../stores/KeystrokeLogStore';
-import type { PromptLogStore } from '../stores/PromptLogStore';
-import type { FocusLogStore } from '../stores/FocusLogStore';
 import type { ScreenStreamStore } from '../stores/ScreenStreamStore';
 import type {
   RegistrationStore,
@@ -85,9 +79,6 @@ export interface MonitorStores {
   variables: VariableStore;
   watchlist: WatchlistStore;
   appEvents: AppEventLog;
-  keystrokes: KeystrokeLogStore;
-  prompts: PromptLogStore;
-  focus: FocusLogStore;
   screen: ScreenStreamStore;
   registrations: RegistrationStore;
   customEscape: CustomEscapeStore;
@@ -172,9 +163,6 @@ export class ConnectionOrchestrator extends EventEmitter {
       this.monitor.layout.clear();
       this.monitor.variables.clearAll();
       this.monitor.appEvents.clear();
-      this.monitor.keystrokes.clear();
-      this.monitor.prompts.clear();
-      this.monitor.focus.clear();
       this.monitor.screen.clear();
       this.monitor.registrations.clearAll();
       this.monitor.customEscape.clearAll();
@@ -333,29 +321,6 @@ export class ConnectionOrchestrator extends EventEmitter {
     await this.reconcileWatchSubscriptions(this.monitor.variables.focusedSessionId);
   }
 
-  async setKeystrokeAdvanced(advanced: boolean): Promise<void> {
-    if (this.monitor.keystrokes.advanced === advanced) return;
-    this.monitor.keystrokes.setAdvanced(advanced);
-    const focused = this.monitor.variables.focusedSessionId;
-    if (!focused || this.protocol.getState() !== 'ready') return;
-    await this.sendNotificationRequest(
-      NotificationType.NOTIFY_ON_KEYSTROKE,
-      focused,
-      false,
-    ).catch(() => void 0);
-    await this.sendNotificationRequest(
-      NotificationType.NOTIFY_ON_KEYSTROKE,
-      focused,
-      true,
-      {
-        arguments: {
-          case: 'keystrokeMonitorRequest',
-          value: { patternsToIgnore: [], advanced },
-        },
-      },
-    ).catch((err) => this.emit('error', err));
-  }
-
   getSocketPath(): string {
     return this.options.socketPath;
   }
@@ -487,7 +452,7 @@ export class ConnectionOrchestrator extends EventEmitter {
           case: 'keystrokeMonitorRequest',
           value: {
             patternsToIgnore: [],
-            advanced: this.monitor.keystrokes.advanced,
+            advanced: false,
           },
         },
       },
@@ -546,10 +511,6 @@ export class ConnectionOrchestrator extends EventEmitter {
     this.activeVariableSubs = [];
     this.sessionScopedSubscriptions = [];
     this.cancelScreenCoalesce();
-    if (prevSession) {
-      this.monitor.keystrokes.clear();
-      this.monitor.prompts.clear();
-    }
   }
 
   private async sendNotificationRequest(
@@ -757,15 +718,6 @@ export class ConnectionOrchestrator extends EventEmitter {
     }
     if (n.terminateSessionNotification?.sessionId) {
       this.monitor.variables.clearSession(n.terminateSessionNotification.sessionId);
-    }
-    if (n.keystrokeNotification) {
-      this.monitor.keystrokes.record(convertKeystroke(n.keystrokeNotification));
-    }
-    if (n.promptNotification) {
-      this.monitor.prompts.record(convertPrompt(n.promptNotification));
-    }
-    if (n.focusChangedNotification) {
-      this.monitor.focus.record(convertFocus(n.focusChangedNotification));
     }
     if (n.screenUpdateNotification) {
       const session = n.screenUpdateNotification.session;

@@ -1,11 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import {
-  AppEventLog,
-  wireLogProjection,
-  notificationLogProjection,
-  actionLogProjection,
-  invocationProjection,
-} from './AppEventLog';
+import { AppEventLog, invocationProjection } from './AppEventLog';
 import { APP_ENTITY, type AppEventInput } from '@shared/domain';
 
 const SESSION = { kind: 'session', windowId: '', tabId: '', sessionId: 's1' } as const;
@@ -131,40 +125,6 @@ describe('AppEventLog', () => {
     expect(log.resolveFrame(99)).toEqual({ status: 'unknown', frameSeq: 99 });
   });
 
-  it('projects the wire pane as a filter, using frameSeq as the entry identity', () => {
-    const log = new AppEventLog();
-    log.append(wireFrame(1, 'out'));
-    log.append(notification(1));
-    log.append(wireFrame(2, 'in'));
-
-    const snap = wireLogProjection(log);
-    expect(snap.entries).toEqual([
-      { seq: 1, at: 1_001, direction: 'out', size: 12, kind: 'notification', id: '0' },
-      { seq: 2, at: 1_002, direction: 'in', size: 12, kind: 'notification', id: '0' },
-    ]);
-    expect(snap.totalSeen).toBe(2);
-    expect(snap.capacity).toBeGreaterThan(0);
-  });
-
-  it('projects the notifications pane as a filter', () => {
-    const log = new AppEventLog();
-    log.append(wireFrame(1));
-    const n = log.append(notification(1));
-
-    const snap = notificationLogProjection(log);
-    expect(snap.entries).toEqual([
-      {
-        seq: n.seq,
-        at: 1_001,
-        kind: 'variable-changed',
-        sessionId: 's1',
-        summary: 'session.name changed',
-        payload: null,
-      },
-    ]);
-    expect(snap.totalSeen).toBe(1);
-  });
-
   it('clear resets identity, totals, and frame bookkeeping', () => {
     const log = new AppEventLog();
     log.append(wireFrame(1));
@@ -174,32 +134,6 @@ describe('AppEventLog', () => {
     expect(log.resolveFrame(1)).toEqual({ status: 'unknown', frameSeq: 1 });
     // seq restarts so a fresh connection's log is not haunted by the prior one's identities.
     expect(log.append(wireFrame(1)).seq).toBe(1);
-  });
-
-  it('projects the console transcript from action events, carrying the requestId join key', () => {
-    const log = new AppEventLog();
-    log.append(wireFrame(1, 'out'));
-    const a = log.append(action(true));
-
-    const snap = actionLogProjection(log);
-    expect(snap.entries).toEqual([
-      {
-        seq: a.seq,
-        at: 2_000,
-        entity: SESSION,
-        action: 'send-text',
-        args: { sessionId: 's1', text: 'hi' },
-        result: {
-          ok: true,
-          error: null,
-          latencyMs: 3,
-          responseCase: 'sendTextResponse',
-          payload: null,
-          requestId: '42',
-        },
-      },
-    ]);
-    expect(snap.totalSeen).toBe(1);
   });
 
   it('an action (no frameSeq) does not blank the eviction watermark or get pulled into a frame join', () => {

@@ -17,16 +17,8 @@ import type { ConnectionStore } from './stores/ConnectionStore';
 import type { LayoutStore } from './stores/LayoutStore';
 import type { VariableStore } from './stores/VariableStore';
 import type { WatchlistStore } from './stores/WatchlistStore';
-import {
-  type AppEventLog,
-  wireLogProjection,
-  notificationLogProjection,
-  actionLogProjection,
-} from './stores/AppEventLog';
+import { type AppEventLog } from './stores/AppEventLog';
 import type { AppEntityRef, AppActionKind } from '@shared/domain';
-import type { KeystrokeLogStore } from './stores/KeystrokeLogStore';
-import type { PromptLogStore } from './stores/PromptLogStore';
-import type { FocusLogStore } from './stores/FocusLogStore';
 import type { ScreenStreamStore } from './stores/ScreenStreamStore';
 import type { DynamicProfileStore } from './stores/DynamicProfileStore';
 import { registrationSnapshot, type RegistrationStore } from './stores/RegistrationStore';
@@ -52,9 +44,6 @@ export interface MonitorStoresRef {
   variables: VariableStore;
   watchlist: WatchlistStore;
   appEvents: AppEventLog;
-  keystrokes: KeystrokeLogStore;
-  prompts: PromptLogStore;
-  focus: FocusLogStore;
   screen: ScreenStreamStore;
   registrations: RegistrationStore;
   customEscape: CustomEscapeStore;
@@ -146,12 +135,10 @@ export function registerIpc(
       return monitor.layout.snapshot();
     },
     'monitor/variables': async () => monitor.variables.snapshot(),
-    // [LAW:behavior-not-structure] Wire and notifications are now filtered projections of the one
-    // event spine; the snapshot shapes (and so the panes) are unchanged.
-    'monitor/wire-log': async () => wireLogProjection(monitor.appEvents),
-    'monitor/notifications': async () => notificationLogProjection(monitor.appEvents),
+    // The whole spine, for the unified activity timeline and provenance walking. The per-domain
+    // wire/notification/action panes that used to be separate projections are gone; the timeline
+    // reads this one snapshot and filters it.
     'monitor/events': async () => monitor.appEvents.snapshot(),
-    'monitor/actions': async () => actionLogProjection(monitor.appEvents),
     'monitor/focus-session': async ({ sessionId }) => {
       await orchestrator.setFocusedSession(sessionId);
       return { focusedSessionId: monitor.variables.focusedSessionId };
@@ -167,14 +154,7 @@ export function registerIpc(
       await orchestrator.setWatched(name, watched);
       return monitor.watchlist.snapshot();
     },
-    'monitor/keystrokes': async () => monitor.keystrokes.snapshot(),
-    'monitor/prompts': async () => monitor.prompts.snapshot(),
-    'monitor/focus-log': async () => monitor.focus.snapshot(),
     'monitor/screen': async () => monitor.screen.snapshot(),
-    'monitor/set-keystroke-advanced': async ({ advanced }) => {
-      await orchestrator.setKeystrokeAdvanced(advanced);
-      return { advanced: monitor.keystrokes.advanced };
-    },
     'actions/send-text': action('send-text', (args) => actionSendText(orchestrator, args)),
     'actions/inject': action('inject', (args) => actionInject(orchestrator, args)),
     'actions/activate': action('activate', (args) => actionActivate(orchestrator, args)),
