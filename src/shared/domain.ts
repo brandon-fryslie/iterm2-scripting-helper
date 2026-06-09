@@ -254,18 +254,20 @@ export interface AppNotificationEntry {
   payload: Record<string, unknown> | null;
 }
 
-export type AppVariableScope = AppEntityKind;
+export type AppVariableScope = 'app' | 'window' | 'tab' | 'session' | 'user';
 
 export interface AppVariableEntry {
   name: string;
   value: string;
+  previousValue: string | null;
   live: boolean;
   updatedAt: number;
   scope: AppVariableScope;
 }
 
 export function flatSessions(tab: AppTab): AppSession[] {
-  if (!tab.root) return [];
+  // [LAW:one-source-of-truth] iTerm2 tab sessions include split-tree and minimized sessions.
+  if (!tab.root) return tab.minimizedSessions;
   const out: AppSession[] = [];
   const walk = (children: AppSplitChild[]) => {
     for (const c of children) {
@@ -274,5 +276,5 @@ export function flatSessions(tab: AppTab): AppSession[] {
     }
   };
   walk(tab.root.children);
-  return out;
+  return [...out, ...tab.minimizedSessions];
 }

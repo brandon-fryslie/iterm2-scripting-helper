@@ -104,19 +104,28 @@ export function registerIpc(
         );
       }
       const layout = convertLayout(response.submessage.value);
+      // [LAW:one-source-of-truth] Explicit list-sessions refreshes the monitor layout authority.
+      monitor.layout.apply(layout);
       return {
         windows: layout.windows,
         buriedSessions: layout.buriedSessions,
       };
     },
 
-    'monitor/layout': async () => monitor.layout.snapshot(),
+    'monitor/layout': async () => {
+      await orchestrator.refreshLayout();
+      return monitor.layout.snapshot();
+    },
     'monitor/variables': async () => monitor.variables.snapshot(),
     'monitor/wire-log': async () => monitor.wire.snapshot(),
     'monitor/notifications': async () => monitor.notifications.snapshot(),
     'monitor/focus-session': async ({ sessionId }) => {
       await orchestrator.setFocusedSession(sessionId);
       return { focusedSessionId: monitor.variables.focusedSessionId };
+    },
+    'monitor/focus-variables': async ({ entity }) => {
+      await orchestrator.setFocusedVariables(entity);
+      return monitor.variables.snapshot();
     },
     'monitor/keystrokes': async () => monitor.keystrokes.snapshot(),
     'monitor/prompts': async () => monitor.prompts.snapshot(),

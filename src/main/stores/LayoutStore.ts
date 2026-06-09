@@ -3,6 +3,7 @@ import type { AppLayout, AppWindow, AppSession } from '@shared/domain';
 
 export interface LayoutSnapshot {
   windows: AppWindow[];
+  buriedSessions: AppSession[];
   lastUpdatedAt: number;
 }
 
@@ -31,6 +32,10 @@ export class LayoutStore {
   }
 
   snapshot(): LayoutSnapshot {
-    return { windows: this.windows, lastUpdatedAt: this.lastUpdatedAt };
+    return {
+      windows: this.windows,
+      buriedSessions: this.buriedSessions,
+      lastUpdatedAt: this.lastUpdatedAt,
+    };
   }
 }
