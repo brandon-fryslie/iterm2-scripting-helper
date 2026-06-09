@@ -3,9 +3,11 @@ import {
   APP_ENTITY,
   type AppEntityRef,
   type AppVariableChange,
+  type AppVariableChangeSource,
   type AppVariableEntry,
   type AppVariableScope,
 } from '@shared/domain';
+import type { AppEventLog } from './AppEventLog';
 
 export type { AppVariableScope as VariableScope };
 export type { AppVariableEntry as VariableEntry };
@@ -32,9 +34,18 @@ export class VariableStore {
   private readonly byFocus = new Map<string, Map<string, VariableRecord>>();
   private liveNames = new Set<string>();
 
-  constructor() {
-    makeAutoObservable<VariableStore, 'byFocus'>(this, {
+  // [LAW:single-enforcer] This store owns the invariant "what counts as a variable change" — its
+  // dedup of identical re-observations. The unified spine's variable-change events must therefore be
+  // minted HERE, from the same input that updates the fold, so the log can never disagree with the
+  // history about whether a change happened. The store's per-variable history is a bounded display
+  // fold of exactly those events; the log is the authoritative, provenance-carrying timeline.
+  private readonly appEvents: AppEventLog;
+
+  constructor(appEvents: AppEventLog) {
+    this.appEvents = appEvents;
+    makeAutoObservable<VariableStore, 'byFocus' | 'appEvents'>(this, {
       byFocus: observable.shallow,
+      appEvents: false,
       focusedEntity: observable.ref,
     });
   }
@@ -53,7 +64,7 @@ export class VariableStore {
     this.liveNames = new Set(names);
   }
 
-  applyDump(entity: AppEntityRef, dict: Record<string, unknown>): void {
+  applyDump(entity: AppEntityRef, dict: Record<string, unknown>, frameSeq: number): void {
     const now = Date.now();
     const focusKey = variableFocusKey(entity);
     const previous = this.byFocus.get(focusKey);
@@ -61,8 +72,10 @@ export class VariableStore {
     for (const [name, value] of Object.entries(dict)) {
       const nextValue = JSON.stringify(value);
       const priorHistory = previous?.get(name)?.history ?? [];
+      const scope = variableScopeFromName(name, entity.kind);
+      this.emitIfChanged(entity, name, nextValue, priorHistory, scope, 'dump', frameSeq);
       map.set(name, {
-        scope: variableScopeFromName(name, entity.kind),
+        scope,
         history: recordChange(priorHistory, nextValue, now),
       });
     }
@@ -73,18 +86,53 @@ export class VariableStore {
     sessionId: string,
     name: string,
     jsonValue: string,
-    scope: AppVariableScope = 'session',
+    scope: AppVariableScope,
+    frameSeq: number,
   ): void {
     const focusKey = variableScopeFocusKey(scope, sessionId);
     // [LAW:no-ambient-temporal-coupling] Replace the inner map by reference so the shallow-observable
     // outer map fires its reaction; in-place mutation would silently skip the renderer broadcast.
     const map = new Map(this.byFocus.get(focusKey) ?? []);
     const priorHistory = map.get(name)?.history ?? [];
+    const recordScope = variableScopeFromName(name, scope);
+    this.emitIfChanged(
+      entityForScope(scope, sessionId),
+      name,
+      jsonValue,
+      priorHistory,
+      recordScope,
+      'subscription',
+      frameSeq,
+    );
     map.set(name, {
-      scope: variableScopeFromName(name, scope),
+      scope: recordScope,
       history: recordChange(priorHistory, jsonValue, Date.now()),
     });
     this.byFocus.set(focusKey, map);
+  }
+
+  // [LAW:single-enforcer] One gate: a value identical to the most recent one is not a change, so it
+  // produces neither a history entry (see recordChange) nor a spine event. The two stay in lockstep
+  // because the same dedup test governs both.
+  private emitIfChanged(
+    entity: AppEntityRef,
+    name: string,
+    value: string,
+    priorHistory: readonly AppVariableChange[],
+    scope: AppVariableScope,
+    source: AppVariableChangeSource,
+    frameSeq: number,
+  ): void {
+    const previousValue = priorHistory[0]?.value ?? null;
+    if (previousValue === value) return;
+    this.appEvents.append({
+      kind: 'variable-change',
+      at: Date.now(),
+      frameSeq,
+      entity,
+      causedBy: null,
+      payload: { name, value, previousValue, scope, source },
+    });
   }
 
   clearSession(sessionId: string): void {
@@ -148,6 +196,22 @@ export function variableFocusKey(entity: AppEntityRef): string {
 
 function variableScopeFocusKey(scope: AppVariableScope, identifier: string): string {
   return `${scope}:${identifier}`;
+}
+
+// [LAW:types-are-the-program] Map a change's scope + protocol identifier to the entity it belongs to.
+// 'user' variables are app-global, so they share the app entity.
+function entityForScope(scope: AppVariableScope, identifier: string): AppEntityRef {
+  switch (scope) {
+    case 'session':
+      return { kind: 'session', windowId: '', tabId: '', sessionId: identifier };
+    case 'window':
+      return { kind: 'window', windowId: identifier };
+    case 'tab':
+      return { kind: 'tab', windowId: '', tabId: identifier };
+    case 'app':
+    case 'user':
+      return APP_ENTITY;
+  }
 }
 
 function variableScopeFromName(

@@ -281,6 +281,84 @@ export type AppProbeResult =
   | { outcome: 'value'; entity: AppEntityRef; expression: string; value: string }
   | { outcome: 'error'; entity: AppEntityRef; expression: string; message: string };
 
+// ───────────────────────────────────────────────────────────────────────────
+// The unified event spine.
+//
+// [LAW:one-source-of-truth] Every observation the app makes — a wire frame, a
+// classified notification, a variable change — is one AppEvent in one
+// append-only log. The per-domain panes are filtered projections of this log,
+// never independent islands that can drift from it.
+//
+// [LAW:one-type-per-behavior] The three observations differ ONLY by `kind` and
+// the shape of `payload`; everything they share (identity, time, provenance,
+// scope) lives on the common base. Adding the write side (actions/invocations,
+// 449.7.6) is a new `kind`, not a new log.
+//
+// Provenance is CARRIED, never reconstructed: `frameSeq` is the protocol-frame
+// identity minted once at the transport boundary. A subscription-driven change,
+// the notification that announced it, and the wire frame that carried it all
+// share one `frameSeq` and join on it like a foreign key — with zero timestamp
+// windowing ([LAW:no-ambient-temporal-coupling]).
+
+export type AppEventKind = 'wire-frame' | 'notification' | 'variable-change';
+
+export interface AppWireFramePayload {
+  direction: 'out' | 'in';
+  size: number;
+  // The decoded protobuf submessage case (e.g. 'notification', 'variableResponse'), or a
+  // '(decode-failed)'/'(empty)' marker — decoded once here at production, never re-parsed on read.
+  messageKind: string;
+  requestId: string;
+}
+
+export interface AppNotificationPayload {
+  kind: AppNotificationKind;
+  sessionId: string | null;
+  summary: string;
+  detail: Record<string, unknown> | null;
+}
+
+// [LAW:types-are-the-program] `source` makes the live-vs-dump distinction representable rather than
+// inferred: a 'subscription' change shares its frameSeq with a notification event, a 'dump' change
+// shares its frameSeq with a wire frame ONLY (the absence of a notification at that frameSeq is the
+// distinction, not a guess).
+export type AppVariableChangeSource = 'subscription' | 'dump';
+
+export interface AppVariableChangePayload {
+  name: string;
+  value: string;
+  previousValue: string | null;
+  scope: AppVariableScope;
+  source: AppVariableChangeSource;
+}
+
+interface AppEventBase {
+  // Monotonic append order across the whole log; the log is its single owner.
+  seq: number;
+  at: number;
+  // The protocol frame this event was produced from. Read-side events always carry one; the write
+  // side (449.7.6) will produce events with no inbound frame, hence the null.
+  frameSeq: number | null;
+  entity: AppEntityRef;
+  // The seq of a prior event this one was caused by (action -> notification -> change). Always null
+  // on the read side; the write side links invocations to their effects.
+  causedBy: number | null;
+}
+
+export type AppEvent =
+  | (AppEventBase & { kind: 'wire-frame'; payload: AppWireFramePayload })
+  | (AppEventBase & { kind: 'notification'; payload: AppNotificationPayload })
+  | (AppEventBase & { kind: 'variable-change'; payload: AppVariableChangePayload });
+
+export interface AppEventLogSnapshot {
+  events: AppEvent[];
+  totalSeen: number;
+  capacity: number;
+  // The oldest frameSeq still retained in the ring. A frameSeq below this was evicted: a join that
+  // lands here degrades loudly ('frame N (evicted)') instead of silently jumping to the wrong frame.
+  oldestFrameSeq: number | null;
+}
+
 export function flatSessions(tab: AppTab): AppSession[] {
   // [LAW:one-source-of-truth] iTerm2 tab sessions include split-tree and minimized sessions.
   if (!tab.root) return tab.minimizedSessions;

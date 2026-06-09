@@ -19,6 +19,9 @@ import type {
   AppNotificationKind,
   AppCellStyleRun,
   AppLine,
+  AppEvent,
+  AppEventKind,
+  AppEventLogSnapshot,
 } from './domain';
 
 export type {
@@ -42,6 +45,9 @@ export type {
   AppNotificationKind,
   AppCellStyleRun,
   AppLine,
+  AppEvent,
+  AppEventKind,
+  AppEventLogSnapshot,
 };
 
 // Re-export domain types under old names for backward compat during migration
@@ -320,6 +326,11 @@ export type RpcSchema = {
   'monitor/notifications': {
     args: void;
     result: NotificationLogSnapshot;
+  };
+  // The whole spine, for the unified activity timeline (449.7.9) and provenance walking.
+  'monitor/events': {
+    args: void;
+    result: AppEventLogSnapshot;
   };
   'monitor/focus-session': {
     args: { sessionId: string | null };

@@ -7,8 +7,7 @@ import { ConnectionStore } from './stores/ConnectionStore';
 import { LayoutStore } from './stores/LayoutStore';
 import { VariableStore } from './stores/VariableStore';
 import { WatchlistStore } from './stores/WatchlistStore';
-import { WireLogStore } from './stores/WireLogStore';
-import { NotificationHub } from './stores/NotificationHub';
+import { AppEventLog } from './stores/AppEventLog';
 import { KeystrokeLogStore } from './stores/KeystrokeLogStore';
 import { PromptLogStore } from './stores/PromptLogStore';
 import { FocusLogStore } from './stores/FocusLogStore';
@@ -49,10 +48,9 @@ function createWindow(): void {
 
 const connectionStore = new ConnectionStore();
 const layoutStore = new LayoutStore();
-const variableStore = new VariableStore();
+const appEventLog = new AppEventLog();
+const variableStore = new VariableStore(appEventLog);
 const watchlistStore = new WatchlistStore();
-const wireLogStore = new WireLogStore();
-const notificationHub = new NotificationHub();
 const keystrokeLogStore = new KeystrokeLogStore();
 const promptLogStore = new PromptLogStore();
 const focusLogStore = new FocusLogStore();
@@ -65,8 +63,7 @@ const monitorStores = {
   layout: layoutStore,
   variables: variableStore,
   watchlist: watchlistStore,
-  wire: wireLogStore,
-  notifications: notificationHub,
+  appEvents: appEventLog,
   keystrokes: keystrokeLogStore,
   prompts: promptLogStore,
   focus: focusLogStore,

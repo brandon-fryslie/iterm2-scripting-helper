@@ -16,8 +16,11 @@ import type { ConnectionStore } from './stores/ConnectionStore';
 import type { LayoutStore } from './stores/LayoutStore';
 import type { VariableStore } from './stores/VariableStore';
 import type { WatchlistStore } from './stores/WatchlistStore';
-import type { WireLogStore } from './stores/WireLogStore';
-import type { NotificationHub } from './stores/NotificationHub';
+import {
+  type AppEventLog,
+  wireLogProjection,
+  notificationLogProjection,
+} from './stores/AppEventLog';
 import type { KeystrokeLogStore } from './stores/KeystrokeLogStore';
 import type { PromptLogStore } from './stores/PromptLogStore';
 import type { FocusLogStore } from './stores/FocusLogStore';
@@ -45,8 +48,7 @@ export interface MonitorStoresRef {
   layout: LayoutStore;
   variables: VariableStore;
   watchlist: WatchlistStore;
-  wire: WireLogStore;
-  notifications: NotificationHub;
+  appEvents: AppEventLog;
   keystrokes: KeystrokeLogStore;
   prompts: PromptLogStore;
   focus: FocusLogStore;
@@ -119,8 +121,11 @@ export function registerIpc(
       return monitor.layout.snapshot();
     },
     'monitor/variables': async () => monitor.variables.snapshot(),
-    'monitor/wire-log': async () => monitor.wire.snapshot(),
-    'monitor/notifications': async () => monitor.notifications.snapshot(),
+    // [LAW:behavior-not-structure] Wire and notifications are now filtered projections of the one
+    // event spine; the snapshot shapes (and so the panes) are unchanged.
+    'monitor/wire-log': async () => wireLogProjection(monitor.appEvents),
+    'monitor/notifications': async () => notificationLogProjection(monitor.appEvents),
+    'monitor/events': async () => monitor.appEvents.snapshot(),
     'monitor/focus-session': async ({ sessionId }) => {
       await orchestrator.setFocusedSession(sessionId);
       return { focusedSessionId: monitor.variables.focusedSessionId };

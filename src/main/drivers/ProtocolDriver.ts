@@ -31,6 +31,25 @@ export interface WireFrame {
   direction: 'out' | 'in';
   bytes: Uint8Array;
   at: number;
+  // [LAW:one-source-of-truth] The single protocol-event identity, minted here at the transport
+  // boundary. Every event derived from this frame (the wire-frame event, a notification, a resulting
+  // variable change) carries this same number and joins on it.
+  frameSeq: number;
+}
+
+// [LAW:no-ambient-temporal-coupling] A response is resolved together with the frameSeq of the frame
+// that carried it, so a consumer (e.g. a variable dump) can attribute the response's effects to that
+// exact frame without depending on emit ordering or timestamp windowing.
+export interface ProtocolResponse {
+  message: ServerOriginatedMessage;
+  frameSeq: number;
+}
+
+// A notification arrives carrying the frameSeq of the inbound frame it was decoded from, so the
+// resulting variable change can share that frameSeq and the three join with no timestamp matching.
+export interface ProtocolNotification {
+  notification: Notification;
+  frameSeq: number;
 }
 
 export class ProtocolError extends Error {
@@ -43,7 +62,7 @@ export class ProtocolError extends Error {
   }
 }
 
-type PendingResolver = (msg: ServerOriginatedMessage) => void;
+type PendingResolver = (reply: ProtocolResponse) => void;
 
 const DEFAULT_REQUEST_TIMEOUT_MS = 10_000;
 
@@ -51,6 +70,7 @@ export class ProtocolDriver extends EventEmitter {
   private ws: WebSocket | null = null;
   private pending = new Map<bigint, PendingResolver>();
   private nextId = 1n;
+  private nextFrameSeq = 1;
   private linkPath: string | null = null;
   private state: ProtocolState = 'disconnected';
   private protocolVersion = '';
@@ -119,7 +139,7 @@ export class ProtocolDriver extends EventEmitter {
     return info;
   }
 
-  async send(msg: Omit<ClientOriginatedMessage, 'id' | '$typeName'>): Promise<ServerOriginatedMessage> {
+  async send(msg: Omit<ClientOriginatedMessage, 'id' | '$typeName'>): Promise<ProtocolResponse> {
     if (this.state !== 'ready' || !this.ws) {
       throw new ProtocolError(`send called in state ${this.state}`);
     }
@@ -127,7 +147,7 @@ export class ProtocolDriver extends EventEmitter {
     const envelope = create(ClientOriginatedMessageSchema, { ...msg, id });
     const bytes = toBinary(ClientOriginatedMessageSchema, envelope);
 
-    const response = new Promise<ServerOriginatedMessage>((resolve, reject) => {
+    const response = new Promise<ProtocolResponse>((resolve, reject) => {
       const timer = setTimeout(() => {
         this.pending.delete(id);
         reject(new ProtocolError(`request ${id} timed out after ${DEFAULT_REQUEST_TIMEOUT_MS}ms`));
@@ -158,7 +178,7 @@ export class ProtocolDriver extends EventEmitter {
 
   private onMessage(data: RawData): void {
     const bytes = toUint8Array(data);
-    this.emitFrame('in', bytes);
+    const frameSeq = this.emitFrame('in', bytes);
 
     let server: ServerOriginatedMessage;
     try {
@@ -169,7 +189,10 @@ export class ProtocolDriver extends EventEmitter {
     }
 
     if (server.submessage.case === 'notification') {
-      this.emit('notification', server.submessage.value satisfies Notification);
+      this.emit('notification', {
+        notification: server.submessage.value satisfies Notification,
+        frameSeq,
+      });
       return;
     }
 
@@ -179,7 +202,7 @@ export class ProtocolDriver extends EventEmitter {
       return;
     }
     this.pending.delete(server.id);
-    resolver(server);
+    resolver({ message: server, frameSeq });
   }
 
   private onClose(code: number, reason: string): void {
@@ -201,8 +224,10 @@ export class ProtocolDriver extends EventEmitter {
     }
   }
 
-  private emitFrame(direction: 'out' | 'in', bytes: Uint8Array): void {
-    this.emit('frame', { direction, bytes, at: Date.now() } satisfies WireFrame);
+  private emitFrame(direction: 'out' | 'in', bytes: Uint8Array): number {
+    const frameSeq = this.nextFrameSeq++;
+    this.emit('frame', { direction, bytes, at: Date.now(), frameSeq } satisfies WireFrame);
+    return frameSeq;
   }
 
   private setState(next: ProtocolState): void {
