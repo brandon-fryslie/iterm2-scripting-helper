@@ -1,4 +1,4 @@
-import { makeAutoObservable } from 'mobx';
+import { makeAutoObservable, observable } from 'mobx';
 import {
   APP_ENTITY,
   type AppEntityRef,
@@ -11,7 +11,11 @@ export class EntityFocusStore {
   selected: AppEntityRef = APP_ENTITY;
 
   constructor() {
-    makeAutoObservable(this);
+    // [LAW:one-source-of-truth] AppEntityRef is an immutable value swapped whole by select(),
+    // never mutated field-by-field. Deep observation would wrap it in a Proxy — a second
+    // representation that cannot survive structured clone across the IPC boundary. Hold it by
+    // reference so the stored snapshot stays plain and cloneable for `monitor/focus-variables`.
+    makeAutoObservable(this, { selected: observable.ref });
   }
 
   select(entity: AppEntityRef): void {

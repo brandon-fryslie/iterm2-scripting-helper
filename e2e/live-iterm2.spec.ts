@@ -23,7 +23,7 @@ test.describe('live iTerm2', () => {
     const win = await app.firstWindow();
 
     await win.getByTestId('tab-trigger-settings').click();
-    await win.getByTestId('connect-button').click();
+    // App auto-connects on startup (main.ts); wait for the negotiated session to be ready.
 
     await expect(win.getByTestId('connection-state-badge')).toHaveAttribute(
       'data-state',
@@ -45,8 +45,16 @@ test.describe('live iTerm2', () => {
     const app = await launchApp();
     const win = await app.firstWindow();
 
+    // A focus ref forwarded to the main process as a MobX proxy fails structured
+    // clone ("could not be cloned"), silently rejecting monitor/focus-variables.
+    const cloneErrors: string[] = [];
+    win.on('pageerror', (e) => cloneErrors.push(String(e)));
+    win.on('console', (m) => {
+      if (m.type() === 'error') cloneErrors.push(m.text());
+    });
+
     await win.getByTestId('tab-trigger-settings').click();
-    await win.getByTestId('connect-button').click();
+    // App auto-connects on startup (main.ts); wait for the negotiated session to be ready.
     await expect(win.getByTestId('connection-state-badge')).toHaveAttribute(
       'data-state',
       'ready',
@@ -55,8 +63,11 @@ test.describe('live iTerm2', () => {
 
     await win.getByTestId('tab-trigger-monitor').click();
     await expect(win.getByTestId('layout-pane')).toBeVisible();
-    await expect(win.getByTestId('wire-pane')).toBeVisible();
     await expect(win.getByTestId('variables-pane')).toBeVisible();
+    // Footer panes are tabbed; each mounts only while its tab is active.
+    await win.getByRole('tab', { name: 'Wire' }).click();
+    await expect(win.getByTestId('wire-pane')).toBeVisible();
+    await win.getByRole('tab', { name: 'Notifications' }).click();
     await expect(win.getByTestId('notifications-pane')).toBeVisible();
 
     const firstSession = win.locator('[data-testid^="layout-session-"]').first();
@@ -64,9 +75,16 @@ test.describe('live iTerm2', () => {
     await firstSession.click();
 
     await expect(firstSession).toHaveAttribute('data-focused', 'true');
+    await expect(win.getByTestId('variables-pane')).not.toHaveAttribute(
+      'data-empty',
+      'loading',
+      { timeout: 10_000 },
+    );
     await expect(
       win.locator('[data-testid^="variable-hostname"]'),
     ).toBeVisible({ timeout: 10_000 });
+
+    expect(cloneErrors.filter((e) => /could not be cloned/i.test(e))).toEqual([]);
 
     await app.close();
   });
@@ -76,7 +94,7 @@ test.describe('live iTerm2', () => {
     const win = await app.firstWindow();
 
     await win.getByTestId('tab-trigger-settings').click();
-    await win.getByTestId('connect-button').click();
+    // App auto-connects on startup (main.ts); wait for the negotiated session to be ready.
     await expect(win.getByTestId('connection-state-badge')).toHaveAttribute(
       'data-state',
       'ready',
@@ -196,7 +214,7 @@ test.describe('live iTerm2', () => {
     const win = await app.firstWindow();
 
     await win.getByTestId('tab-trigger-settings').click();
-    await win.getByTestId('connect-button').click();
+    // App auto-connects on startup (main.ts); wait for the negotiated session to be ready.
     await expect(win.getByTestId('connection-state-badge')).toHaveAttribute(
       'data-state',
       'ready',
@@ -299,7 +317,7 @@ test.describe('live iTerm2', () => {
     const win = await app.firstWindow();
 
     await win.getByTestId('tab-trigger-settings').click();
-    await win.getByTestId('connect-button').click();
+    // App auto-connects on startup (main.ts); wait for the negotiated session to be ready.
     await expect(win.getByTestId('connection-state-badge')).toHaveAttribute(
       'data-state',
       'ready',
@@ -359,7 +377,7 @@ test.describe('live iTerm2', () => {
     const win = await app.firstWindow();
 
     await win.getByTestId('tab-trigger-settings').click();
-    await win.getByTestId('connect-button').click();
+    // App auto-connects on startup (main.ts); wait for the negotiated session to be ready.
     await expect(win.getByTestId('connection-state-badge')).toHaveAttribute(
       'data-state',
       'ready',
@@ -367,8 +385,11 @@ test.describe('live iTerm2', () => {
     );
 
     await win.getByTestId('tab-trigger-monitor').click();
+    // Footer panes are tabbed; each mounts only while its tab is active.
     await expect(win.getByTestId('keystrokes-pane')).toBeVisible();
+    await win.getByRole('tab', { name: 'Prompts' }).click();
     await expect(win.getByTestId('prompts-pane')).toBeVisible();
+    await win.getByRole('tab', { name: 'Focus' }).click();
     await expect(win.getByTestId('focus-pane')).toBeVisible();
 
     const firstSession = win.locator('[data-testid^="layout-session-"]').first();
