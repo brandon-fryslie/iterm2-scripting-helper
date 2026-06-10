@@ -1,4 +1,4 @@
-import { makeAutoObservable } from 'mobx';
+import { makeAutoObservable, observable } from 'mobx';
 import type { ActionResult, RpcMethod, RpcArgs } from '@shared/rpc';
 import type { EntityFocusStore } from './EntityFocusStore';
 
@@ -94,7 +94,14 @@ export class ConsoleStore {
   constructor(entityFocus: EntityFocusStore) {
     this.entityFocus = entityFocus;
     this.forms = structuredClone(DEFAULT_FORMS);
-    makeAutoObservable<ConsoleStore, 'entityFocus'>(this, { entityFocus: false });
+    // [LAW:one-source-of-truth] A snippet is an immutable value: created whole, never mutated
+    // field-by-field. Deep observation would wrap its stored args in Proxies — a second
+    // representation that cannot survive structured clone when the snippet re-fires across the IPC
+    // boundary. Observe the array shallowly so stored args stay plain and cloneable.
+    makeAutoObservable<ConsoleStore, 'entityFocus'>(this, {
+      entityFocus: false,
+      snippets: observable.shallow,
+    });
   }
 
   setAction(action: ActionKind): void {
