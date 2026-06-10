@@ -120,15 +120,16 @@ export interface ProfileListResult {
   profiles: ProfileSummary[];
 }
 
+// [LAW:one-source-of-truth] The snapshot carries raw file facts only; everything a body *means*
+// (JSON validity, profile shape, parent refs) is derived in the renderer by the single shared
+// analyzer in shared/dynamicProfiles.ts, so disk files and the live editor buffer are judged by
+// the same enforcer and there is no second derived copy to drift.
 export interface DynamicProfileFile {
   path: string;
   basename: string;
   mtime: number;
   size: number;
   body: string;
-  parseError: string | null;
-  topLevelKeys: string[];
-  profileCount: number;
 }
 
 export interface DynamicProfileSnapshot {

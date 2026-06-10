@@ -9,6 +9,13 @@ import type {
   CustomEscapeSnapshot,
   KnobSpec,
 } from '@shared/rpc';
+import {
+  analyzeDynamicProfile,
+  parentCandidates,
+  folderBlockingFiles,
+  type DynamicProfileAnalysis,
+  type ParentCandidate,
+} from '@shared/dynamicProfiles';
 
 export type WorkbenchArtifact =
   | 'profile'
@@ -48,6 +55,13 @@ interface EscapeEmitted {
   result: ActionResult;
 }
 
+// [LAW:types-are-the-program] The editor's relationship to disk, enumerated. 'idle' = no buffer;
+// 'draft' = unsaved new buffer with no disk counterpart; 'synced' = buffer follows disk;
+// 'dirty' = local edits, disk unchanged underneath; 'conflict' = local edits AND the file changed
+// on disk since load; 'deleted' = the selected file vanished from disk. Hot reload is a state the
+// user can see and act on, never a silent body swap. [LAW:no-ambient-temporal-coupling]
+export type DynamicSyncStatus = 'idle' | 'draft' | 'synced' | 'dirty' | 'conflict' | 'deleted';
+
 export class WorkbenchStore {
   artifact: WorkbenchArtifact = 'profile';
 
@@ -62,6 +76,10 @@ export class WorkbenchStore {
   selectedDynamicProfileBasename: string | null = null;
   dynamicEditorBody = '';
   dynamicEditorDirty = false;
+  // The disk body the buffer was last loaded from or saved as — the baseline that makes
+  // 'conflict' (disk moved under local edits) detectable as a value comparison.
+  dynamicEditorBaseBody: string | null = null;
+  // Save/delete IO failures only; what the buffer *means* lives in dynamicEditorAnalysis.
   dynamicLastError: string | null = null;
 
   escapeTemplateId = 'osc1337-set-mark';
@@ -181,14 +199,90 @@ export class WorkbenchStore {
     });
   }
 
+  get dynamicSyncStatus(): DynamicSyncStatus {
+    const basename = this.selectedDynamicProfileBasename;
+    if (!basename) return this.dynamicEditorBody === '' ? 'idle' : 'draft';
+    const disk = this.dynamicProfiles.files.find((f) => f.basename === basename);
+    if (!disk) return 'deleted';
+    if (!this.dynamicEditorDirty) return 'synced';
+    return disk.body !== this.dynamicEditorBaseBody ? 'conflict' : 'dirty';
+  }
+
+  get dynamicEditorAnalysis(): DynamicProfileAnalysis | null {
+    if (this.dynamicSyncStatus === 'idle') return null;
+    return analyzeDynamicProfile(this.dynamicEditorBody);
+  }
+
+  get dynamicFileAnalyses(): Array<{ basename: string; analysis: DynamicProfileAnalysis }> {
+    return this.dynamicProfiles.files.map((f) => ({
+      basename: f.basename,
+      analysis: analyzeDynamicProfile(f.body),
+    }));
+  }
+
+  // iTerm2 skips processing the ENTIRE DynamicProfiles folder while any file is malformed;
+  // these are the files currently poisoning it.
+  get dynamicFolderBlockers(): string[] {
+    return folderBlockingFiles(this.dynamicFileAnalyses);
+  }
+
+  // The universe a parent ref resolves against: iTerm2's live profile list, the other folder
+  // files, and the buffer itself (so siblings within the file being edited resolve too). The
+  // selected file's disk version is excluded — the buffer is its truth while it is open.
+  get dynamicParentCandidates(): ParentCandidate[] {
+    const others = this.dynamicFileAnalyses.filter(
+      (f) => f.basename !== this.selectedDynamicProfileBasename,
+    );
+    const buffer = this.dynamicEditorAnalysis;
+    const bufferAsFile = buffer
+      ? [{ basename: this.selectedDynamicProfileBasename ?? 'this file', analysis: buffer }]
+      : [];
+    return parentCandidates(this.profiles, [...others, ...bufferAsFile]);
+  }
+
+  // [LAW:no-silent-failure] Saving invalid JSON or an empty file would make iTerm2 silently
+  // ignore the whole folder; the block and its reason are one derived value the UI shows verbatim.
+  get dynamicSaveBlocked(): string | null {
+    const a = this.dynamicEditorAnalysis;
+    if (!a) return 'nothing to save';
+    if (a.kind === 'json-error') return `invalid JSON: ${a.message}`;
+    if (a.kind === 'empty') return 'file is empty';
+    return null;
+  }
+
   applyDynamicSnapshot(snap: DynamicProfileSnapshot): void {
     this.dynamicProfiles = snap;
+    // Hot reload: a clean buffer follows disk. A dirty buffer is left alone — the divergence
+    // surfaces as the 'conflict' state with explicit reload/keep actions, never a silent swap.
     if (this.selectedDynamicProfileBasename && !this.dynamicEditorDirty) {
       const match = snap.files.find(
         (f) => f.basename === this.selectedDynamicProfileBasename,
       );
-      if (match) this.dynamicEditorBody = match.body;
+      if (match) {
+        this.dynamicEditorBody = match.body;
+        this.dynamicEditorBaseBody = match.body;
+      }
     }
+  }
+
+  reloadDynamicFromDisk(): void {
+    const match = this.dynamicProfiles.files.find(
+      (f) => f.basename === this.selectedDynamicProfileBasename,
+    );
+    if (!match) return;
+    this.dynamicEditorBody = match.body;
+    this.dynamicEditorBaseBody = match.body;
+    this.dynamicEditorDirty = false;
+  }
+
+  // Resolve a conflict in favor of the local edits: rebase the baseline onto the current disk
+  // body so the state returns to 'dirty' — the user has seen and dismissed the disk change.
+  keepDynamicEdits(): void {
+    const match = this.dynamicProfiles.files.find(
+      (f) => f.basename === this.selectedDynamicProfileBasename,
+    );
+    if (!match) return;
+    this.dynamicEditorBaseBody = match.body;
   }
 
   async refreshDynamicProfiles(): Promise<void> {
@@ -204,10 +298,12 @@ export class WorkbenchStore {
     this.dynamicEditorDirty = false;
     if (!basename) {
       this.dynamicEditorBody = '';
+      this.dynamicEditorBaseBody = null;
       return;
     }
     const match = this.dynamicProfiles.files.find((f) => f.basename === basename);
     this.dynamicEditorBody = match?.body ?? '';
+    this.dynamicEditorBaseBody = match?.body ?? null;
   }
 
   setDynamicEditorBody(body: string): void {
@@ -220,19 +316,21 @@ export class WorkbenchStore {
       this.dynamicLastError = 'basename required';
       return;
     }
-    try {
-      JSON.parse(this.dynamicEditorBody);
-    } catch (err) {
-      this.dynamicLastError = `JSON invalid: ${err instanceof Error ? err.message : err}`;
+    const blocked = this.dynamicSaveBlocked;
+    if (blocked) {
+      // The save button is disabled while blocked; a programmatic call still fails loudly.
+      this.dynamicLastError = blocked;
       return;
     }
+    const body = this.dynamicEditorBody;
     const result = await window.ipc.invoke('workbench/save-dynamic-profile', {
       basename,
-      body: this.dynamicEditorBody,
+      body,
     });
     runInAction(() => {
       if (result.ok) {
         this.dynamicEditorDirty = false;
+        this.dynamicEditorBaseBody = body;
         this.dynamicLastError = null;
         this.selectedDynamicProfileBasename = basename;
       } else {
@@ -252,6 +350,7 @@ export class WorkbenchStore {
         this.dynamicLastError = null;
         this.selectedDynamicProfileBasename = null;
         this.dynamicEditorBody = '';
+        this.dynamicEditorBaseBody = null;
       }
     });
   }

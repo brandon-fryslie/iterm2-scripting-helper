@@ -65,26 +65,13 @@ export class DynamicProfileWatcher {
       const stat = await fs.stat(filePath);
       if (!stat.isFile()) return;
       const body = await fs.readFile(filePath, 'utf8');
-      const basename = path.basename(filePath);
       const entry: DynamicProfileFile = {
         path: filePath,
-        basename,
+        basename: path.basename(filePath),
         mtime: stat.mtimeMs,
         size: stat.size,
         body,
-        parseError: null,
-        topLevelKeys: [],
-        profileCount: 0,
       };
-      try {
-        const parsed = JSON.parse(body) as Record<string, unknown>;
-        entry.topLevelKeys = Object.keys(parsed);
-        if (Array.isArray(parsed.Profiles)) {
-          entry.profileCount = parsed.Profiles.length;
-        }
-      } catch (err) {
-        entry.parseError = err instanceof Error ? err.message : String(err);
-      }
       this.store.upsertFile(entry);
     } catch (err) {
       this.store.setError(`failed to read ${filePath}: ${err instanceof Error ? err.message : err}`);

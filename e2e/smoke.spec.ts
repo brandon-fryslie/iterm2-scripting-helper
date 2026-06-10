@@ -57,3 +57,43 @@ test('snippet re-fire crosses IPC and lands on the Activity spine without a conn
 
   await app.close();
 });
+
+test('dynamic profile editor surfaces JSON, shape, and parent-resolution states live', async () => {
+  test.skip(
+    process.env.CI === 'true',
+    'GitHub macOS runners cannot reliably launch the Electron app; run locally.',
+  );
+
+  const app = await launchApp();
+  const win = await app.firstWindow();
+
+  // Everything asserted here derives from the buffer alone via the shared analyzer — typing is
+  // enough; nothing is saved, so the user's real DynamicProfiles folder is never touched.
+  await win.getByTestId('workbench-rail-dynamic-profile').click();
+  const body = win.getByTestId('dynamic-profile-editor-body');
+
+  await body.fill('{ "Profiles": [ broken');
+  await expect(win.getByTestId('dynamic-analysis-json-error')).toBeVisible();
+  // A malformed buffer may not be written: that is what would make iTerm2 ignore the folder.
+  await expect(win.getByTestId('dynamic-profile-save')).toBeDisabled();
+
+  await body.fill('{ "NotProfiles": [] }');
+  await expect(win.getByTestId('dynamic-analysis-shape-error')).toBeVisible();
+  await expect(win.getByTestId('dynamic-profile-save')).toBeEnabled();
+
+  await body.fill(
+    '{ "Profiles": [ { "Name": "No Guid", "Dynamic Profile Parent Name": "No Such Parent" } ] }',
+  );
+  const entry = win.getByTestId('dynamic-profile-entry-0');
+  await expect(entry).toContainText('missing required "Guid"');
+  await expect(win.getByTestId('parent-fallback')).toContainText('default profile');
+
+  // A parent pointing at a sibling in the same buffer resolves without any disk round-trip.
+  await body.fill(
+    '{ "Profiles": [ { "Guid": "p1", "Name": "Parent" }, ' +
+      '{ "Guid": "c1", "Name": "Child", "Dynamic Profile Parent Name": "Parent" } ] }',
+  );
+  await expect(win.getByTestId('parent-resolved')).toContainText('Parent');
+
+  await app.close();
+});
