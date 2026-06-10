@@ -421,9 +421,31 @@ test.describe('live iTerm2', () => {
     await expect(firstSession).toBeVisible({ timeout: 10_000 });
     await firstSession.click();
 
-    await expect(win.getByTestId('screen-body')).toBeVisible({ timeout: 15_000 });
-    const bodyLines = win.locator('[data-testid="screen-body"] > div');
-    await expect(bodyLines.first()).toBeVisible({ timeout: 10_000 });
+    const sessionId =
+      (await firstSession.getAttribute('data-testid'))?.replace('layout-session-', '') ?? '';
+    expect(sessionId).not.toBe('');
+
+    // The pane keeps a data-empty attribute until a snapshot for the focused session arrives.
+    const screenPane = win.getByTestId('screen-pane');
+    await expect(screenPane).toBeVisible({ timeout: 15_000 });
+    await expect(screenPane).not.toHaveAttribute('data-empty', /./, { timeout: 15_000 });
+
+    // Inject a unique marker as terminal output and require it to surface as visible xterm
+    // content — element presence alone can't prove the snapshot -> render path works.
+    const marker = `screen-e2e-${Date.now()}`;
+    const bytesHex = Array.from(new TextEncoder().encode(`\r\n${marker}\r\n`))
+      .map((b) => b.toString(16).padStart(2, '0'))
+      .join('');
+    await win.evaluate(async (args) => {
+      return window.ipc.invoke('actions/inject', {
+        entity: { kind: 'session', windowId: '', tabId: '', sessionId: args.sessionId },
+        sessionIds: [args.sessionId],
+        bytesHex: args.bytesHex,
+      });
+    }, { sessionId, bytesHex });
+    await expect(screenPane.locator('.xterm-rows')).toContainText(marker, {
+      timeout: 10_000,
+    });
 
     await app.close();
   });
