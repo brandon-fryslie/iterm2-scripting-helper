@@ -143,7 +143,8 @@ export type RegistrationRole =
   | 'generic'
   | 'session-title'
   | 'status-bar'
-  | 'context-menu';
+  | 'context-menu'
+  | 'toolbelt';
 
 export interface KnobSpec {
   name: string;
@@ -163,27 +164,70 @@ export interface StatusBarAttrs {
   format: 'PLAIN_TEXT' | 'HTML';
 }
 
-export interface SessionTitleAttrs {
+// [LAW:one-type-per-behavior] Session title providers and context menu providers expose the same
+// attributes and behave identically on the wire; they are two role values over one attrs type, not
+// two types.
+export interface DisplayIdentityAttrs {
   displayName: string;
   uniqueIdentifier: string;
 }
 
-export interface ContextMenuAttrs {
+export interface ToolbeltAttrs {
   displayName: string;
-  uniqueIdentifier: string;
+  identifier: string;
+  url: string;
+  revealIfAlreadyRegistered: boolean;
 }
 
-export interface RegistrationSpec {
-  id: string;
-  role: RegistrationRole;
+// The fields shared by every server-originated-RPC registration. Toolbelt tools are webviews —
+// they have no function name, no arguments, and nothing to respond with, so the union below keeps
+// those fields off the toolbelt arm entirely.
+export interface RpcRegistrationCommon {
   name: string;
   arguments: string[];
   defaults: Array<{ name: string; path: string }>;
   timeout: number;
-  statusBar?: StatusBarAttrs;
-  sessionTitle?: SessionTitleAttrs;
-  contextMenu?: ContextMenuAttrs;
   responseTemplate: string;
+}
+
+// [LAW:types-are-the-program] A registration is a discriminated union on role: each RPC role
+// REQUIRES its role-specific attributes (a status-bar registration without knob/cadence attrs is
+// unrepresentable), and the toolbelt arm carries only what the RegisterTool wire message accepts.
+// The body is what the editor authors and the preview shows; the id is assigned at install time.
+export type RegistrationBody =
+  | (RpcRegistrationCommon & { role: 'generic' })
+  | (RpcRegistrationCommon & { role: 'status-bar'; attrs: StatusBarAttrs })
+  | (RpcRegistrationCommon & { role: 'session-title'; attrs: DisplayIdentityAttrs })
+  | (RpcRegistrationCommon & { role: 'context-menu'; attrs: DisplayIdentityAttrs })
+  | { role: 'toolbelt'; attrs: ToolbeltAttrs };
+
+export type RegistrationSpec = RegistrationBody & { id: string };
+
+// Registrations the server can call back into over NOTIFY_ON_SERVER_ORIGINATED_RPC.
+export type RpcRegistrationSpec = Exclude<RegistrationSpec, { role: 'toolbelt' }>;
+
+export interface RoleCapabilities {
+  label: string;
+  // The server invokes this registration (server-originated RPC). Toolbelt tools are webviews and
+  // are never invoked.
+  invocable: boolean;
+  // iTerm2 has a wire message to remove it. The API has no unregister-tool message: a toolbelt tool
+  // persists in iTerm2 until restart, and unregistering only forgets it locally.
+  wireUnregister: boolean;
+}
+
+// [LAW:dataflow-not-control-flow] Per-role behavior differences are values consumed by the one
+// editor and the one orchestrator path — never separate per-role editor components.
+export const ROLE_CAPABILITIES: Record<RegistrationRole, RoleCapabilities> = {
+  generic: { label: 'Generic RPC', invocable: true, wireUnregister: true },
+  'status-bar': { label: 'Status Bar Component', invocable: true, wireUnregister: true },
+  'session-title': { label: 'Session Title Provider', invocable: true, wireUnregister: true },
+  'context-menu': { label: 'Context Menu Provider', invocable: true, wireUnregister: true },
+  toolbelt: { label: 'Toolbelt Tool', invocable: false, wireUnregister: false },
+};
+
+export function registrationDisplayName(spec: RegistrationBody): string {
+  return spec.role === 'toolbelt' ? spec.attrs.displayName : spec.name;
 }
 
 export interface Invocation {

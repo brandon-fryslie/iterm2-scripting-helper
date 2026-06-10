@@ -13,12 +13,8 @@ import {
   LineRangeSchema,
   RPCRegistrationRequestSchema,
   RPCRegistrationRequest_RPCArgumentSignatureSchema,
-  RPCRegistrationRequest_RPCArgumentSchema,
-  RPCRegistrationRequest_StatusBarComponentAttributesSchema,
-  RPCRegistrationRequest_StatusBarComponentAttributes_KnobSchema,
-  RPCRegistrationRequest_SessionTitleAttributesSchema,
-  RPCRegistrationRequest_ContextMenuAttributesSchema,
   ServerOriginatedRPCResultRequestSchema,
+  RegisterToolResponse_Status,
   InvokeFunctionRequestSchema,
   InvokeFunctionRequest_AppSchema,
   InvokeFunctionRequest_SessionSchema,
@@ -30,8 +26,6 @@ import {
   VariableResponse_Status,
   PromptMonitorMode,
   RPCRegistrationRequest_Role,
-  RPCRegistrationRequest_StatusBarComponentAttributes_Knob_Type,
-  RPCRegistrationRequest_StatusBarComponentAttributes_Format,
   type ServerOriginatedMessage,
   type Notification,
   type InvokeFunctionRequest,
@@ -43,6 +37,7 @@ import {
   variableScopeName,
 } from '@shared/converters';
 import { AppleScriptDriver, AppleScriptError } from './AppleScriptDriver';
+import { buildRegistrationRequest, buildToolRequest } from './registrationWire';
 import {
   ProtocolDriver,
   ProtocolError,
@@ -462,7 +457,31 @@ export class ConnectionOrchestrator extends EventEmitter {
     return this.options.socketPath;
   }
 
+  // [LAW:dataflow-not-control-flow] One install seam for every registration role; which wire
+  // message carries it is a function of the spec's role value. RPC roles subscribe to
+  // server-originated RPC notifications; toolbelt tools are a distinct client-originated request.
   async registerRpc(spec: RegistrationSpec): Promise<void> {
+    if (spec.role === 'toolbelt') {
+      const { message } = await this.protocol.send({
+        submessage: {
+          case: 'registerToolRequest',
+          value: buildToolRequest(spec.attrs),
+        },
+      });
+      if (message.submessage.case !== 'registerToolResponse') {
+        throw new Error(
+          `RegisterTool: unexpected response ${message.submessage.case ?? '(empty)'}`,
+        );
+      }
+      const status = message.submessage.value.status;
+      if (status !== RegisterToolResponse_Status.OK) {
+        // [LAW:no-silent-failure] iTerm2 refused the tool; surface its named status, never a
+        // locally-listed tool the server doesn't have.
+        throw new Error(`RegisterTool failed: ${RegisterToolResponse_Status[status]}`);
+      }
+      this.monitor.registrations.upsert(spec);
+      return;
+    }
     const req = buildRegistrationRequest(spec);
     await this.sendNotificationRequestRaw(
       NotificationType.NOTIFY_ON_SERVER_ORIGINATED_RPC,
@@ -476,13 +495,18 @@ export class ConnectionOrchestrator extends EventEmitter {
   async unregisterRpc(id: string): Promise<void> {
     const spec = this.monitor.registrations.list().find((r) => r.id === id);
     if (!spec) return;
-    const req = buildRegistrationRequest({ ...spec });
-    await this.sendNotificationRequestRaw(
-      NotificationType.NOTIFY_ON_SERVER_ORIGINATED_RPC,
-      '',
-      false,
-      { arguments: { case: 'rpcRegistrationRequest', value: req } },
-    ).catch(() => void 0);
+    // The iTerm2 API has no unregister-tool message: a toolbelt tool persists in iTerm2 until
+    // restart, so unregistering one is local bookkeeping only — declared to the user via
+    // ROLE_CAPABILITIES.wireUnregister, not discovered as a surprise.
+    if (spec.role !== 'toolbelt') {
+      const req = buildRegistrationRequest(spec);
+      await this.sendNotificationRequestRaw(
+        NotificationType.NOTIFY_ON_SERVER_ORIGINATED_RPC,
+        '',
+        false,
+        { arguments: { case: 'rpcRegistrationRequest', value: req } },
+      ).catch(() => void 0);
+    }
     this.monitor.registrations.remove(id);
   }
 
@@ -967,86 +991,6 @@ export class ConnectionOrchestrator extends EventEmitter {
     });
     this.emit('invocation');
   }
-}
-
-function buildRegistrationRequest(spec: RegistrationSpec) {
-  const roleMap = {
-    generic: RPCRegistrationRequest_Role.GENERIC,
-    'session-title': RPCRegistrationRequest_Role.SESSION_TITLE,
-    'status-bar': RPCRegistrationRequest_Role.STATUS_BAR_COMPONENT,
-    'context-menu': RPCRegistrationRequest_Role.CONTEXT_MENU,
-  } as const;
-
-  const roleAttrs = buildRoleAttrs(spec);
-
-  return create(RPCRegistrationRequestSchema, {
-    name: spec.name,
-    arguments: spec.arguments.map((name) =>
-      create(RPCRegistrationRequest_RPCArgumentSignatureSchema, { name }),
-    ),
-    defaults: spec.defaults.map((d) =>
-      create(RPCRegistrationRequest_RPCArgumentSchema, { name: d.name, path: d.path }),
-    ),
-    timeout: spec.timeout,
-    role: roleMap[spec.role],
-    ...(roleAttrs ?? {}),
-  });
-}
-
-type RegistrationRequestInit = Parameters<
-  typeof create<typeof RPCRegistrationRequestSchema>
->[1];
-
-function buildRoleAttrs(spec: RegistrationSpec): RegistrationRequestInit | undefined {
-  if (spec.role === 'status-bar' && spec.statusBar) {
-    const sb = spec.statusBar;
-    const knobTypeMap = {
-      Checkbox: RPCRegistrationRequest_StatusBarComponentAttributes_Knob_Type.Checkbox,
-      String: RPCRegistrationRequest_StatusBarComponentAttributes_Knob_Type.String,
-      PositiveFloatingPoint:
-        RPCRegistrationRequest_StatusBarComponentAttributes_Knob_Type.PositiveFloatingPoint,
-      Color: RPCRegistrationRequest_StatusBarComponentAttributes_Knob_Type.Color,
-    } as const;
-    const value = create(
-      RPCRegistrationRequest_StatusBarComponentAttributesSchema,
-      {
-        shortDescription: sb.shortDescription,
-        detailedDescription: sb.detailedDescription,
-        exemplar: sb.exemplar,
-        updateCadence: sb.updateCadence,
-        uniqueIdentifier: sb.uniqueIdentifier,
-        format:
-          sb.format === 'HTML'
-            ? RPCRegistrationRequest_StatusBarComponentAttributes_Format.HTML
-            : RPCRegistrationRequest_StatusBarComponentAttributes_Format.PLAIN_TEXT,
-        knobs: sb.knobs.map((k) =>
-          create(RPCRegistrationRequest_StatusBarComponentAttributes_KnobSchema, {
-            name: k.name,
-            type: knobTypeMap[k.type],
-            placeholder: k.placeholder,
-            jsonDefaultValue: k.jsonDefaultValue,
-            key: k.key,
-          }),
-        ),
-      },
-    );
-    return { RoleSpecificAttributes: { case: 'statusBarComponentAttributes', value } };
-  }
-  if (spec.role === 'session-title' && spec.sessionTitle) {
-    const value = create(RPCRegistrationRequest_SessionTitleAttributesSchema, {
-      displayName: spec.sessionTitle.displayName,
-      uniqueIdentifier: spec.sessionTitle.uniqueIdentifier,
-    });
-    return { RoleSpecificAttributes: { case: 'sessionTitleAttributes', value } };
-  }
-  if (spec.role === 'context-menu' && spec.contextMenu) {
-    const value = create(RPCRegistrationRequest_ContextMenuAttributesSchema, {
-      displayName: spec.contextMenu.displayName,
-      uniqueIdentifier: spec.contextMenu.uniqueIdentifier,
-    });
-    return { RoleSpecificAttributes: { case: 'contextMenuAttributes', value } };
-  }
-  return undefined;
 }
 
 interface VariableDump {

@@ -151,7 +151,7 @@ test.describe('live iTerm2', () => {
         defaults: [],
         timeout: 5,
         responseTemplate: '"workbench-test"',
-        statusBar: {
+        attrs: {
           shortDescription: 'Workbench test',
           detailedDescription: 'Live-integration demo component',
           exemplar: '12:34',
@@ -183,11 +183,13 @@ test.describe('live iTerm2', () => {
       return window.ipc.invoke('workbench/registrations', undefined as never);
     });
     const found = activeRegs.registrations.find(
-      (r) => r.statusBar?.uniqueIdentifier === uniqueId,
+      (r) => r.role === 'status-bar' && r.attrs.uniqueIdentifier === uniqueId,
     );
     expect(found).toBeTruthy();
     expect(found?.role).toBe('status-bar');
-    expect(found?.statusBar?.knobs[0].type).toBe('Color');
+    expect(found && found.role === 'status-bar' ? found.attrs.knobs[0].type : null).toBe(
+      'Color',
+    );
 
     // Subscribe to custom escape on the focused session with an identity filter
     const identity = `workbench-test-${Date.now()}`;
@@ -235,6 +237,148 @@ test.describe('live iTerm2', () => {
       });
       await window.ipc.invoke('workbench/unregister-rpc', { id: args.regId });
     }, { subscriptionId, regId });
+
+    await app.close();
+  });
+
+  test('Author v2: every registration role registers, generic receives an invocation, all unregister', async () => {
+    const app = await launchApp();
+    const win = await app.firstWindow();
+
+    await connectViaGear(win);
+
+    const t = Date.now();
+    // One spec per role — the full registration matrix from iterm2-roadmap-449.2.2. The shapes are
+    // typechecked against RegistrationSpec, so this test also pins the IPC contract per role.
+    const rpcCommon = {
+      arguments: [] as string[],
+      defaults: [] as Array<{ name: string; path: string }>,
+      timeout: 5,
+    };
+    const specs = [
+      {
+        ...rpcCommon,
+        id: `reg-e2e-generic-${t}`,
+        role: 'generic' as const,
+        name: `wb_e2e_gen_${t}`,
+        arguments: ['x'],
+        responseTemplate: '"e2e-generic-response"',
+      },
+      {
+        ...rpcCommon,
+        id: `reg-e2e-sb-${t}`,
+        role: 'status-bar' as const,
+        name: `wb_e2e_sb_${t}`,
+        arguments: ['knobs'],
+        responseTemplate: '"e2e-sb"',
+        attrs: {
+          shortDescription: 'E2E sb',
+          detailedDescription: 'Full-matrix role test',
+          exemplar: 'e2e',
+          updateCadence: 30,
+          uniqueIdentifier: `com.example.wb-e2e-sb-${t}`,
+          format: 'PLAIN_TEXT' as const,
+          knobs: [],
+        },
+      },
+      {
+        ...rpcCommon,
+        id: `reg-e2e-title-${t}`,
+        role: 'session-title' as const,
+        name: `wb_e2e_title_${t}`,
+        responseTemplate: '"e2e-title"',
+        attrs: {
+          displayName: 'E2E title',
+          uniqueIdentifier: `com.example.wb-e2e-title-${t}`,
+        },
+      },
+      {
+        ...rpcCommon,
+        id: `reg-e2e-menu-${t}`,
+        role: 'context-menu' as const,
+        name: `wb_e2e_menu_${t}`,
+        responseTemplate: '"e2e-menu"',
+        attrs: {
+          displayName: 'E2E menu item',
+          uniqueIdentifier: `com.example.wb-e2e-menu-${t}`,
+        },
+      },
+      {
+        id: `reg-e2e-tool-${t}`,
+        role: 'toolbelt' as const,
+        attrs: {
+          displayName: 'E2E tool',
+          identifier: `com.example.wb-e2e-tool-${t}`,
+          url: 'https://iterm2.com',
+          revealIfAlreadyRegistered: false,
+        },
+      },
+    ];
+
+    for (const spec of specs) {
+      const result = await win.evaluate(
+        (s) => window.ipc.invoke('workbench/register-rpc', s),
+        spec,
+      );
+      expect(result.ok, `register ${spec.role}: ${result.error}`).toBe(true);
+      expect(result.registrationId).toBe(spec.id);
+    }
+
+    // Every role is present in the snapshot with its role-specific attributes intact.
+    const snap = await win.evaluate(() =>
+      window.ipc.invoke('workbench/registrations', undefined as never),
+    );
+    for (const spec of specs) {
+      const found = snap.registrations.find((r) => r.id === spec.id);
+      expect(found, `snapshot has ${spec.role}`).toBeTruthy();
+      expect(found?.role).toBe(spec.role);
+    }
+    const tool = snap.registrations.find((r) => r.id === `reg-e2e-tool-${t}`);
+    expect(tool && tool.role === 'toolbelt' ? tool.attrs.url : null).toBe(
+      'https://iterm2.com',
+    );
+
+    // The generic role receives an invocation: call our own registered function through
+    // iTerm2 (app scope) and expect the configured response template back, plus an
+    // invocation event in the projection.
+    const invokeResult = await win.evaluate(
+      (args) =>
+        window.ipc.invoke('actions/invoke-function', {
+          entity: { kind: 'app' },
+          invocation: `${args.name}(x: 1)`,
+          scope: { kind: 'app' },
+          timeout: 10,
+        }),
+      { name: `wb_e2e_gen_${t}` },
+    );
+    expect(invokeResult.ok, `invoke generic: ${invokeResult.error}`).toBe(true);
+    expect(invokeResult.payload?.jsonResult).toBe('"e2e-generic-response"');
+
+    const afterInvoke = await win.evaluate(() =>
+      window.ipc.invoke('workbench/registrations', undefined as never),
+    );
+    const invocation = afterInvoke.invocations.find(
+      (i) => i.registrationId === `reg-e2e-generic-${t}`,
+    );
+    expect(invocation).toBeTruthy();
+    expect(invocation?.responded).toBe(true);
+    expect(invocation?.responseJson).toBe('"e2e-generic-response"');
+    expect(invocation?.args.x).toBe(1);
+
+    // Unregister all (toolbelt is a local forget — iTerm2 has no unregister-tool message).
+    for (const spec of specs) {
+      const result = await win.evaluate(
+        (id) => window.ipc.invoke('workbench/unregister-rpc', { id }),
+        spec.id,
+      );
+      expect(result.ok, `unregister ${spec.role}: ${result.error}`).toBe(true);
+    }
+    const afterCleanup = await win.evaluate(() =>
+      window.ipc.invoke('workbench/registrations', undefined as never),
+    );
+    for (const spec of specs) {
+      expect(afterCleanup.registrations.find((r) => r.id === spec.id)).toBeFalsy();
+    }
 
     await app.close();
   });

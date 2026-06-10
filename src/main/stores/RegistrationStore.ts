@@ -1,49 +1,15 @@
-import { makeAutoObservable } from 'mobx';
+import { makeAutoObservable, toJS } from 'mobx';
 import { invocationProjection, type AppEventLog } from './AppEventLog';
-import type { RegistrationSnapshot } from '@shared/rpc';
+// [LAW:one-source-of-truth] The registration shapes are defined once in shared/rpc.ts — the same
+// type the renderer authors, IPC carries, and this store holds. This file used to keep a second
+// structurally-identical copy; that copy is gone.
+import type {
+  RegistrationSpec,
+  RpcRegistrationSpec,
+  RegistrationSnapshot,
+} from '@shared/rpc';
 
-export type RegistrationRole = 'generic' | 'session-title' | 'status-bar' | 'context-menu';
-
-export interface KnobSpec {
-  name: string;
-  type: 'Checkbox' | 'String' | 'PositiveFloatingPoint' | 'Color';
-  placeholder: string;
-  jsonDefaultValue: string;
-  key: string;
-}
-
-export interface StatusBarAttrs {
-  shortDescription: string;
-  detailedDescription: string;
-  knobs: KnobSpec[];
-  exemplar: string;
-  updateCadence: number;
-  uniqueIdentifier: string;
-  format: 'PLAIN_TEXT' | 'HTML';
-}
-
-export interface SessionTitleAttrs {
-  displayName: string;
-  uniqueIdentifier: string;
-}
-
-export interface ContextMenuAttrs {
-  displayName: string;
-  uniqueIdentifier: string;
-}
-
-export interface RegistrationSpec {
-  id: string;
-  role: RegistrationRole;
-  name: string;
-  arguments: string[];
-  defaults: Array<{ name: string; path: string }>;
-  timeout: number;
-  statusBar?: StatusBarAttrs;
-  sessionTitle?: SessionTitleAttrs;
-  contextMenu?: ContextMenuAttrs;
-  responseTemplate: string;
-}
+export type { RegistrationSpec } from '@shared/rpc';
 
 // [LAW:decomposition] This store owns ONLY the set of active registration specs. Invocations (the
 // server's calls into those registrations) live on the unified event spine as 'invocation' events,
@@ -64,9 +30,11 @@ export class RegistrationStore {
     this.registrations.delete(id);
   }
 
-  findByName(name: string): RegistrationSpec | null {
+  // Only RPC-backed registrations are addressable by function name — that is what the server
+  // names in a server-originated RPC notification. Toolbelt tools have no function name.
+  findByName(name: string): RpcRegistrationSpec | null {
     for (const reg of this.registrations.values()) {
-      if (reg.name === name) return reg;
+      if (reg.role !== 'toolbelt' && reg.name === name) return reg;
     }
     return null;
   }
@@ -76,23 +44,7 @@ export class RegistrationStore {
   }
 
   list(): RegistrationSpec[] {
-    return Array.from(this.registrations.values()).map((r) => ({
-      id: r.id,
-      role: r.role,
-      name: r.name,
-      arguments: [...r.arguments],
-      defaults: r.defaults.map((d) => ({ name: d.name, path: d.path })),
-      timeout: r.timeout,
-      statusBar: r.statusBar
-        ? {
-            ...r.statusBar,
-            knobs: r.statusBar.knobs.map((k) => ({ ...k })),
-          }
-        : undefined,
-      sessionTitle: r.sessionTitle ? { ...r.sessionTitle } : undefined,
-      contextMenu: r.contextMenu ? { ...r.contextMenu } : undefined,
-      responseTemplate: r.responseTemplate,
-    }));
+    return Array.from(this.registrations.values()).map((r) => toJS(r));
   }
 }
 

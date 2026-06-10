@@ -4,6 +4,7 @@ import type {
   DynamicProfileSnapshot,
   ProfileSummary,
   RegistrationSpec,
+  RegistrationBody,
   RegistrationRole,
   RegistrationSnapshot,
   CustomEscapeSnapshot,
@@ -410,11 +411,12 @@ export class WorkbenchStore {
     runInAction(() => this.applyRegistrationsSnapshot(snap));
   }
 
-  async registerRpc(): Promise<void> {
+  // [LAW:one-source-of-truth] The single editor→spec translation: the Preview card renders exactly
+  // this value and Install sends exactly this value (plus the id assigned at install time), so what
+  // the user sees and what iTerm2 receives cannot drift.
+  get registrationDraft(): RegistrationBody {
     const form = this.registrationForm;
-    const spec: RegistrationSpec = {
-      id: `reg-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
-      role: form.role,
+    const rpcCommon = {
       name: form.name,
       arguments: form.argumentsCsv
         .split(',')
@@ -423,45 +425,75 @@ export class WorkbenchStore {
       defaults: [],
       timeout: form.timeout,
       responseTemplate: form.responseTemplate,
-      statusBar:
-        form.role === 'status-bar'
-          ? {
-              shortDescription: form.statusBarShortDescription,
-              detailedDescription: form.statusBarDetailedDescription,
-              knobs: form.statusBarKnobs.map((k) => ({ ...k })),
-              exemplar: form.statusBarExemplar,
-              updateCadence: form.statusBarCadence,
-              uniqueIdentifier: form.statusBarUniqueIdentifier,
-              format: 'PLAIN_TEXT',
-            }
-          : undefined,
-      sessionTitle:
-        form.role === 'session-title'
-          ? {
-              displayName: form.displayName,
-              uniqueIdentifier: form.uniqueIdentifier,
-            }
-          : undefined,
-      contextMenu:
-        form.role === 'context-menu'
-          ? {
-              displayName: form.displayName,
-              uniqueIdentifier: form.uniqueIdentifier,
-            }
-          : undefined,
     };
-    try {
-      JSON.parse(spec.responseTemplate);
-    } catch (err) {
-      runInAction(() => {
-        this.registrationLastResult = {
-          ok: false,
-          error: `Response JSON invalid: ${err instanceof Error ? err.message : err}`,
-          registrationId: null,
+    switch (form.role) {
+      case 'generic':
+        return { ...rpcCommon, role: 'generic' };
+      case 'status-bar':
+        return {
+          ...rpcCommon,
+          role: 'status-bar',
+          attrs: {
+            shortDescription: form.statusBarShortDescription,
+            detailedDescription: form.statusBarDetailedDescription,
+            knobs: form.statusBarKnobs.map((k) => ({ ...k })),
+            exemplar: form.statusBarExemplar,
+            updateCadence: form.statusBarCadence,
+            uniqueIdentifier: form.statusBarUniqueIdentifier,
+            format: 'PLAIN_TEXT',
+          },
         };
-      });
-      return;
+      case 'session-title':
+        return {
+          ...rpcCommon,
+          role: 'session-title',
+          attrs: {
+            displayName: form.displayName,
+            uniqueIdentifier: form.uniqueIdentifier,
+          },
+        };
+      case 'context-menu':
+        return {
+          ...rpcCommon,
+          role: 'context-menu',
+          attrs: {
+            displayName: form.displayName,
+            uniqueIdentifier: form.uniqueIdentifier,
+          },
+        };
+      case 'toolbelt':
+        return {
+          role: 'toolbelt',
+          attrs: {
+            displayName: form.toolbeltDisplayName,
+            identifier: form.toolbeltIdentifier,
+            url: form.toolbeltUrl,
+            revealIfAlreadyRegistered: form.toolbeltReveal,
+          },
+        };
     }
+  }
+
+  async registerRpc(): Promise<void> {
+    const body = this.registrationDraft;
+    if (body.role !== 'toolbelt') {
+      try {
+        JSON.parse(body.responseTemplate);
+      } catch (err) {
+        runInAction(() => {
+          this.registrationLastResult = {
+            ok: false,
+            error: `Response JSON invalid: ${err instanceof Error ? err.message : err}`,
+            registrationId: null,
+          };
+        });
+        return;
+      }
+    }
+    const spec: RegistrationSpec = {
+      ...body,
+      id: `reg-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+    };
     const result = await window.ipc.invoke('workbench/register-rpc', spec);
     runInAction(() => {
       this.registrationLastResult = result;
@@ -559,6 +591,10 @@ interface RegistrationFormState {
   statusBarKnobs: KnobSpec[];
   displayName: string;
   uniqueIdentifier: string;
+  toolbeltDisplayName: string;
+  toolbeltIdentifier: string;
+  toolbeltUrl: string;
+  toolbeltReveal: boolean;
 }
 
 function initialRegistrationForm(): RegistrationFormState {
@@ -576,6 +612,10 @@ function initialRegistrationForm(): RegistrationFormState {
     statusBarKnobs: [],
     displayName: 'Workbench title',
     uniqueIdentifier: 'com.example.workbench-title',
+    toolbeltDisplayName: 'Workbench tool',
+    toolbeltIdentifier: 'com.example.workbench-tool',
+    toolbeltUrl: 'https://iterm2.com',
+    toolbeltReveal: true,
   };
 }
 
