@@ -887,7 +887,18 @@ export class ConnectionOrchestrator extends EventEmitter {
       // returns to the waiting probe through the InvokeFunctionResponse. This is an internal probe
       // mechanism, not a user registration, so it never lands on the invocation spine.
       // [LAW:decomposition]
-      await this.respondToServerRpc(requestId, rpc.arguments[0]?.jsonValue ?? 'null');
+      const arg = rpc.arguments.find((a) => a.name === PROBE_EVAL_ARG);
+      if (!arg) {
+        // [LAW:no-silent-failure] probe_eval is registered with exactly one argument and iTerm2 must
+        // deliver the interpolated value in it; its absence is a protocol violation, not an unset
+        // value. Fail the invocation loudly so the probe surfaces an error, never a phantom "null".
+        await this.respondToServerRpcException(
+          requestId,
+          `${PROBE_EVAL_FUNCTION} invoked without its "${PROBE_EVAL_ARG}" argument`,
+        );
+        return;
+      }
+      await this.respondToServerRpc(requestId, arg.jsonValue);
       return;
     }
     const spec = this.monitor.registrations.findByName(rpc.name);
