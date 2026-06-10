@@ -19,6 +19,12 @@ import {
   RPCRegistrationRequest_SessionTitleAttributesSchema,
   RPCRegistrationRequest_ContextMenuAttributesSchema,
   ServerOriginatedRPCResultRequestSchema,
+  InvokeFunctionRequestSchema,
+  InvokeFunctionRequest_AppSchema,
+  InvokeFunctionRequest_SessionSchema,
+  InvokeFunctionRequest_TabSchema,
+  InvokeFunctionRequest_WindowSchema,
+  InvokeFunctionResponse_Status,
   NotificationType,
   VariableScope,
   VariableResponse_Status,
@@ -28,6 +34,7 @@ import {
   RPCRegistrationRequest_StatusBarComponentAttributes_Format,
   type ServerOriginatedMessage,
   type Notification,
+  type InvokeFunctionRequest,
 } from '@shared/proto/gen/api_pb';
 import {
   convertLayout,
@@ -59,7 +66,13 @@ import {
   type AppProbeResult,
   type AppInvocationPayload,
 } from '@shared/domain';
-import { normalizeProbeTarget, describeVariableStatus } from '../probe';
+import {
+  normalizeProbeTarget,
+  describeVariableStatus,
+  buildProbeEvalInvocation,
+  PROBE_EVAL_FUNCTION,
+  PROBE_EVAL_ARG,
+} from '../probe';
 
 export const DEFAULT_SOCKET_PATH = path.join(
   os.homedir(),
@@ -67,6 +80,10 @@ export const DEFAULT_SOCKET_PATH = path.join(
 );
 
 const SCREEN_COALESCE_MS = 16;
+
+// Seconds iTerm2 waits for probe_eval to answer before failing the invocation. The handler echoes
+// the already-interpolated value immediately, so this only bounds a stalled connection.
+const PROBE_EVAL_TIMEOUT = 5;
 
 export interface OrchestratorOptions {
   advisoryName: string;
@@ -97,6 +114,11 @@ export class ConnectionOrchestrator extends EventEmitter {
   }> = [];
   private screenCoalesceTimer: NodeJS.Timeout | null = null;
   private screenFetchPending = false;
+  // [LAW:no-ambient-temporal-coupling] Single owner of the probe_eval registration lifecycle: the
+  // in-flight (or settled) registration promise for this connection. Template probes await it so the
+  // function is registered exactly once before the first invoke; it is nulled on close so the next
+  // connection re-registers, and on failure so a later probe retries.
+  private probeRegistration: Promise<void> | null = null;
 
   constructor(
     private readonly store: ConnectionStore,
@@ -166,6 +188,7 @@ export class ConnectionOrchestrator extends EventEmitter {
       this.monitor.screen.clear();
       this.monitor.registrations.clearAll();
       this.monitor.customEscape.clearAll();
+      this.probeRegistration = null;
       this.activeGlobalSubscriptions = [];
       this.activeVariableSubs = [];
       this.sessionScopedSubscriptions = [];
@@ -272,15 +295,27 @@ export class ConnectionOrchestrator extends EventEmitter {
   // context, not an emit('error') the user has to correlate. [LAW:no-silent-failure]
   async probeVariable(entity: AppEntityRef, expression: string): Promise<AppProbeResult> {
     const target = normalizeProbeTarget(expression);
-    if ('reject' in target) {
+    if (target.kind === 'reject') {
       return { outcome: 'error', entity, expression, message: target.reject };
     }
     if (this.protocol.getState() !== 'ready') {
       return { outcome: 'error', entity, expression, message: 'Not connected to iTerm2.' };
     }
+    // [LAW:dataflow-not-control-flow] Dispatch on the target's shape, decided once in the pure
+    // normalizer: a single path resolves exactly; a template round-trips through probe_eval.
+    return target.kind === 'path'
+      ? this.probeVariablePath(entity, expression, target.path)
+      : this.probeInterpolatedTemplate(entity, expression, target.template);
+  }
+
+  private async probeVariablePath(
+    entity: AppEntityRef,
+    expression: string,
+    path: string,
+  ): Promise<AppProbeResult> {
     const req = create(VariableRequestSchema, {
       scope: variableRequestScope(entity),
-      get: [target.path],
+      get: [path],
     });
     try {
       const { message: response } = await this.protocol.send({
@@ -311,6 +346,108 @@ export class ConnectionOrchestrator extends EventEmitter {
     } catch (err) {
       return { outcome: 'error', entity, expression, message: errString(err) };
     }
+  }
+
+  // Evaluate a full interpolated template through the registered probe_eval round-trip: iTerm2 has
+  // no interpolated-string eval message, so we invoke probe_eval passing the template as an
+  // interpolated argument. iTerm2 interpolates it against the focused scope, calls our handler with
+  // the evaluated value (handleServerRpc echoes it back), and that value returns here as the
+  // invocation's jsonResult. [LAW:no-ambient-temporal-coupling] The nested server RPC resolves while
+  // this invoke is pending — they correlate by message identity, never by ordering or timing.
+  private async probeInterpolatedTemplate(
+    entity: AppEntityRef,
+    expression: string,
+    template: string,
+  ): Promise<AppProbeResult> {
+    try {
+      await this.ensureProbeFunctionRegistered();
+    } catch (err) {
+      return {
+        outcome: 'error',
+        entity,
+        expression,
+        message: `Could not register the probe function: ${errString(err)}`,
+      };
+    }
+    const req = create(InvokeFunctionRequestSchema, {
+      invocation: buildProbeEvalInvocation(template),
+      context: invokeFunctionContext(entity),
+      timeout: PROBE_EVAL_TIMEOUT,
+    });
+    try {
+      const { message: response } = await this.protocol.send({
+        submessage: { case: 'invokeFunctionRequest' as const, value: req },
+      });
+      if (response.submessage.case === 'error') {
+        return { outcome: 'error', entity, expression, message: response.submessage.value };
+      }
+      if (response.submessage.case !== 'invokeFunctionResponse') {
+        return {
+          outcome: 'error',
+          entity,
+          expression,
+          message: `Unexpected response: ${response.submessage.case ?? '<none>'}`,
+        };
+      }
+      const disposition = response.submessage.value.disposition;
+      if (disposition.case === 'error') {
+        // [LAW:no-silent-failure] An invalid template (bad path, malformed call, wrong scope) comes
+        // back as a named iTerm2 error reason, surfaced verbatim so the user can fix the expression.
+        return {
+          outcome: 'error',
+          entity,
+          expression,
+          message:
+            disposition.value.errorReason ||
+            `Invocation failed (${InvokeFunctionResponse_Status[disposition.value.status]}).`,
+        };
+      }
+      if (disposition.case !== 'success') {
+        return {
+          outcome: 'error',
+          entity,
+          expression,
+          message: `Unexpected invocation disposition: ${disposition.case ?? '<none>'}`,
+        };
+      }
+      // The evaluated template is the JSON-encoded value probe_eval received and echoed; surface it
+      // verbatim, the same shape probeVariablePath returns for a single path.
+      return { outcome: 'value', entity, expression, value: disposition.value.jsonResult };
+    } catch (err) {
+      return { outcome: 'error', entity, expression, message: errString(err) };
+    }
+  }
+
+  // [LAW:no-ambient-temporal-coupling] Register the probe_eval passthrough exactly once per
+  // connection. The cached promise is the single owner of that lifecycle: concurrent template probes
+  // share one in-flight registration; a failure nulls it so a later probe retries; close() nulls it
+  // so the next connection re-registers. This is NOT a user registration, so it never enters
+  // RegistrationStore or the invocation spine. [LAW:decomposition]
+  private ensureProbeFunctionRegistered(): Promise<void> {
+    if (!this.probeRegistration) {
+      this.probeRegistration = this.registerProbeFunction().catch((err) => {
+        this.probeRegistration = null;
+        throw err;
+      });
+    }
+    return this.probeRegistration;
+  }
+
+  private async registerProbeFunction(): Promise<void> {
+    const req = create(RPCRegistrationRequestSchema, {
+      name: PROBE_EVAL_FUNCTION,
+      arguments: [
+        create(RPCRegistrationRequest_RPCArgumentSignatureSchema, { name: PROBE_EVAL_ARG }),
+      ],
+      timeout: PROBE_EVAL_TIMEOUT,
+      role: RPCRegistrationRequest_Role.GENERIC,
+    });
+    await this.sendNotificationRequestRaw(
+      NotificationType.NOTIFY_ON_SERVER_ORIGINATED_RPC,
+      '',
+      true,
+      { arguments: { case: 'rpcRegistrationRequest', value: req } },
+    );
   }
 
   async setWatched(name: string, watched: boolean): Promise<void> {
@@ -744,6 +881,15 @@ export class ConnectionOrchestrator extends EventEmitter {
     frameSeq: number,
     causeSeq: number,
   ): Promise<void> {
+    if (rpc.name === PROBE_EVAL_FUNCTION) {
+      // The probe round-trip: iTerm2 has already interpolated the template against the focused scope,
+      // so the evaluated value IS the single argument. Echo it straight back as the result; it
+      // returns to the waiting probe through the InvokeFunctionResponse. This is an internal probe
+      // mechanism, not a user registration, so it never lands on the invocation spine.
+      // [LAW:decomposition]
+      await this.respondToServerRpc(requestId, rpc.arguments[0]?.jsonValue ?? 'null');
+      return;
+    }
     const spec = this.monitor.registrations.findByName(rpc.name);
     const args: Record<string, unknown> = {};
     for (const a of rpc.arguments) {
@@ -941,6 +1087,30 @@ function variableRequestScope(entity: AppEntityRef):
       return { case: 'tabId', value: entity.tabId };
     case 'session':
       return { case: 'sessionId', value: entity.sessionId };
+  }
+}
+
+function invokeFunctionContext(entity: AppEntityRef): InvokeFunctionRequest['context'] {
+  // [LAW:types-are-the-program] The same discriminated entity that scopes a VariableRequest scopes
+  // the probe_eval invocation, so iTerm2 interpolates the template against the focused entity.
+  switch (entity.kind) {
+    case 'app':
+      return { case: 'app', value: create(InvokeFunctionRequest_AppSchema, {}) };
+    case 'window':
+      return {
+        case: 'window',
+        value: create(InvokeFunctionRequest_WindowSchema, { windowId: entity.windowId }),
+      };
+    case 'tab':
+      return {
+        case: 'tab',
+        value: create(InvokeFunctionRequest_TabSchema, { tabId: entity.tabId }),
+      };
+    case 'session':
+      return {
+        case: 'session',
+        value: create(InvokeFunctionRequest_SessionSchema, { sessionId: entity.sessionId }),
+      };
   }
 }
 

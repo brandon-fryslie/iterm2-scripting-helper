@@ -109,10 +109,15 @@ test.describe('live iTerm2', () => {
     await expect(probeResult).toHaveAttribute('data-outcome', 'value', { timeout: 10_000 });
     await expect(probeResult).not.toBeEmpty();
 
-    // A multi-reference interpolated template is rejected with context, not a misleading null.
+    // A multi-reference interpolated template evaluates whole through the probe_eval RPC round-trip:
+    // iTerm2 interpolates both refs against the focused scope and the fully-interpolated value comes
+    // back, with the literal "/" separator between them proving both references resolved.
     await probe.getByTestId('variable-probe-input').fill('\\(session.name)/\\(session.username)');
     await probe.getByTestId('variable-probe-submit').click();
-    await expect(probeResult).toHaveAttribute('data-outcome', 'error', { timeout: 10_000 });
+    await expect(probeResult).toHaveAttribute('data-outcome', 'value', { timeout: 10_000 });
+    // The evaluated value carries the literal "/" between the two resolved refs — proof iTerm2
+    // interpolated the whole template, not just one reference.
+    await expect(probeResult.getByTestId('variable-probe-value')).toContainText('/');
 
     expect(cloneErrors.filter((e) => /could not be cloned/i.test(e))).toEqual([]);
 
