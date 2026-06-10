@@ -138,12 +138,24 @@ describe('encodability guard', () => {
     expect(isHexColor('')).toBe(false);
   });
 
-  it('treats only a malformed color value as unencodable', () => {
+  it('rejects malformed color and non-finite number values', () => {
     expect(isEncodableValue({ kind: 'color', hex: '#123456', alpha: 1 })).toBe(true);
     expect(isEncodableValue({ kind: 'color', hex: 'zzz', alpha: 1 })).toBe(false);
     expect(isEncodableValue({ kind: 'text', value: 'anything' })).toBe(true);
     expect(isEncodableValue({ kind: 'number', raw: '12' })).toBe(true);
+    expect(isEncodableValue({ kind: 'number', raw: '' })).toBe(true); // Number('') === 0
+    expect(isEncodableValue({ kind: 'number', raw: 'abc' })).toBe(false);
+    expect(isEncodableValue({ kind: 'number', raw: '1e999' })).toBe(false); // Infinity
     expect(isEncodableValue({ kind: 'toggle', on: true })).toBe(true);
+  });
+
+  it('encodeField throws on an unencodable value rather than inventing data', () => {
+    expect(() => encodeField({ kind: 'number', raw: 'abc' })).toThrow();
+    expect(() => encodeField({ kind: 'color', hex: 'zzz', alpha: 1 })).toThrow();
+    // Equality stays total — comparing malformed values never throws.
+    expect(() =>
+      fieldValueEquals({ kind: 'number', raw: 'abc' }, { kind: 'number', raw: 'xyz' }),
+    ).not.toThrow();
   });
 });
 

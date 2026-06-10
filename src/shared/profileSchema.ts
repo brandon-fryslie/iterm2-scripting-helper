@@ -106,11 +106,26 @@ export function isHexColor(hex: string): boolean {
   return HEX6.test(hex.trim());
 }
 
-// Whether a FieldValue can be encoded to the wire without inventing data. Only color hex can be
-// malformed (the free-form hex input accepts any text); every other kind is always encodable.
+// A number field's raw text parses to a finite number, or null if it is malformed (the input is
+// free text). The single parse used by both the guard and the wire encoder.
+export function parseFiniteNumber(raw: string): number | null {
+  const n = Number(raw);
+  return Number.isFinite(n) ? n : null;
+}
+
+// Whether a FieldValue can be encoded to the wire without inventing data. A color hex can be
+// malformed and a number's raw text can be non-finite; toggles and text are always encodable.
 // The write boundary uses this to refuse a bad value loudly rather than write corrupted data.
 export function isEncodableValue(value: FieldValue): boolean {
-  return value.kind === 'color' ? isHexColor(value.hex) : true;
+  switch (value.kind) {
+    case 'color':
+      return isHexColor(value.hex);
+    case 'number':
+      return parseFiniteNumber(value.raw) !== null;
+    case 'toggle':
+    case 'text':
+      return true;
+  }
 }
 
 export function hexToColorDict(hex: string, alpha: number): ColorDict {
@@ -163,27 +178,40 @@ export function decodeField(spec: ProfileFieldSpec, rawJson: string | undefined)
   }
 }
 
-// ---- Encode: FieldValue -> wire JSON string. Total over the union. ----
+// ---- Encode ----
 
-export function encodeField(value: FieldValue): string {
+// A total, deterministic projection of a FieldValue to a wire-shaped string, used for equality and
+// diff. It never throws, so the reactive diff path (changedKeys -> fieldValueEquals) is safe even
+// while a field is mid-edit to a malformed state; a malformed value normalizes deterministically
+// (bad hex -> black, non-finite number -> 0) purely so two equally-malformed values compare equal.
+function canonicalWire(value: FieldValue): string {
   switch (value.kind) {
     case 'color':
       return JSON.stringify(hexToColorDict(value.hex, value.alpha));
     case 'toggle':
       return JSON.stringify(value.on);
-    case 'number': {
-      const n = Number(value.raw);
-      return JSON.stringify(Number.isNaN(n) ? 0 : n);
-    }
+    case 'number':
+      return JSON.stringify(parseFiniteNumber(value.raw) ?? 0);
     case 'text':
       return JSON.stringify(value.value);
   }
 }
 
-// Two FieldValues are equal iff they encode to the same wire JSON — the single comparison used by
-// both diff-vs-default and dirty-tracking, so neither can drift from the other.
+// The wire value actually written to iTerm2. Unlike canonicalWire it refuses to encode a malformed
+// value — [LAW:no-silent-failure] a guard-bypassing caller gets a thrown error, never silently
+// corrupted data. The write boundary (rejectInvalidChanges) pre-checks isEncodableValue and
+// surfaces a friendly result before this is ever reached, so the throw is a last-resort invariant.
+export function encodeField(value: FieldValue): string {
+  if (!isEncodableValue(value)) {
+    throw new Error(`unencodable ${value.kind} value: ${JSON.stringify(value)}`);
+  }
+  return canonicalWire(value);
+}
+
+// Two FieldValues are equal iff they project to the same wire string — the single comparison used
+// by both diff-vs-default and dirty-tracking, so neither can drift from the other.
 export function fieldValueEquals(a: FieldValue, b: FieldValue): boolean {
-  return encodeField(a) === encodeField(b);
+  return canonicalWire(a) === canonicalWire(b);
 }
 
 export function isDefaultValue(spec: ProfileFieldSpec, value: FieldValue): boolean {

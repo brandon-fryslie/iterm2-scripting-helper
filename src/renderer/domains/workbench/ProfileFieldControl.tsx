@@ -6,7 +6,12 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import { isHexColor, type FieldValue, type ProfileFieldSpec } from '@shared/profileSchema';
+import {
+  isHexColor,
+  parseFiniteNumber,
+  type FieldValue,
+  type ProfileFieldSpec,
+} from '@shared/profileSchema';
 
 // One input for one profile field. Pure: it knows the spec and the current value, and reports a
 // new FieldValue — it never reaches into a store. The control rendered is a total dispatch over
@@ -72,7 +77,8 @@ export function ProfileFieldControl({
           type="number"
           value={value.raw}
           onChange={(e) => onChange({ ...value, raw: e.target.value })}
-          className="max-w-[140px]"
+          aria-invalid={parseFiniteNumber(value.raw) === null}
+          className={`max-w-[140px] ${parseFiniteNumber(value.raw) === null ? 'border-destructive text-destructive' : ''}`}
           data-testid={`profile-field-${spec.key}`}
         />
       );
