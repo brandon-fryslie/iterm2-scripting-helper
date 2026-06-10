@@ -11,6 +11,8 @@ import {
   hexToColorDict,
   colorDictToHex,
   fieldsByCategory,
+  isHexColor,
+  isEncodableValue,
   type ProfileFieldSpec,
 } from './profileSchema';
 
@@ -124,6 +126,24 @@ describe('diff-vs-default', () => {
     expect(
       fieldValueEquals({ kind: 'number', raw: '1' }, { kind: 'number', raw: '1.0' }),
     ).toBe(true);
+  });
+});
+
+describe('encodability guard', () => {
+  it('accepts well-formed hex, rejects malformed', () => {
+    expect(isHexColor('#3366cc')).toBe(true);
+    expect(isHexColor('3366cc')).toBe(true);
+    expect(isHexColor('#fff')).toBe(false);
+    expect(isHexColor('not-a-color')).toBe(false);
+    expect(isHexColor('')).toBe(false);
+  });
+
+  it('treats only a malformed color value as unencodable', () => {
+    expect(isEncodableValue({ kind: 'color', hex: '#123456', alpha: 1 })).toBe(true);
+    expect(isEncodableValue({ kind: 'color', hex: 'zzz', alpha: 1 })).toBe(false);
+    expect(isEncodableValue({ kind: 'text', value: 'anything' })).toBe(true);
+    expect(isEncodableValue({ kind: 'number', raw: '12' })).toBe(true);
+    expect(isEncodableValue({ kind: 'toggle', on: true })).toBe(true);
   });
 });
 

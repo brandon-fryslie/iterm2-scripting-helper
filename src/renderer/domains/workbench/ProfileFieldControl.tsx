@@ -6,7 +6,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import type { FieldValue, ProfileFieldSpec } from '@shared/profileSchema';
+import { isHexColor, type FieldValue, type ProfileFieldSpec } from '@shared/profileSchema';
 
 // One input for one profile field. Pure: it knows the spec and the current value, and reports a
 // new FieldValue — it never reaches into a store. The control rendered is a total dispatch over
@@ -34,7 +34,8 @@ export function ProfileFieldControl({
           <Input
             value={value.hex}
             onChange={(e) => onChange({ ...value, hex: e.target.value })}
-            className="max-w-[110px] font-mono text-xs"
+            aria-invalid={!isHexColor(value.hex)}
+            className={`max-w-[110px] font-mono text-xs ${isHexColor(value.hex) ? '' : 'border-destructive text-destructive'}`}
             data-testid={`profile-field-${spec.key}-hex`}
           />
         </div>

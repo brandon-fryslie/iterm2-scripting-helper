@@ -100,8 +100,21 @@ function isColorDict(v: unknown): v is Record<string, unknown> {
   );
 }
 
+const HEX6 = /^#?([0-9a-f]{6})$/i;
+
+export function isHexColor(hex: string): boolean {
+  return HEX6.test(hex.trim());
+}
+
+// Whether a FieldValue can be encoded to the wire without inventing data. Only color hex can be
+// malformed (the free-form hex input accepts any text); every other kind is always encodable.
+// The write boundary uses this to refuse a bad value loudly rather than write corrupted data.
+export function isEncodableValue(value: FieldValue): boolean {
+  return value.kind === 'color' ? isHexColor(value.hex) : true;
+}
+
 export function hexToColorDict(hex: string, alpha: number): ColorDict {
-  const m = /^#?([0-9a-f]{6})$/i.exec(hex.trim());
+  const m = HEX6.exec(hex.trim());
   const n = m ? parseInt(m[1], 16) : 0;
   return {
     'Red Component': ((n >> 16) & 0xff) / 255,

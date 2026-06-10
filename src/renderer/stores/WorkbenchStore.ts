@@ -14,6 +14,7 @@ import {
   decodeProfile,
   encodeField,
   fieldValueEquals,
+  isEncodableValue,
   type FieldValue,
 } from '@shared/profileSchema';
 
@@ -119,13 +120,6 @@ export class WorkbenchStore {
     this.profileEdit = { ...this.profileEdit, [key]: value };
   }
 
-  // Reset one field to the profile's loaded value (discard the pending edit for that key).
-  revertField(key: string): void {
-    const base = this.profileBaseline[key];
-    if (!base) return;
-    this.profileEdit = { ...this.profileEdit, [key]: base };
-  }
-
   setProfileFilter(filter: string): void {
     this.profileFilter = filter;
   }
@@ -140,11 +134,33 @@ export class WorkbenchStore {
     }).map((spec) => spec.key);
   }
 
+  // Changed fields whose value cannot be encoded to the wire (a malformed color hex). The write
+  // boundary refuses to proceed while any exist, so a bad value is never silently written.
+  get invalidChangedKeys(): string[] {
+    return this.changedKeys.filter((key) => !isEncodableValue(this.profileEdit[key]));
+  }
+
   private changedAssignments(): Array<{ key: string; jsonValue: string }> {
     return this.changedKeys.map((key) => ({
       key,
       jsonValue: encodeField(this.profileEdit[key]),
     }));
+  }
+
+  // [LAW:no-silent-failure][LAW:single-enforcer] The one gate every profile write passes through:
+  // if any changed value is unencodable, surface it loudly and write nothing.
+  private rejectInvalidChanges(): boolean {
+    const invalid = this.invalidChangedKeys;
+    if (invalid.length === 0) return false;
+    this.profileLastResult = {
+      ok: false,
+      error: `Invalid value for: ${invalid.join(', ')}`,
+      latencyMs: 0,
+      responseCase: null,
+      payload: null,
+      requestId: null,
+    };
+    return true;
   }
 
   // Profiles whose name matches the bulk filter (case-insensitive substring; empty matches all).
@@ -168,6 +184,7 @@ export class WorkbenchStore {
 
   async applyProfileEdits(): Promise<void> {
     if (!this.selectedProfileGuid) return;
+    if (this.rejectInvalidChanges()) return;
     const assignments = this.changedAssignments();
     if (assignments.length === 0) return;
     const result = await window.ipc.invoke('workbench/set-profile-property', {
@@ -187,6 +204,7 @@ export class WorkbenchStore {
   // Apply the pending changes (the same minimal assignment set) to every profile matching the
   // filter, in one request. This sets those keys to the edited values across the matched set.
   async bulkApplyEdits(): Promise<void> {
+    if (this.rejectInvalidChanges()) return;
     const assignments = this.changedAssignments();
     const guids = this.filteredProfiles.map((p) => p.guid);
     if (assignments.length === 0 || guids.length === 0) return;
