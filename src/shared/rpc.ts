@@ -205,6 +205,7 @@ export type RegistrationSpec = RegistrationBody & { id: string };
 
 // Registrations the server can call back into over NOTIFY_ON_SERVER_ORIGINATED_RPC.
 export type RpcRegistrationSpec = Exclude<RegistrationSpec, { role: 'toolbelt' }>;
+export type ToolbeltRegistrationSpec = Extract<RegistrationSpec, { role: 'toolbelt' }>;
 
 export interface RoleCapabilities {
   label: string;

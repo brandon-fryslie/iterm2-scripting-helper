@@ -50,10 +50,11 @@ import type { VariableStore } from '../stores/VariableStore';
 import type { WatchlistStore } from '../stores/WatchlistStore';
 import { AppEventLog } from '../stores/AppEventLog';
 import type { ScreenStreamStore } from '../stores/ScreenStreamStore';
+import type { RegistrationStore } from '../stores/RegistrationStore';
 import type {
-  RegistrationStore,
-  RegistrationSpec,
-} from '../stores/RegistrationStore';
+  RpcRegistrationSpec,
+  ToolbeltRegistrationSpec,
+} from '@shared/rpc';
 import type { CustomEscapeStore } from '../stores/CustomEscapeStore';
 import {
   APP_ENTITY,
@@ -457,31 +458,11 @@ export class ConnectionOrchestrator extends EventEmitter {
     return this.options.socketPath;
   }
 
-  // [LAW:dataflow-not-control-flow] One install seam for every registration role; which wire
-  // message carries it is a function of the spec's role value. RPC roles subscribe to
-  // server-originated RPC notifications; toolbelt tools are a distinct client-originated request.
-  async registerRpc(spec: RegistrationSpec): Promise<void> {
-    if (spec.role === 'toolbelt') {
-      const { message } = await this.protocol.send({
-        submessage: {
-          case: 'registerToolRequest',
-          value: buildToolRequest(spec.attrs),
-        },
-      });
-      if (message.submessage.case !== 'registerToolResponse') {
-        throw new Error(
-          `RegisterTool: unexpected response ${message.submessage.case ?? '(empty)'}`,
-        );
-      }
-      const status = message.submessage.value.status;
-      if (status !== RegisterToolResponse_Status.OK) {
-        // [LAW:no-silent-failure] iTerm2 refused the tool; surface its named status, never a
-        // locally-listed tool the server doesn't have.
-        throw new Error(`RegisterTool failed: ${RegisterToolResponse_Status[status]}`);
-      }
-      this.monitor.registrations.upsert(spec);
-      return;
-    }
+  // [LAW:decomposition] RPC registrations and toolbelt tools are different wire protocols, so each
+  // gets its own closed method; the one dispatch on the spec union lives at the IPC boundary where
+  // the value enters. The narrowed parameter types make cross-routing (a toolbelt spec into the
+  // RPC subscription, or vice versa) a compile error.
+  async registerRpc(spec: RpcRegistrationSpec): Promise<void> {
     const req = buildRegistrationRequest(spec);
     await this.sendNotificationRequestRaw(
       NotificationType.NOTIFY_ON_SERVER_ORIGINATED_RPC,
@@ -492,22 +473,36 @@ export class ConnectionOrchestrator extends EventEmitter {
     this.monitor.registrations.upsert(spec);
   }
 
-  async unregisterRpc(id: string): Promise<void> {
-    const spec = this.monitor.registrations.list().find((r) => r.id === id);
-    if (!spec) return;
-    // The iTerm2 API has no unregister-tool message: a toolbelt tool persists in iTerm2 until
-    // restart, so unregistering one is local bookkeeping only — declared to the user via
-    // ROLE_CAPABILITIES.wireUnregister, not discovered as a surprise.
-    if (spec.role !== 'toolbelt') {
-      const req = buildRegistrationRequest(spec);
-      await this.sendNotificationRequestRaw(
-        NotificationType.NOTIFY_ON_SERVER_ORIGINATED_RPC,
-        '',
-        false,
-        { arguments: { case: 'rpcRegistrationRequest', value: req } },
-      ).catch(() => void 0);
+  async registerTool(spec: ToolbeltRegistrationSpec): Promise<void> {
+    const { message } = await this.protocol.send({
+      submessage: {
+        case: 'registerToolRequest',
+        value: buildToolRequest(spec.attrs),
+      },
+    });
+    if (message.submessage.case !== 'registerToolResponse') {
+      throw new Error(
+        `RegisterTool: unexpected response ${message.submessage.case ?? '(empty)'}`,
+      );
     }
-    this.monitor.registrations.remove(id);
+    const status = message.submessage.value.status;
+    if (status !== RegisterToolResponse_Status.OK) {
+      // [LAW:no-silent-failure] iTerm2 refused the tool; surface its named status, never a
+      // locally-listed tool the server doesn't have.
+      throw new Error(`RegisterTool failed: ${RegisterToolResponse_Status[status]}`);
+    }
+    this.monitor.registrations.upsert(spec);
+  }
+
+  async unregisterRpc(spec: RpcRegistrationSpec): Promise<void> {
+    const req = buildRegistrationRequest(spec);
+    await this.sendNotificationRequestRaw(
+      NotificationType.NOTIFY_ON_SERVER_ORIGINATED_RPC,
+      '',
+      false,
+      { arguments: { case: 'rpcRegistrationRequest', value: req } },
+    ).catch(() => void 0);
+    this.monitor.registrations.remove(spec.id);
   }
 
   async subscribeCustomEscape(

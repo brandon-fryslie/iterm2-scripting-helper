@@ -30,6 +30,11 @@ export class RegistrationStore {
     this.registrations.delete(id);
   }
 
+  get(id: string): RegistrationSpec | null {
+    const spec = this.registrations.get(id);
+    return spec ? toJS(spec) : null;
+  }
+
   // Only RPC-backed registrations are addressable by function name — that is what the server
   // names in a server-originated RPC notification. Toolbelt tools have no function name.
   findByName(name: string): RpcRegistrationSpec | null {

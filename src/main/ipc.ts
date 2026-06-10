@@ -198,9 +198,15 @@ export function registerIpc(
         };
       }
     },
+    // [LAW:decomposition] The one dispatch on the registration union, at the boundary where the
+    // renderer's value enters: each role family routes to its own closed orchestrator method.
     'workbench/register-rpc': async (spec) => {
       try {
-        await orchestrator.registerRpc(spec);
+        if (spec.role === 'toolbelt') {
+          await orchestrator.registerTool(spec);
+        } else {
+          await orchestrator.registerRpc(spec);
+        }
         return { ok: true, error: null, registrationId: spec.id };
       } catch (err) {
         return {
@@ -212,7 +218,14 @@ export function registerIpc(
     },
     'workbench/unregister-rpc': async ({ id }) => {
       try {
-        await orchestrator.unregisterRpc(id);
+        const spec = monitor.registrations.get(id);
+        if (spec?.role === 'toolbelt') {
+          // The iTerm2 API has no unregister-tool message: a tool persists in iTerm2 until
+          // restart, so forgetting one is a pure registry removal with no wire effect.
+          monitor.registrations.remove(id);
+        } else if (spec) {
+          await orchestrator.unregisterRpc(spec);
+        }
         return { ok: true, error: null };
       } catch (err) {
         return {
