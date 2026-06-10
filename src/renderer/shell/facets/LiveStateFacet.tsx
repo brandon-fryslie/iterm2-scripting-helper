@@ -1,6 +1,6 @@
 import { Group, Panel, Separator } from 'react-resizable-panels';
-import { ScreenPane } from '@/tabs/monitor/ScreenPane';
-import { VariablesPane } from '@/tabs/monitor/VariablesPane';
+import { ScreenPane } from '@/domains/monitor/ScreenPane';
+import { VariablesPane } from '@/domains/monitor/VariablesPane';
 import { usePersistedLayout } from '@/shell/usePersistedLayout';
 
 // Live state: a fold over the focused entity — what it looks like (screen) and what it holds
