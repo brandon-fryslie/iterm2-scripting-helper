@@ -2,7 +2,7 @@ import { Settings } from 'lucide-react';
 import { observer } from 'mobx-react-lite';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { LayoutPane } from '@/tabs/monitor/LayoutPane';
+import { LayoutPane } from '@/domains/monitor/LayoutPane';
 import { useStore } from '@/stores/context';
 
 // The entity-spine rail replaces the tab bar as top-level navigation. It is always visible and is the

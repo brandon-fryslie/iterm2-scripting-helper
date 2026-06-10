@@ -1,8 +1,8 @@
 import { useEffect, useState } from 'react';
 import { observer } from 'mobx-react-lite';
-import { ConnectionPanel } from '@/tabs/settings/ConnectionPanel';
-import { AuthorizationPanel } from '@/tabs/settings/AuthorizationPanel';
-import { CapabilityPanel } from '@/tabs/settings/CapabilityPanel';
+import { ConnectionPanel } from '@/domains/settings/ConnectionPanel';
+import { AuthorizationPanel } from '@/domains/settings/AuthorizationPanel';
+import { CapabilityPanel } from '@/domains/settings/CapabilityPanel';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import type { RpcResult } from '@shared/rpc';
