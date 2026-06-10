@@ -176,10 +176,19 @@ export class WorkbenchStore {
       this.profiles = result.profiles;
       this.profilesLoaded = true;
       this.profilesError = result.ok ? null : result.error ?? 'unknown error';
-      if (this.selectedProfileGuid) {
-        this.selectProfile(this.selectedProfileGuid);
-      }
+      this.syncBaselineFromCache();
     });
+  }
+
+  // Re-derive the diff baseline for the selected profile from the latest fetched properties without
+  // touching the working edit: a refresh (including the one after every successful write) re-syncs
+  // the comparison point to server truth but never discards in-progress edits. Unlike selectProfile,
+  // which is the load path that resets both baseline and working copy.
+  private syncBaselineFromCache(): void {
+    if (!this.selectedProfileGuid) return;
+    const p = this.profiles.find((x) => x.guid === this.selectedProfileGuid);
+    if (!p) return;
+    this.profileBaseline = decodeProfile(p.properties);
   }
 
   async applyProfileEdits(): Promise<void> {
@@ -193,12 +202,10 @@ export class WorkbenchStore {
     });
     runInAction(() => {
       this.profileLastResult = result;
-      // On success the working copy becomes the new baseline — the diff clears.
-      if (result.ok) {
-        const applied = { ...this.profileEdit };
-        this.profileBaseline = applied;
-      }
     });
+    // [LAW:single-enforcer] Both write paths advance the baseline the one same way: re-fetch and let
+    // refreshProfiles re-sync the diff baseline from server truth, so the diff clears after a write.
+    if (result.ok) await this.refreshProfiles();
   }
 
   // Apply the pending changes (the same minimal assignment set) to every profile matching the
