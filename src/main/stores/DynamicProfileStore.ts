@@ -6,9 +6,6 @@ export interface DynamicProfileFile {
   mtime: number;
   size: number;
   body: string;
-  parseError: string | null;
-  topLevelKeys: string[];
-  profileCount: number;
 }
 
 export interface DynamicProfileSnapshot {
@@ -57,9 +54,6 @@ export class DynamicProfileStore {
         mtime: f.mtime,
         size: f.size,
         body: f.body,
-        parseError: f.parseError,
-        topLevelKeys: [...f.topLevelKeys],
-        profileCount: f.profileCount,
       }))
       .sort((a, b) => a.basename.localeCompare(b.basename));
     return {
