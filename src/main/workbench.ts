@@ -8,25 +8,15 @@ import {
 } from '@shared/proto/gen/api_pb';
 import type { ConnectionOrchestrator } from './drivers/ConnectionOrchestrator';
 import type { ProfileSummary, ProfileListResult, ActionResult } from '@shared/rpc';
-
-export const PROFILE_KEYS = {
-  name: 'Name',
-  backgroundColor: 'Background Color',
-  foregroundColor: 'Foreground Color',
-  badgeText: 'Badge Text',
-  transparency: 'Transparency',
-  cursorColor: 'Cursor Color',
-  useTransparency: 'Use Transparency',
-  normalFont: 'Normal Font',
-} as const;
-
-const FETCH_KEYS = Object.values(PROFILE_KEYS);
+// [LAW:one-source-of-truth] The set of profile keys to read is the schema, not a second list
+// maintained here. The fetch list and the editor surface are the same keys by construction.
+import { FETCH_KEYS } from '@shared/profileSchema';
 
 export async function listProfiles(
   orchestrator: ConnectionOrchestrator,
 ): Promise<ProfileListResult> {
   const req = create(ListProfilesRequestSchema, {
-    properties: [...FETCH_KEYS, 'Guid'],
+    properties: [...FETCH_KEYS],
     guids: [],
   });
   const response = await orchestrator.sendRequest({
@@ -48,7 +38,7 @@ export async function listProfiles(
     const guid = parseJson(map.get('Guid')) ?? '';
     return {
       guid: typeof guid === 'string' ? guid : String(guid ?? ''),
-      name: (parseJson(map.get(PROFILE_KEYS.name)) as string | undefined) ?? '(unnamed)',
+      name: (parseJson(map.get('Name')) as string | undefined) ?? '(unnamed)',
       properties: Object.fromEntries(map.entries()),
     };
   });

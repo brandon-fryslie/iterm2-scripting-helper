@@ -253,7 +253,13 @@ test.describe('live iTerm2', () => {
       const s = (first?.kind === 'session' ? first.session.sessionId : '') ?? '';
       const prof = await window.ipc.invoke('workbench/list-profiles', undefined as never);
       const def = prof.profiles.find((p) => p.name === 'Default') ?? prof.profiles[0];
-      return { sessionId: s, guid: def?.guid ?? '', name: def?.name ?? '' };
+      return {
+        sessionId: s,
+        guid: def?.guid ?? '',
+        name: def?.name ?? '',
+        // The raw wire value, captured so we can restore the profile exactly after the test.
+        bgRaw: def?.properties?.['Background Color'] ?? '',
+      };
     });
     expect(probe.sessionId).not.toBe('');
     expect(probe.guid).not.toBe('');
@@ -271,24 +277,56 @@ test.describe('live iTerm2', () => {
     await win.getByTestId('workbench-refresh-profiles').click();
     // Wait for profiles to populate in the select
     await expect(win.getByTestId('workbench-profile-select')).toBeVisible({ timeout: 10_000 });
-    // Select a profile by opening the dropdown and clicking the default
-    await win.evaluate(
-      (args) =>
-        (window as unknown as { __storeSelect?: (g: string) => void }).__storeSelect?.(args.guid),
-      { guid: probe.guid },
-    );
-    // Fall back: set via store bridge by firing an activate to refresh state
-    // The picker state change is tricky to script via pure events; instead, use the store directly via a small helper.
-    // Use a programmatic apply by firing set-profile-property with a known GUID.
-    const applyResult = await win.evaluate(async (args) => {
-      return window.ipc.invoke('workbench/set-profile-property', {
-        guids: [args.guid],
-        assignments: [
-          { key: 'Badge Text', jsonValue: JSON.stringify(`workbench-test-${Date.now()}`) },
-        ],
-      });
+
+    // Drive the schema-generated editor for real: open the picker, choose a profile, and confirm
+    // the full editable surface mounts live (category tabs + preview render with no page errors).
+    await win.getByTestId('workbench-profile-select').click();
+    await win.getByRole('option', { name: probe.name }).first().click();
+    const editedGuid = await win.getByTestId('workbench-selected-guid').textContent();
+    expect(editedGuid).toBe(probe.guid);
+    await expect(win.getByTestId('profile-preview')).toBeVisible();
+    await expect(win.getByTestId('profile-category-tabs')).toBeVisible();
+
+    // Edit a color through the UI and apply it. This is the parent acceptance: editing a color
+    // writes to the correct GUID. We change Background Color, apply, then read it back via the
+    // list-profiles RPC keyed on that exact GUID.
+    await win.getByTestId('profile-category-Colors').click();
+    const bgHex = win.getByTestId('profile-field-Background Color-hex');
+    await bgHex.fill('#123456');
+    const applyBtn = win.getByTestId('profile-edit-apply');
+    await expect(applyBtn).toBeEnabled();
+    await applyBtn.click();
+    await expect(win.getByTestId('profile-edit-result')).toHaveText('applied', {
+      timeout: 10_000,
+    });
+
+    // Read back the value on the correct GUID and confirm it round-tripped to #123456.
+    const readBack = await win.evaluate(async (args) => {
+      const prof = await window.ipc.invoke('workbench/list-profiles', undefined as never);
+      const p = prof.profiles.find((x) => x.guid === args.guid);
+      const raw = p?.properties?.['Background Color'];
+      if (!raw) return '';
+      const d = JSON.parse(raw) as Record<string, number>;
+      const ch = (k: string) =>
+        Math.round(Math.max(0, Math.min(1, Number(d[k] ?? 0))) * 255)
+          .toString(16)
+          .padStart(2, '0');
+      return `#${ch('Red Component')}${ch('Green Component')}${ch('Blue Component')}`;
     }, { guid: probe.guid });
-    expect(applyResult.ok).toBe(true);
+    expect(readBack).toBe('#123456');
+
+    // Restore the profile's original Background Color so the test leaves no trace.
+    if (probe.bgRaw) {
+      const restore = await win.evaluate(
+        async (args) =>
+          window.ipc.invoke('workbench/set-profile-property', {
+            guids: [args.guid],
+            assignments: [{ key: 'Background Color', jsonValue: args.bgRaw }],
+          }),
+        { guid: probe.guid, bgRaw: probe.bgRaw },
+      );
+      expect(restore.ok).toBe(true);
+    }
 
     // Dynamic Profiles: write a temp file, verify it appears in the snapshot.
     await win.getByTestId('workbench-rail-dynamic-profile').click();

@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import { observer } from 'mobx-react-lite';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -11,12 +12,22 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
+import {
+  PROFILE_CATEGORIES,
+  fieldsByCategory,
+  isDefaultValue,
+  type ProfileCategory,
+} from '@shared/profileSchema';
+import { ProfileFieldControl } from './ProfileFieldControl';
+import { ProfilePreview } from './ProfilePreview';
 
 export const ProfileEditor = observer(function ProfileEditor() {
   const { workbench } = useStore();
+  const [category, setCategory] = useState<ProfileCategory>('Colors');
   const selected = workbench.selectedProfileGuid
     ? workbench.profiles.find((p) => p.guid === workbench.selectedProfileGuid)
     : null;
+  const changedCount = workbench.changedKeys.length;
 
   return (
     <div className="grid gap-4" data-testid="workbench-profile-editor">
@@ -55,134 +66,128 @@ export const ProfileEditor = observer(function ProfileEditor() {
           </Select>
           {selected && (
             <div className="text-xs text-muted-foreground">
-              <code>{selected.guid}</code>
+              <code data-testid="workbench-selected-guid">{selected.guid}</code>
             </div>
           )}
         </CardContent>
       </Card>
 
       {selected && (
-        <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-base">Edit</CardTitle>
-          </CardHeader>
-          <CardContent className="grid gap-3 text-sm">
-            <Field label="Name">
-              <Input
-                value={workbench.profileEdit.name}
-                onChange={(e) => workbench.updateEdit({ name: e.target.value })}
-                data-testid="profile-edit-name"
-              />
-            </Field>
-            <Field label="Background">
-              <ColorInput
-                value={workbench.profileEdit.backgroundHex}
-                onChange={(v) => workbench.updateEdit({ backgroundHex: v })}
-                testId="profile-edit-bg"
-              />
-            </Field>
-            <Field label="Foreground">
-              <ColorInput
-                value={workbench.profileEdit.foregroundHex}
-                onChange={(v) => workbench.updateEdit({ foregroundHex: v })}
-                testId="profile-edit-fg"
-              />
-            </Field>
-            <Field label="Badge text">
-              <Input
-                value={workbench.profileEdit.badgeText}
-                onChange={(e) => workbench.updateEdit({ badgeText: e.target.value })}
-                data-testid="profile-edit-badge"
-              />
-            </Field>
-            <Field label="Transparency">
-              <Input
-                type="number"
-                step="0.05"
-                min="0"
-                max="1"
-                value={workbench.profileEdit.transparency}
-                onChange={(e) =>
-                  workbench.updateEdit({ transparency: e.target.value })
-                }
-              />
-            </Field>
-            <Field label="Use transparency">
-              <input
-                type="checkbox"
-                checked={workbench.profileEdit.useTransparency}
-                onChange={(e) =>
-                  workbench.updateEdit({ useTransparency: e.target.checked })
-                }
-              />
-            </Field>
-            <div className="flex items-center gap-2">
-              <Button
-                onClick={() => void workbench.applyProfileEdits()}
-                data-testid="profile-edit-apply"
-              >
-                Apply to profile
-              </Button>
-              {workbench.profileLastResult && (
-                <>
-                  <Badge
-                    variant={
-                      workbench.profileLastResult.ok ? 'default' : 'destructive'
-                    }
-                    data-testid="profile-edit-result"
+        <>
+          <ProfilePreview edit={workbench.profileEdit} />
+
+          <Card>
+            <CardHeader className="pb-2">
+              <CardTitle className="text-base">Edit</CardTitle>
+            </CardHeader>
+            <CardContent className="grid gap-3">
+              <div className="flex flex-wrap gap-1" data-testid="profile-category-tabs">
+                {PROFILE_CATEGORIES.map((c) => (
+                  <Button
+                    key={c}
+                    size="sm"
+                    variant={category === c ? 'default' : 'outline'}
+                    onClick={() => setCategory(c)}
+                    data-testid={`profile-category-${c}`}
                   >
-                    {workbench.profileLastResult.ok ? 'applied' : 'error'}
-                  </Badge>
-                  <span className="text-xs text-muted-foreground">
-                    {workbench.profileLastResult.latencyMs} ms
-                  </span>
-                  {workbench.profileLastResult.error && (
-                    <span className="text-xs text-destructive">
-                      {workbench.profileLastResult.error}
+                    {c}
+                  </Button>
+                ))}
+              </div>
+
+              <div className="grid gap-2 text-sm">
+                {fieldsByCategory(category).map((spec) => {
+                  const value = workbench.profileEdit[spec.key] ?? spec.default;
+                  const modified = !isDefaultValue(spec, value);
+                  return (
+                    <div
+                      key={spec.key}
+                      className="grid grid-cols-[11rem_1fr_auto] items-center gap-2"
+                    >
+                      <span
+                        className="truncate text-muted-foreground"
+                        title={spec.key}
+                      >
+                        {spec.label}
+                      </span>
+                      <ProfileFieldControl
+                        spec={spec}
+                        value={value}
+                        onChange={(next) => workbench.updateField(spec.key, next)}
+                      />
+                      <button
+                        type="button"
+                        className={`text-[10px] ${modified ? 'text-amber-500 hover:underline' : 'invisible'}`}
+                        onClick={() => workbench.updateField(spec.key, spec.default)}
+                        title="Reset to iTerm2 default"
+                        data-testid={`profile-reset-${spec.key}`}
+                      >
+                        ≠ default · reset
+                      </button>
+                    </div>
+                  );
+                })}
+              </div>
+
+              <div className="flex items-center gap-2 border-t pt-3">
+                <Button
+                  onClick={() => void workbench.applyProfileEdits()}
+                  disabled={changedCount === 0}
+                  data-testid="profile-edit-apply"
+                >
+                  Apply {changedCount > 0 ? `(${changedCount})` : ''} to profile
+                </Button>
+                {workbench.profileLastResult && (
+                  <>
+                    <Badge
+                      variant={workbench.profileLastResult.ok ? 'default' : 'destructive'}
+                      data-testid="profile-edit-result"
+                    >
+                      {workbench.profileLastResult.ok ? 'applied' : 'error'}
+                    </Badge>
+                    <span className="text-xs text-muted-foreground">
+                      {workbench.profileLastResult.latencyMs} ms
                     </span>
-                  )}
-                </>
-              )}
-            </div>
-          </CardContent>
-        </Card>
+                    {workbench.profileLastResult.error && (
+                      <span className="text-xs text-destructive">
+                        {workbench.profileLastResult.error}
+                      </span>
+                    )}
+                  </>
+                )}
+              </div>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader className="pb-2">
+              <CardTitle className="text-base">Bulk apply</CardTitle>
+            </CardHeader>
+            <CardContent className="grid gap-2 text-sm">
+              <p className="text-xs text-muted-foreground">
+                Apply the {changedCount} pending change(s) to every profile whose name matches
+                the filter.
+              </p>
+              <Input
+                placeholder="Filter profiles by name (empty = all)"
+                value={workbench.profileFilter}
+                onChange={(e) => workbench.setProfileFilter(e.target.value)}
+                data-testid="profile-bulk-filter"
+              />
+              <div className="flex items-center gap-2">
+                <Button
+                  variant="secondary"
+                  disabled={changedCount === 0 || workbench.filteredProfiles.length === 0}
+                  onClick={() => void workbench.bulkApplyEdits()}
+                  data-testid="profile-bulk-apply"
+                >
+                  Apply to {workbench.filteredProfiles.length} profile(s)
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
+        </>
       )}
     </div>
   );
 });
-
-function Field({ label, children }: { label: string; children: React.ReactNode }) {
-  return (
-    <label className="grid grid-cols-[8rem_1fr] items-center gap-2">
-      <span className="text-muted-foreground">{label}</span>
-      <div>{children}</div>
-    </label>
-  );
-}
-
-function ColorInput({
-  value,
-  onChange,
-  testId,
-}: {
-  value: string;
-  onChange: (v: string) => void;
-  testId?: string;
-}) {
-  return (
-    <div className="flex items-center gap-2">
-      <input
-        type="color"
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-        className="h-8 w-12 cursor-pointer"
-        data-testid={testId}
-      />
-      <Input
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-        className="max-w-[120px] font-mono text-xs"
-      />
-    </div>
-  );
-}

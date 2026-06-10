@@ -17,6 +17,7 @@
     "lint": "eslint --ext .ts,.tsx .",
     "typecheck": "tsc --noEmit",
     "gen:proto": "buf generate",
+    "gen:profile-schema": "node scripts/gen-profile-schema.cjs",
     "test:unit": "vitest run",
     "build:vite": "node scripts/build-vite.cjs",
     "test:e2e": "node scripts/ensure-electron-install.cjs && playwright test",

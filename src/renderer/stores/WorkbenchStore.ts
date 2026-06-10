@@ -9,6 +9,13 @@ import type {
   CustomEscapeSnapshot,
   KnobSpec,
 } from '@shared/rpc';
+import {
+  PROFILE_FIELDS,
+  decodeProfile,
+  encodeField,
+  fieldValueEquals,
+  type FieldValue,
+} from '@shared/profileSchema';
 
 export type WorkbenchArtifact =
   | 'profile'
@@ -18,23 +25,9 @@ export type WorkbenchArtifact =
   | 'custom-escape'
   | 'triggers';
 
-export interface ProfileEditState {
-  name: string;
-  backgroundHex: string;
-  foregroundHex: string;
-  badgeText: string;
-  transparency: string;
-  useTransparency: boolean;
-}
-
-const EMPTY_EDIT: ProfileEditState = {
-  name: '',
-  backgroundHex: '#000000',
-  foregroundHex: '#ffffff',
-  badgeText: '',
-  transparency: '0',
-  useTransparency: false,
-};
+// The edit surface is keyed by iTerm2 wire key, decoded from the schema — not a fixed interface.
+// A new profile key appears in the editor by being in the schema, with no change here.
+export type ProfileEdit = Record<string, FieldValue>;
 
 const EMPTY_DYNAMIC: DynamicProfileSnapshot = {
   folder: '',
@@ -55,8 +48,12 @@ export class WorkbenchStore {
   profilesLoaded = false;
   profilesError: string | null = null;
   selectedProfileGuid: string | null = null;
-  profileEdit: ProfileEditState = { ...EMPTY_EDIT };
+  // The values as loaded from the profile (the dirty baseline) and the working copy being edited.
+  profileBaseline: ProfileEdit = {};
+  profileEdit: ProfileEdit = {};
   profileLastResult: ActionResult | null = null;
+  // Substring filter over profile names for bulk apply.
+  profileFilter = '';
 
   dynamicProfiles: DynamicProfileSnapshot = EMPTY_DYNAMIC;
   selectedDynamicProfileBasename: string | null = null;
@@ -104,35 +101,57 @@ export class WorkbenchStore {
   selectProfile(guid: string | null): void {
     this.selectedProfileGuid = guid;
     if (!guid) {
-      this.profileEdit = { ...EMPTY_EDIT };
+      this.profileBaseline = {};
+      this.profileEdit = {};
       return;
     }
     const p = this.profiles.find((x) => x.guid === guid);
     if (!p) return;
-    const parse = (k: string) => {
-      const raw = p.properties[k];
-      if (raw == null) return undefined;
-      try {
-        return JSON.parse(raw);
-      } catch {
-        return raw;
-      }
-    };
-    const bg = parse('Background Color') as Record<string, number> | undefined;
-    const fg = parse('Foreground Color') as Record<string, number> | undefined;
-    this.profileEdit = {
-      name: (parse('Name') as string | undefined) ?? p.name,
-      backgroundHex: bg ? rgbDictToHex(bg) : '#000000',
-      foregroundHex: fg ? rgbDictToHex(fg) : '#ffffff',
-      badgeText: (parse('Badge Text') as string | undefined) ?? '',
-      transparency: String((parse('Transparency') as number | undefined) ?? 0),
-      useTransparency: Boolean(parse('Use Transparency') as boolean | undefined),
-    };
+    // [LAW:dataflow-not-control-flow] Every field is decoded by the same schema-driven pass; the
+    // old per-key branching (if Background Color … if Transparency …) is gone.
+    const decoded = decodeProfile(p.properties);
+    this.profileBaseline = decoded;
+    this.profileEdit = { ...decoded };
     this.profileLastResult = null;
   }
 
-  updateEdit(patch: Partial<ProfileEditState>): void {
-    this.profileEdit = { ...this.profileEdit, ...patch };
+  updateField(key: string, value: FieldValue): void {
+    this.profileEdit = { ...this.profileEdit, [key]: value };
+  }
+
+  // Reset one field to the profile's loaded value (discard the pending edit for that key).
+  revertField(key: string): void {
+    const base = this.profileBaseline[key];
+    if (!base) return;
+    this.profileEdit = { ...this.profileEdit, [key]: base };
+  }
+
+  setProfileFilter(filter: string): void {
+    this.profileFilter = filter;
+  }
+
+  // The keys whose working value differs from what the profile was loaded with — the minimal set
+  // of assignments to send. [LAW:no-silent-failure] We only write what actually changed.
+  get changedKeys(): string[] {
+    return PROFILE_FIELDS.filter((spec) => {
+      const edited = this.profileEdit[spec.key];
+      const base = this.profileBaseline[spec.key];
+      return edited != null && base != null && !fieldValueEquals(edited, base);
+    }).map((spec) => spec.key);
+  }
+
+  private changedAssignments(): Array<{ key: string; jsonValue: string }> {
+    return this.changedKeys.map((key) => ({
+      key,
+      jsonValue: encodeField(this.profileEdit[key]),
+    }));
+  }
+
+  // Profiles whose name matches the bulk filter (case-insensitive substring; empty matches all).
+  get filteredProfiles(): ProfileSummary[] {
+    const q = this.profileFilter.trim().toLowerCase();
+    if (!q) return this.profiles;
+    return this.profiles.filter((p) => p.name.toLowerCase().includes(q));
   }
 
   async refreshProfiles(): Promise<void> {
@@ -149,36 +168,36 @@ export class WorkbenchStore {
 
   async applyProfileEdits(): Promise<void> {
     if (!this.selectedProfileGuid) return;
-    const edit = this.profileEdit;
-    const assignments: Array<{ key: string; jsonValue: string }> = [];
-    assignments.push({ key: 'Name', jsonValue: JSON.stringify(edit.name) });
-    assignments.push({
-      key: 'Background Color',
-      jsonValue: JSON.stringify(hexToRgbDict(edit.backgroundHex)),
-    });
-    assignments.push({
-      key: 'Foreground Color',
-      jsonValue: JSON.stringify(hexToRgbDict(edit.foregroundHex)),
-    });
-    assignments.push({ key: 'Badge Text', jsonValue: JSON.stringify(edit.badgeText) });
-    const transparency = Number(edit.transparency);
-    if (!Number.isNaN(transparency)) {
-      assignments.push({
-        key: 'Transparency',
-        jsonValue: JSON.stringify(transparency),
-      });
-    }
-    assignments.push({
-      key: 'Use Transparency',
-      jsonValue: JSON.stringify(edit.useTransparency),
-    });
+    const assignments = this.changedAssignments();
+    if (assignments.length === 0) return;
     const result = await window.ipc.invoke('workbench/set-profile-property', {
       guids: [this.selectedProfileGuid],
       assignments,
     });
     runInAction(() => {
       this.profileLastResult = result;
+      // On success the working copy becomes the new baseline — the diff clears.
+      if (result.ok) {
+        const applied = { ...this.profileEdit };
+        this.profileBaseline = applied;
+      }
     });
+  }
+
+  // Apply the pending changes (the same minimal assignment set) to every profile matching the
+  // filter, in one request. This sets those keys to the edited values across the matched set.
+  async bulkApplyEdits(): Promise<void> {
+    const assignments = this.changedAssignments();
+    const guids = this.filteredProfiles.map((p) => p.guid);
+    if (assignments.length === 0 || guids.length === 0) return;
+    const result = await window.ipc.invoke('workbench/set-profile-property', {
+      guids,
+      assignments,
+    });
+    runInAction(() => {
+      this.profileLastResult = result;
+    });
+    if (result.ok) await this.refreshProfiles();
   }
 
   applyDynamicSnapshot(snap: DynamicProfileSnapshot): void {
@@ -478,35 +497,4 @@ function initialRegistrationForm(): RegistrationFormState {
 interface CustomEscapeFormState {
   sessionId: string;
   identity: string;
-}
-
-function hexToRgbDict(hex: string): Record<string, number | string> {
-  const m = /^#?([0-9a-f]{6})$/i.exec(hex.trim());
-  if (!m) {
-    return {
-      'Red Component': 0,
-      'Green Component': 0,
-      'Blue Component': 0,
-      'Alpha Component': 1,
-      'Color Space': 'sRGB',
-    };
-  }
-  const n = parseInt(m[1], 16);
-  return {
-    'Red Component': ((n >> 16) & 0xff) / 255,
-    'Green Component': ((n >> 8) & 0xff) / 255,
-    'Blue Component': (n & 0xff) / 255,
-    'Alpha Component': 1,
-    'Color Space': 'sRGB',
-  };
-}
-
-function rgbDictToHex(d: Record<string, unknown>): string {
-  const r = Math.round(Number(d['Red Component'] ?? 0) * 255);
-  const g = Math.round(Number(d['Green Component'] ?? 0) * 255);
-  const b = Math.round(Number(d['Blue Component'] ?? 0) * 255);
-  const hex = [r, g, b]
-    .map((x) => Math.max(0, Math.min(255, x)).toString(16).padStart(2, '0'))
-    .join('');
-  return `#${hex}`;
 }
