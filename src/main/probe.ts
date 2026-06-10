@@ -4,7 +4,21 @@ import { VariableResponse_Status } from '@shared/proto/gen/api_pb';
 // resolvable path (or an explicit rejection), and turn a protocol status into a human reason. The
 // orchestrator owns the IO; everything here is a value-in/value-out function the unit tests pin.
 
-export type ProbeTarget = { path: string } | { reject: string };
+// [LAW:types-are-the-program] Three honest evaluation paths, one per shape the input can take: a
+// single variable path resolves exactly via VariableRequest.get; an interpolated template (multiple
+// \(refs), literal text, or a function call) must round-trip through the probe_eval RPC because
+// iTerm2 exposes no interpolated-string eval message; empty input is a contextual rejection. The
+// caller dispatches on `kind` exhaustively — no shape leaks past the type.
+export type ProbeTarget =
+  | { kind: 'path'; path: string }
+  | { kind: 'template'; template: string }
+  | { kind: 'reject'; reject: string };
+
+// The registered passthrough function the probe invokes to evaluate a full interpolated template.
+// One name, shared by the registration (orchestrator) and the invocation builder below, so the two
+// sides cannot drift. Namespaced to avoid colliding with any user-authored registration.
+export const PROBE_EVAL_FUNCTION = 'iterm2_helper_probe_eval';
+export const PROBE_EVAL_ARG = 'value';
 
 // [LAW:dataflow-not-control-flow] Always returns a target value; the caller's probe always runs and
 // always returns a result. A rejection is data the caller renders as an error outcome, not a branch
@@ -12,23 +26,31 @@ export type ProbeTarget = { path: string } | { reject: string };
 export function normalizeProbeTarget(input: string): ProbeTarget {
   const trimmed = input.trim();
   if (trimmed === '') {
-    return { reject: 'Enter a variable path (e.g. session.name) or a \\(reference) to evaluate.' };
+    return {
+      kind: 'reject',
+      reject: 'Enter a variable path (e.g. session.name) or a \\(template) to evaluate.',
+    };
   }
   const inner = unwrapSingleReference(trimmed);
-  if (inner.includes('\\(')) {
-    return {
-      reject:
-        'Multi-reference interpolated templates are not supported yet. Probe one variable path, ' +
-        'e.g. session.name or \\(session.name).',
-    };
+  // A clean single variable path — bare (session.name) or a single full \(session.name) wrap — has
+  // no call syntax and no further interpolation, so it resolves exactly via VariableRequest.get.
+  if (!inner.includes('\\(') && !inner.includes('(') && !inner.includes(')')) {
+    return { kind: 'path', path: inner };
   }
-  if (inner.includes('(') || inner.includes(')')) {
-    return {
-      reject:
-        'Function-call expressions are not supported. Probe a variable path, e.g. session.name.',
-    };
-  }
-  return { path: inner };
+  // Everything else is an expression iTerm2 must interpolate against the scope. If the user already
+  // wrote interpolation, send the template as-is; a bare expression (e.g. a function call) is
+  // wrapped into one interpolation so iTerm2 evaluates it instead of echoing it as literal text.
+  const template = trimmed.includes('\\(') ? trimmed : `\\(${trimmed})`;
+  return { kind: 'template', template };
+}
+
+// [LAW:effects-at-boundaries] Pure shaping for the template round-trip: embed the interpolated
+// template as a double-quoted argument to probe_eval. Only literal double quotes need escaping so
+// they don't close the wrapper; the user's \( … ) interpolations pass through for iTerm2 to evaluate
+// against the focused scope. The orchestrator owns sending the resulting invocation.
+export function buildProbeEvalInvocation(template: string): string {
+  const escaped = template.replace(/"/g, '\\"');
+  return `${PROBE_EVAL_FUNCTION}(${PROBE_EVAL_ARG}: "${escaped}")`;
 }
 
 // A single full-wrap interpolated reference \( … ) names exactly one path, so it is that path with

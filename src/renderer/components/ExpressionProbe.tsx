@@ -33,7 +33,7 @@ export const ExpressionProbe = observer(function ExpressionProbe() {
           data-testid="variable-probe-input"
           value={expression}
           onChange={(event) => setExpression(event.target.value)}
-          placeholder="Evaluate path, e.g. session.name"
+          placeholder="Evaluate a path or template, e.g. \(session.name)@\(session.hostname)"
         />
         <Button
           type="submit"
@@ -62,6 +62,7 @@ function ProbeResultLine({ result }: { result: AppProbeResult }) {
         <Badge variant="outline">{appEntityKey(result.entity)}</Badge>
       </div>
       <code
+        data-testid="variable-probe-value"
         className={cn(
           'block min-w-0 break-words rounded px-1.5 py-1 text-[11px]',
           result.outcome === 'value'

@@ -1,39 +1,73 @@
 import { describe, expect, it } from 'vitest';
 import { VariableResponse_Status } from '@shared/proto/gen/api_pb';
-import { normalizeProbeTarget, describeVariableStatus } from './probe';
+import {
+  normalizeProbeTarget,
+  describeVariableStatus,
+  buildProbeEvalInvocation,
+  PROBE_EVAL_FUNCTION,
+} from './probe';
 
 describe('normalizeProbeTarget', () => {
-  it('passes a bare variable path through unchanged', () => {
-    expect(normalizeProbeTarget('session.name')).toEqual({ path: 'session.name' });
+  it('routes a bare variable path to the exact path resolver', () => {
+    expect(normalizeProbeTarget('session.name')).toEqual({ kind: 'path', path: 'session.name' });
   });
 
   it('trims surrounding whitespace', () => {
-    expect(normalizeProbeTarget('  user.theme  ')).toEqual({ path: 'user.theme' });
+    expect(normalizeProbeTarget('  user.theme  ')).toEqual({ kind: 'path', path: 'user.theme' });
   });
 
   it('unwraps a single full interpolated reference to its path', () => {
-    expect(normalizeProbeTarget('\\(session.name)')).toEqual({ path: 'session.name' });
+    expect(normalizeProbeTarget('\\(session.name)')).toEqual({
+      kind: 'path',
+      path: 'session.name',
+    });
   });
 
   it('rejects empty input', () => {
     const result = normalizeProbeTarget('   ');
-    expect(result).toHaveProperty('reject');
+    expect(result.kind).toBe('reject');
   });
 
-  it('rejects multi-reference interpolated templates instead of guessing', () => {
-    const result = normalizeProbeTarget('\\(session.name)/\\(session.username)');
-    expect(result).toHaveProperty('reject');
-    if ('reject' in result) expect(result.reject).toMatch(/multi-reference/i);
+  it('routes a multi-reference interpolated template to the template evaluator as-is', () => {
+    expect(normalizeProbeTarget('\\(session.name)/\\(session.username)')).toEqual({
+      kind: 'template',
+      template: '\\(session.name)/\\(session.username)',
+    });
   });
 
-  it('rejects function-call expressions', () => {
-    const result = normalizeProbeTarget('\\(iterm2.add(addends: 1))');
-    expect(result).toHaveProperty('reject');
-    if ('reject' in result) expect(result.reject).toMatch(/function-call/i);
+  it('routes an interpolated function call to the template evaluator as-is', () => {
+    expect(normalizeProbeTarget('\\(iterm2.add(addends: 1))')).toEqual({
+      kind: 'template',
+      template: '\\(iterm2.add(addends: 1))',
+    });
   });
 
-  it('rejects a bare function call with no interpolation wrapper', () => {
-    expect(normalizeProbeTarget('foo(bar)')).toHaveProperty('reject');
+  it('wraps a bare expression so iTerm2 evaluates it rather than echoing literal text', () => {
+    expect(normalizeProbeTarget('foo(bar)')).toEqual({
+      kind: 'template',
+      template: '\\(foo(bar))',
+    });
+  });
+
+  it('routes a template that mixes literal text and a reference', () => {
+    expect(normalizeProbeTarget('user: \\(session.username)')).toEqual({
+      kind: 'template',
+      template: 'user: \\(session.username)',
+    });
+  });
+});
+
+describe('buildProbeEvalInvocation', () => {
+  it('embeds the template as a double-quoted argument to the probe function', () => {
+    expect(buildProbeEvalInvocation('\\(session.name)/\\(session.tty)')).toBe(
+      `${PROBE_EVAL_FUNCTION}(value: "\\(session.name)/\\(session.tty)")`,
+    );
+  });
+
+  it('escapes literal double quotes so they do not close the wrapper', () => {
+    expect(buildProbeEvalInvocation('\\(session.name) said "hi"')).toBe(
+      `${PROBE_EVAL_FUNCTION}(value: "\\(session.name) said \\"hi\\"")`,
+    );
   });
 });
 
