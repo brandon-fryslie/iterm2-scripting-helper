@@ -332,22 +332,49 @@ test.describe('live iTerm2', () => {
       });
     }, { basename: tempBasename });
 
-    // Escape Sequence: build a SetMark sequence and emit to session.
+    // Escape Sequence: build the Inline Image (File) template through the real editor UI and
+    // emit it to the focused session (epic 449.1 acceptance: the File template emits a valid
+    // sequence that renders in the target session).
+    await win.getByTestId(`layout-session-${probe.sessionId}`).click();
     await win.getByTestId('workbench-rail-escape-sequence').click();
     // Entity-scoped artifact: banner says so, and the editor anchors its target to focus.
     await expect(win.getByTestId('artifact-scope-banner')).toHaveAttribute(
       'data-scope',
       'entity',
     );
-    const emit = await win.evaluate(async (args) => {
-      const text = '\x1b]1337;SetMark\x1b\\';
-      return window.ipc.invoke('actions/send-text', {
+
+    await win.getByTestId('escape-template-select').click();
+    await win.getByTestId('escape-template-osc1337-file-inline').click();
+    // 1x1 transparent PNG.
+    const pngBase64 =
+      'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==';
+    await win.getByTestId('escape-field-data_base64').fill(pngBase64);
+
+    // The preview derives from the same builder the unit tests pin byte-exactly.
+    await expect(win.getByTestId('escape-sequence-hex')).not.toBeEmpty();
+    await expect(win.getByTestId('escape-effective-target')).toHaveAttribute(
+      'data-target',
+      probe.sessionId,
+    );
+
+    await win.getByTestId('escape-send').click();
+    await expect(win.getByTestId('escape-last-result')).toHaveAttribute('data-ok', 'true');
+
+    // The terminal must keep rendering after consuming the image sequence: inject a marker as
+    // output and require it to surface as visible screen content below the image.
+    const marker = `escape-e2e-${Date.now()}`;
+    const markerHex = Array.from(new TextEncoder().encode(`\r\n${marker}\r\n`))
+      .map((b) => b.toString(16).padStart(2, '0'))
+      .join('');
+    await win.evaluate(async (args) => {
+      return window.ipc.invoke('actions/inject', {
         entity: { kind: 'session', windowId: '', tabId: '', sessionId: args.sessionId },
-        sessionId: args.sessionId,
-        text,
+        sessionIds: [args.sessionId],
+        bytesHex: args.markerHex,
       });
-    }, { sessionId: probe.sessionId });
-    expect(emit.ok).toBe(true);
+    }, { sessionId: probe.sessionId, markerHex });
+    const screenPane = win.getByTestId('screen-pane');
+    await expect(screenPane.locator('.xterm-rows')).toContainText(marker, { timeout: 10_000 });
 
     await app.close();
   });

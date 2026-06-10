@@ -97,3 +97,35 @@ test('dynamic profile editor surfaces JSON, shape, and parent-resolution states 
 
   await app.close();
 });
+
+test('escape editor previews incomplete input as an error and copies a built sequence offline', async () => {
+  test.skip(
+    process.env.CI === 'true',
+    'GitHub macOS runners cannot reliably launch the Electron app; run locally.',
+  );
+
+  const app = await launchApp();
+  const win = await app.firstWindow();
+
+  await win.getByTestId('workbench-rail-escape-sequence').click();
+
+  // A template missing a required field is an error *value* in the preview, never a crash, and
+  // emit/copy stay disabled until the sequence exists.
+  await win.getByTestId('escape-template-select').click();
+  await win.getByTestId('escape-template-osc1337-current-dir').click();
+  await expect(win.getByTestId('escape-build-error')).toContainText(
+    'missing required field: path',
+  );
+  await expect(win.getByTestId('escape-copy')).toBeDisabled();
+
+  await win.getByTestId('escape-field-path').fill('/tmp');
+  await expect(win.getByTestId('escape-sequence-readable')).toContainText('CurrentDir=/tmp');
+
+  // The clipboard half of the acceptance needs no iTerm2 connection at all.
+  await win.getByTestId('escape-copy').click();
+  await expect(win.getByTestId('escape-copied')).toBeVisible();
+  const clipboard = await win.evaluate(() => navigator.clipboard.readText());
+  expect(clipboard).toBe('\x1b]1337;CurrentDir=/tmp\x1b\\');
+
+  await app.close();
+});

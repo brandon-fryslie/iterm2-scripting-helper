@@ -6,16 +6,26 @@ import { Input } from '@/components/ui/input';
 import {
   Select,
   SelectContent,
+  SelectGroup,
   SelectItem,
+  SelectLabel,
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
+import { Textarea } from '@/components/ui/textarea';
 import { useStore } from '@/stores/context';
 import { ExpressionProbe } from '@/components/ExpressionProbe';
 import { flatSessions, sessionEntityRef } from '@shared/domain';
 import type { AppEntitySessionRef } from '@shared/domain';
-import { ESCAPE_TEMPLATES } from '@shared/escape-sequences';
-import type { EscapeTemplate } from '@shared/escape-sequences';
+import { ESCAPE_TEMPLATES, effectiveValues, renderTemplate } from '@shared/escape-sequences';
+import type { EscapeTemplate, TemplateField } from '@shared/escape-sequences';
+
+const TEMPLATE_GROUPS: ReadonlyArray<{ group: EscapeTemplate['group']; label: string }> = [
+  { group: 'osc-1337', label: 'OSC 1337 (iTerm2 proprietary)' },
+  { group: 'osc-133', label: 'OSC 133 (FinalTerm shell integration)' },
+  { group: 'osc-8', label: 'OSC 8 (hyperlinks)' },
+  { group: 'csi', label: 'CSI (SGR / cursor)' },
+];
 
 export const EscapeSequenceEditor = observer(function EscapeSequenceEditor() {
   const { workbench, monitor, entityFocus } = useStore();
@@ -25,12 +35,12 @@ export const EscapeSequenceEditor = observer(function EscapeSequenceEditor() {
   }, [workbench]);
 
   const template: EscapeTemplate | undefined = ESCAPE_TEMPLATES.find((t: EscapeTemplate) => t.id === workbench.escapeTemplateId);
-  const fields = template?.fields ?? [];
   const values = workbench.escapeTemplateValues[workbench.escapeTemplateId] ?? {};
-  let sequence = '';
-  if (template) {
-    sequence = template.build(values);
-  }
+  const fields = template?.fields ?? [];
+  const display = template ? effectiveValues(template, values) : {};
+  // Incomplete input is a value ({ok:false}), never an exception escaping into render.
+  const built = template ? renderTemplate(template, values) : null;
+  const sequence = built?.ok ? built.sequence : '';
 
   const sessions: Array<{ sessionId: string; title: string; ref: AppEntitySessionRef }> = [];
   for (const w of monitor.layout.windows) {
@@ -61,29 +71,37 @@ export const EscapeSequenceEditor = observer(function EscapeSequenceEditor() {
             value={workbench.escapeTemplateId}
             onValueChange={(v) => workbench.setEscapeTemplate(v)}
           >
-            <SelectTrigger>
+            <SelectTrigger data-testid="escape-template-select">
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
-              {ESCAPE_TEMPLATES.map((t: EscapeTemplate) => (
-                <SelectItem key={t.id} value={t.id}>
-                  {t.label}
-                </SelectItem>
+              {TEMPLATE_GROUPS.map(({ group, label }) => (
+                <SelectGroup key={group}>
+                  <SelectLabel>{label}</SelectLabel>
+                  {ESCAPE_TEMPLATES.filter((t: EscapeTemplate) => t.group === group).map((t) => (
+                    <SelectItem key={t.id} value={t.id} data-testid={`escape-template-${t.id}`}>
+                      {t.label}
+                    </SelectItem>
+                  ))}
+                </SelectGroup>
               ))}
             </SelectContent>
           </Select>
           {template?.description && (
             <p className="text-xs text-muted-foreground">{template.description}</p>
           )}
-          {fields.map((f: { name: string; placeholder?: string; default?: string }) => (
-            <label key={f.name} className="grid grid-cols-[8rem_1fr] items-center gap-2">
-              <span className="text-xs text-muted-foreground">{f.name}</span>
-              <Input
-                value={values[f.name] ?? f.default}
-                onChange={(e) =>
-                  workbench.setEscapeField(workbench.escapeTemplateId, f.name, e.target.value)
+          {fields.map((f: TemplateField) => (
+            <label key={f.name} className="grid grid-cols-[8rem_1fr] items-start gap-2">
+              <span className="pt-2 text-xs text-muted-foreground">
+                {f.name}
+                {f.help && <span className="mt-0.5 block text-[10px] opacity-70">{f.help}</span>}
+              </span>
+              <EscapeFieldInput
+                field={f}
+                value={display[f.name] ?? ''}
+                onChange={(value) =>
+                  workbench.setEscapeField(workbench.escapeTemplateId, f.name, value)
                 }
-                placeholder={f.placeholder}
               />
             </label>
           ))}
@@ -116,6 +134,10 @@ export const EscapeSequenceEditor = observer(function EscapeSequenceEditor() {
                 </pre>
               </div>
             </>
+          ) : built && !built.ok ? (
+            <p className="text-xs text-destructive" data-testid="escape-build-error">
+              {built.error}
+            </p>
           ) : (
             <p className="text-xs text-muted-foreground">Select a template above.</p>
           )}
@@ -156,11 +178,13 @@ export const EscapeSequenceEditor = observer(function EscapeSequenceEditor() {
             <Button
               onClick={async () => {
                 if (!sequence || !targetRef) return;
-                const result = await window.ipc.invoke('actions/send-text', {
+                // Escape sequences are a terminal-*output* protocol: inject delivers the bytes as
+                // though the session's process emitted them. send-text would hand them to the
+                // shell as typed input, where they are echoed in caret notation, not interpreted.
+                const result = await window.ipc.invoke('actions/inject', {
                   entity: targetRef,
-                  sessionId: targetRef.sessionId,
-                  text: sequence,
-                  suppressBroadcast: true,
+                  sessionIds: [targetRef.sessionId],
+                  bytesHex: toHex(sequence),
                 });
                 workbench.recordEscape(sequence, result);
               }}
@@ -169,9 +193,30 @@ export const EscapeSequenceEditor = observer(function EscapeSequenceEditor() {
             >
               Emit to session
             </Button>
+            <Button
+              variant="outline"
+              onClick={async () => {
+                if (!sequence) return;
+                await navigator.clipboard.writeText(sequence);
+                workbench.recordEscapeCopy(sequence);
+              }}
+              disabled={!sequence}
+              data-testid="escape-copy"
+            >
+              Copy to clipboard
+            </Button>
             {workbench.escapeLastSent && (
-              <span className="text-xs text-muted-foreground">
+              <span
+                className="text-xs text-muted-foreground"
+                data-testid="escape-last-result"
+                data-ok={workbench.escapeLastSent.result.ok ? 'true' : 'false'}
+              >
                 last: {workbench.escapeLastSent.result.ok ? 'ok' : workbench.escapeLastSent.result.error}
+              </span>
+            )}
+            {workbench.escapeLastCopied && (
+              <span className="text-xs text-muted-foreground" data-testid="escape-copied">
+                copied {workbench.escapeLastCopied.length} chars
               </span>
             )}
           </div>
@@ -194,6 +239,52 @@ export const EscapeSequenceEditor = observer(function EscapeSequenceEditor() {
   );
 });
 
+function EscapeFieldInput({
+  field,
+  value,
+  onChange,
+}: {
+  field: TemplateField;
+  value: string;
+  onChange: (value: string) => void;
+}) {
+  if (field.type === 'select') {
+    return (
+      <Select value={value} onValueChange={onChange}>
+        <SelectTrigger data-testid={`escape-field-${field.name}`}>
+          <SelectValue />
+        </SelectTrigger>
+        <SelectContent>
+          {field.options.map((opt) => (
+            <SelectItem key={opt} value={opt}>
+              {opt}
+            </SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
+    );
+  }
+  if (field.type === 'multiline' || field.type === 'file-base64') {
+    return (
+      <Textarea
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        placeholder={field.placeholder}
+        className="min-h-16 font-mono text-xs"
+        data-testid={`escape-field-${field.name}`}
+      />
+    );
+  }
+  return (
+    <Input
+      value={value}
+      onChange={(e) => onChange(e.target.value)}
+      placeholder={field.placeholder}
+      data-testid={`escape-field-${field.name}`}
+    />
+  );
+}
+
 function humanize(s: string): string {
   return s
     .replace(/\x1b/g, '\\e')
@@ -201,8 +292,16 @@ function humanize(s: string): string {
     .replace(/\x00/g, '\\0');
 }
 
+// [LAW:one-source-of-truth] The hex shown in the preview and the hex sent over inject are the
+// same UTF-8 byte derivation; charCodeAt would report UTF-16 code units, not wire bytes.
+function utf8Hex(s: string): string[] {
+  return Array.from(new TextEncoder().encode(s)).map((b) => b.toString(16).padStart(2, '0'));
+}
+
+function toHex(s: string): string {
+  return utf8Hex(s).join('');
+}
+
 function hexdump(s: string): string {
-  return Array.from(s)
-    .map((c) => c.charCodeAt(0).toString(16).padStart(2, '0'))
-    .join(' ');
+  return utf8Hex(s).join(' ');
 }

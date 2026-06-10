@@ -86,6 +86,7 @@ export class WorkbenchStore {
   escapeTemplateTarget = '';
   escapeTemplateValues: Record<string, Record<string, string>> = {};
   escapeLastSent: EscapeEmitted | null = null;
+  escapeLastCopied: string | null = null;
 
   registrationForm: RegistrationFormState = initialRegistrationForm();
   registrationsSnapshot: RegistrationSnapshot = {
@@ -370,6 +371,10 @@ export class WorkbenchStore {
 
   recordEscape(sequence: string, result: ActionResult): void {
     this.escapeLastSent = { sequence, result };
+  }
+
+  recordEscapeCopy(sequence: string): void {
+    this.escapeLastCopied = sequence;
   }
 
   updateRegistrationForm(patch: Partial<RegistrationFormState>): void {
