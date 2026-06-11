@@ -883,6 +883,16 @@ end tell'`,
       expect(captured.ok, `initial table read: ${captured.ok ? '' : captured.error}`).toBe(true);
       if (captured.ok) initialTable = captured;
 
+      // Zero the table so the editor starts deterministic: the new domain the test creates is
+      // index 0 regardless of what the user had. Teardown restores the captured table verbatim.
+      const zeroed = await win.evaluate(async () => {
+        return window.ipc.invoke('actions/set-broadcast-domains', {
+          entity: { kind: 'app' },
+          domains: [],
+        });
+      });
+      expect(zeroed.ok, `zeroing table: ${zeroed.error ?? ''}`).toBe(true);
+
       // Both sessions must surface in the layout before the editor can place them.
       await expect(async () => {
         const present = await win.evaluate(async (args) => {
