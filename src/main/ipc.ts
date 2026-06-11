@@ -33,9 +33,11 @@ import {
   actionInvokeFunction,
   actionRestartSession,
   actionClose,
+  actionSavedArrangement,
   actionRawProtobuf,
 } from './actions';
 import { listProfiles } from './workbench';
+import { arrangementSnapshot } from './arrangements';
 
 type Handlers = { [M in RpcMethod]: (args: RpcArgs<M>) => Promise<RpcResult<M>> };
 
@@ -166,6 +168,9 @@ export function registerIpc(
       actionRestartSession(orchestrator, args),
     ),
     'actions/close': action('close', (args) => actionClose(orchestrator, args)),
+    'actions/saved-arrangement': action('saved-arrangement', (args) =>
+      actionSavedArrangement(orchestrator, args),
+    ),
     'actions/raw-protobuf': action('raw-protobuf', (args) =>
       actionRawProtobuf(orchestrator, args),
     ),
@@ -260,6 +265,7 @@ export function registerIpc(
       }
     },
     'workbench/custom-escape': async () => monitor.customEscape.snapshot(),
+    'workbench/arrangements': async () => arrangementSnapshot(orchestrator),
   };
 
   ipcMain.handle('rpc', async (_event, payload: { method: RpcMethod; args: unknown }) => {

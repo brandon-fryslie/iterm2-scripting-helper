@@ -43,6 +43,11 @@ export const ARTIFACT_SCOPE: Record<WorkbenchArtifact, ArtifactScope> = {
     label: 'Profile',
     blurb: "Edits a profile's Triggers array; applies wherever that profile is active.",
   },
+  arrangement: {
+    kind: 'connection',
+    label: 'Connection-wide',
+    blurb: 'Saves and restores named window arrangements for the whole iTerm2 app.',
+  },
 };
 
 // [LAW:single-enforcer] The one predicate that answers "does this artifact act on the focused

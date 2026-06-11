@@ -71,4 +71,31 @@ describe('ConsoleStore act-in-context', () => {
     expect(fired.method).toBe('actions/activate');
     expect(fired.args.target).toEqual({ kind: 'tab', id: 't1' });
   });
+
+  it('fires saved-arrangement with op as a value and omits an empty windowId', async () => {
+    store.setAction('saved-arrangement');
+    store.updateForm('saved-arrangement', { op: 'restore', name: 'dev layout' });
+
+    await store.fire('saved-arrangement');
+
+    const fired = ipc.appended[0];
+    expect(fired.method).toBe('actions/saved-arrangement');
+    expect(fired.args.op).toBe('restore');
+    expect(fired.args.name).toBe('dev layout');
+    // Empty windowId means "restore as new windows" — the wire field is absent, not ''.
+    expect('windowId' in fired.args).toBe(false);
+  });
+
+  it('saved-arrangement snippets survive the IPC structured clone like every other action', async () => {
+    store.setAction('saved-arrangement');
+    store.updateForm('saved-arrangement', { op: 'save', name: 'snap', windowId: 'w9' });
+    const snippet = store.saveSnippet('save snap');
+
+    const result = await store.fireSnippet(snippet.id);
+
+    expect(result).not.toBeNull();
+    const fired = ipc.appended[0];
+    expect(fired.method).toBe('actions/saved-arrangement');
+    expect(fired.args).toMatchObject({ op: 'save', name: 'snap', windowId: 'w9' });
+  });
 });

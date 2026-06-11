@@ -7,6 +7,7 @@ import { DynamicProfileEditor } from './DynamicProfileEditor';
 import { EscapeSequenceEditor } from './EscapeSequenceEditor';
 import { RegistrationEditor } from './RegistrationEditor';
 import { TriggersViewer } from './TriggersViewer';
+import { ArrangementViewer } from './ArrangementViewer';
 import { ArtifactScopeBanner } from './ArtifactScopeBanner';
 
 const RAIL: Array<{ id: WorkbenchArtifact; label: string }> = [
@@ -15,6 +16,7 @@ const RAIL: Array<{ id: WorkbenchArtifact; label: string }> = [
   { id: 'escape-sequence', label: 'Escape Sequences' },
   { id: 'registrations', label: 'Registrations' },
   { id: 'triggers', label: 'Triggers' },
+  { id: 'arrangement', label: 'Arrangements' },
 ];
 
 // Authored behavior: artifacts that preview and act against the focused entity. The entity-scoped
@@ -47,6 +49,7 @@ export const AuthorPane = observer(function AuthorPane() {
         {workbench.artifact === 'escape-sequence' && <EscapeSequenceEditor />}
         {workbench.artifact === 'registrations' && <RegistrationEditor />}
         {workbench.artifact === 'triggers' && <TriggersViewer />}
+        {workbench.artifact === 'arrangement' && <ArrangementViewer />}
       </section>
     </div>
   );

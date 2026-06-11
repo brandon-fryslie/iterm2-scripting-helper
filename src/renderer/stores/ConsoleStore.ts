@@ -1,16 +1,16 @@
 import { makeAutoObservable, observable } from 'mobx';
-import type { ActionResult, RpcMethod, RpcArgs } from '@shared/rpc';
+import type {
+  ActionResult,
+  AppActionKind,
+  ArrangementOp,
+  RpcMethod,
+  RpcArgs,
+} from '@shared/rpc';
 import type { EntityFocusStore } from './EntityFocusStore';
 
-export type ActionKind =
-  | 'send-text'
-  | 'inject'
-  | 'activate'
-  | 'menu-item'
-  | 'invoke-function'
-  | 'restart-session'
-  | 'close'
-  | 'raw-protobuf';
+// [LAW:one-source-of-truth] The console fires exactly the action kinds the spine records;
+// domain.ts owns the closed set.
+export type ActionKind = AppActionKind;
 
 type ActionMethod = Extract<RpcMethod, `actions/${string}`>;
 // The protocol args a form produces, before the focused entity is attached at fire time. The entity
@@ -25,6 +25,7 @@ const ACTION_METHODS: Record<ActionKind, ActionMethod> = {
   'invoke-function': 'actions/invoke-function',
   'restart-session': 'actions/restart-session',
   close: 'actions/close',
+  'saved-arrangement': 'actions/saved-arrangement',
   'raw-protobuf': 'actions/raw-protobuf',
 };
 
@@ -56,6 +57,8 @@ export interface ActionForms {
   };
   'restart-session': { sessionId: string; onlyIfExited: boolean };
   close: { kind: 'sessions' | 'tabs' | 'windows'; idsCsv: string; force: boolean };
+  // windowId semantics live on the rpc.ts ArrangementOp type, the one home of that truth.
+  'saved-arrangement': { op: ArrangementOp; name: string; windowId: string };
   'raw-protobuf': { envelopeJson: string };
 }
 
@@ -79,6 +82,7 @@ const DEFAULT_FORMS: ActionForms = {
   },
   'restart-session': { sessionId: '', onlyIfExited: false },
   close: { kind: 'sessions', idsCsv: '', force: false },
+  'saved-arrangement': { op: 'save', name: '', windowId: '' },
   'raw-protobuf': {
     envelopeJson: `{\n  "submessage": {\n    "listSessionsRequest": {}\n  }\n}`,
   },
@@ -171,6 +175,14 @@ export class ConsoleStore {
           kind: f.kind,
           ids: f.idsCsv.split(',').map((s) => s.trim()).filter(Boolean),
           force: f.force,
+        };
+      }
+      case 'saved-arrangement': {
+        const f = this.forms['saved-arrangement'];
+        return {
+          op: f.op,
+          name: f.name,
+          ...(f.windowId ? { windowId: f.windowId } : {}),
         };
       }
       case 'raw-protobuf':

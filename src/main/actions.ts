@@ -17,6 +17,9 @@ import {
   CloseRequest_CloseSessionsSchema,
   CloseRequest_CloseTabsSchema,
   CloseRequest_CloseWindowsSchema,
+  SavedArrangementRequestSchema,
+  SavedArrangementRequest_Action,
+  SavedArrangementResponse_Status,
   type ServerOriginatedMessage,
   type ActivateRequest,
   type InvokeFunctionRequest,
@@ -25,6 +28,7 @@ import {
 import type {
   ActionResult,
   ActivateTarget,
+  ArrangementOp,
   CloseTargetKind,
   InvokeScope,
 } from '@shared/rpc';
@@ -280,6 +284,62 @@ export async function actionClose(
   return fire(orchestrator, {
     submessage: { case: 'closeRequest', value },
   });
+}
+
+const ARRANGEMENT_OP_TO_WIRE: Record<ArrangementOp, SavedArrangementRequest_Action> = {
+  save: SavedArrangementRequest_Action.SAVE,
+  restore: SavedArrangementRequest_Action.RESTORE,
+};
+
+export async function actionSavedArrangement(
+  orchestrator: ConnectionOrchestrator,
+  args: { op: ArrangementOp; name: string; windowId?: string },
+): Promise<ActionResult> {
+  if (!args.name) {
+    return {
+      ok: false,
+      error: 'arrangement name required',
+      latencyMs: 0,
+      responseCase: null,
+      payload: null,
+      requestId: null,
+    };
+  }
+  const value = create(SavedArrangementRequestSchema, {
+    name: args.name,
+    action: ARRANGEMENT_OP_TO_WIRE[args.op],
+    ...(args.windowId ? { windowId: args.windowId } : {}),
+  });
+  let wireStatus: SavedArrangementResponse_Status | null = null;
+  const result = await fire(
+    orchestrator,
+    { submessage: { case: 'savedArrangementRequest', value } },
+    (msg) => {
+      if (msg.submessage.case !== 'savedArrangementResponse') return null;
+      wireStatus = msg.submessage.value.status;
+      return { status: SavedArrangementResponse_Status[wireStatus] ?? String(wireStatus) };
+    },
+  );
+  if (!result.ok) return result;
+  // [LAW:no-silent-failure] Transport success is not action success: a response that never carried
+  // a savedArrangementResponse has no status to trust, and a refusal status (arrangement or window
+  // not found, malformed request) is a failed action, not a success with fine print. The check
+  // compares the wire enum value itself, same encoding the LIST read uses.
+  if (wireStatus === null) {
+    return {
+      ...result,
+      ok: false,
+      error: `expected savedArrangementResponse, got ${result.responseCase ?? '<none>'}`,
+    };
+  }
+  if (wireStatus !== SavedArrangementResponse_Status.OK) {
+    return {
+      ...result,
+      ok: false,
+      error: `iTerm2 refused: ${SavedArrangementResponse_Status[wireStatus] ?? wireStatus}`,
+    };
+  }
+  return result;
 }
 
 export async function actionRawProtobuf(

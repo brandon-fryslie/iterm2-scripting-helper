@@ -2,13 +2,9 @@ import { describe, expect, it } from 'vitest';
 import { ARTIFACT_SCOPE, isEntityScoped } from './scope';
 import type { WorkbenchArtifact } from '@/stores/WorkbenchStore';
 
-const ALL_ARTIFACTS: WorkbenchArtifact[] = [
-  'profile',
-  'dynamic-profile',
-  'escape-sequence',
-  'registrations',
-  'triggers',
-];
+// [LAW:one-source-of-truth] Derived from the total Record (which the compiler already forces to
+// cover the union) rather than hand-enumerated — a hand copy silently stops covering new artifacts.
+const ALL_ARTIFACTS = Object.keys(ARTIFACT_SCOPE) as WorkbenchArtifact[];
 
 describe('ARTIFACT_SCOPE', () => {
   it('classifies every artifact with a non-empty label and blurb', () => {
@@ -30,5 +26,6 @@ describe('ARTIFACT_SCOPE', () => {
     expect(isEntityScoped('triggers')).toBe(false);
     expect(isEntityScoped('registrations')).toBe(false);
     expect(isEntityScoped('dynamic-profile')).toBe(false);
+    expect(isEntityScoped('arrangement')).toBe(false);
   });
 });

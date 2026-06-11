@@ -297,6 +297,51 @@ export const CloseForm = observer(function CloseForm() {
   );
 });
 
+export const SavedArrangementForm = observer(function SavedArrangementForm() {
+  const { console: c } = useStore();
+  const f = c.forms['saved-arrangement'];
+  return (
+    <div className="grid gap-2" data-testid="form-saved-arrangement">
+      <Field label="Operation">
+        <Select
+          value={f.op}
+          onValueChange={(v) =>
+            c.updateForm('saved-arrangement', { op: v as typeof f.op })
+          }
+        >
+          <SelectTrigger data-testid="saved-arrangement-op">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="save">save</SelectItem>
+            <SelectItem value="restore">restore</SelectItem>
+          </SelectContent>
+        </Select>
+      </Field>
+      <Field label="Arrangement name">
+        <Input
+          value={f.name}
+          onChange={(e) => c.updateForm('saved-arrangement', { name: e.target.value })}
+          placeholder="dev layout"
+          data-testid="saved-arrangement-name"
+        />
+      </Field>
+      <Field label="Window id (optional)">
+        <Input
+          value={f.windowId}
+          onChange={(e) => c.updateForm('saved-arrangement', { windowId: e.target.value })}
+          placeholder={
+            f.op === 'save'
+              ? '(empty = save all windows; id = only that window)'
+              : '(empty = restore as new windows; id = restore into that window)'
+          }
+          data-testid="saved-arrangement-window"
+        />
+      </Field>
+    </div>
+  );
+});
+
 export const RawProtobufForm = observer(function RawProtobufForm() {
   const { console: c } = useStore();
   const f = c.forms['raw-protobuf'];

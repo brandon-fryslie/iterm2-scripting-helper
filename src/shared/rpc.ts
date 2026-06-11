@@ -1,3 +1,4 @@
+import type { PlistJson } from './plist';
 import type {
   AppEntityRef,
   AppLayout,
@@ -107,6 +108,29 @@ export type InvokeScope =
   | { kind: 'window'; id: string };
 
 export type CloseTargetKind = 'sessions' | 'tabs' | 'windows';
+
+// The two verbs of the SavedArrangementRequest wire message that mutate state; LIST is a read and
+// belongs to the workbench snapshot, not the action. windowId follows the wire's dual semantics:
+// with 'save' it scopes the save to one window's tabs, with 'restore' it restores into an existing
+// window (absent = restore as new windows — the "apply to new window" workflow is this value).
+export type ArrangementOp = 'save' | 'restore';
+
+// [LAW:one-source-of-truth] An arrangement has two independent authorities: iTerm2's engine answers
+// "which names exist" (the LIST wire message), and the com.googlecode.iterm2 defaults domain holds
+// the saved content under 'Window Arrangements'. The snapshot carries both results separately —
+// each side can fail on its own and is never synthesized from the other ([LAW:no-silent-failure]).
+export type ArrangementNamesResult =
+  | { ok: true; names: string[] }
+  | { ok: false; error: string };
+
+export type ArrangementContentsResult =
+  | { ok: true; arrangements: Record<string, PlistJson> }
+  | { ok: false; error: string };
+
+export interface ArrangementSnapshot {
+  names: ArrangementNamesResult;
+  contents: ArrangementContentsResult;
+}
 
 export interface ProfileSummary {
   guid: string;
@@ -367,6 +391,10 @@ export type RpcSchema = {
     args: { entity: AppEntityRef; kind: CloseTargetKind; ids: string[]; force?: boolean };
     result: ActionResult;
   };
+  'actions/saved-arrangement': {
+    args: { entity: AppEntityRef; op: ArrangementOp; name: string; windowId?: string };
+    result: ActionResult;
+  };
   'actions/raw-protobuf': {
     args: { entity: AppEntityRef; envelopeJson: string };
     result: ActionResult;
@@ -410,6 +438,10 @@ export type RpcSchema = {
   'workbench/custom-escape': {
     args: void;
     result: CustomEscapeSnapshot;
+  };
+  'workbench/arrangements': {
+    args: void;
+    result: ArrangementSnapshot;
   };
 };
 
