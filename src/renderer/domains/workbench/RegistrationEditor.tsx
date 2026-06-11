@@ -14,14 +14,19 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { useStore } from '@/stores/context';
-import type { RegistrationRole, KnobSpec } from '@shared/rpc';
+import {
+  ROLE_CAPABILITIES,
+  registrationDisplayName,
+  type RegistrationRole,
+  type KnobSpec,
+} from '@shared/rpc';
 
-const ROLES: Array<{ value: RegistrationRole; label: string }> = [
-  { value: 'generic', label: 'Generic RPC' },
-  { value: 'status-bar', label: 'Status Bar Component' },
-  { value: 'session-title', label: 'Session Title' },
-  { value: 'context-menu', label: 'Context Menu' },
-];
+// [LAW:one-source-of-truth] The role list, labels, and per-role capabilities all come from the one
+// catalog in shared/rpc.ts — adding a role there is the only step that grows this editor.
+const ROLES = Object.entries(ROLE_CAPABILITIES).map(([value, caps]) => ({
+  value: value as RegistrationRole,
+  label: caps.label,
+}));
 
 const KNOB_TYPES: Array<KnobSpec['type']> = [
   'Checkbox',
@@ -87,43 +92,47 @@ export const RegistrationEditor = observer(function RegistrationEditor() {
               </SelectContent>
             </Select>
           </label>
-          <Field label="Function name">
-            <Input
-              value={form.name}
-              onChange={(e) => workbench.updateRegistrationForm({ name: e.target.value })}
-              placeholder="my_rpc"
-              data-testid="registration-name"
-            />
-          </Field>
-          <Field label="Args (csv)">
-            <Input
-              value={form.argumentsCsv}
-              onChange={(e) =>
-                workbench.updateRegistrationForm({ argumentsCsv: e.target.value })
-              }
-              placeholder="session_id, cadence"
-            />
-          </Field>
-          <Field label="Timeout (s)">
-            <Input
-              type="number"
-              value={form.timeout}
-              onChange={(e) =>
-                workbench.updateRegistrationForm({ timeout: Number(e.target.value) || 0 })
-              }
-            />
-          </Field>
-          <Field label="Response JSON">
-            <Textarea
-              rows={3}
-              className="font-mono text-xs"
-              value={form.responseTemplate}
-              onChange={(e) =>
-                workbench.updateRegistrationForm({ responseTemplate: e.target.value })
-              }
-              data-testid="registration-response"
-            />
-          </Field>
+          {form.role !== 'toolbelt' && (
+            <>
+              <Field label="Function name">
+                <Input
+                  value={form.name}
+                  onChange={(e) => workbench.updateRegistrationForm({ name: e.target.value })}
+                  placeholder="my_rpc"
+                  data-testid="registration-name"
+                />
+              </Field>
+              <Field label="Args (csv)">
+                <Input
+                  value={form.argumentsCsv}
+                  onChange={(e) =>
+                    workbench.updateRegistrationForm({ argumentsCsv: e.target.value })
+                  }
+                  placeholder="session_id, cadence"
+                />
+              </Field>
+              <Field label="Timeout (s)">
+                <Input
+                  type="number"
+                  value={form.timeout}
+                  onChange={(e) =>
+                    workbench.updateRegistrationForm({ timeout: Number(e.target.value) || 0 })
+                  }
+                />
+              </Field>
+              <Field label="Response JSON">
+                <Textarea
+                  rows={3}
+                  className="font-mono text-xs"
+                  value={form.responseTemplate}
+                  onChange={(e) =>
+                    workbench.updateRegistrationForm({ responseTemplate: e.target.value })
+                  }
+                  data-testid="registration-response"
+                />
+              </Field>
+            </>
+          )}
 
           {form.role === 'status-bar' && (
             <>
@@ -268,13 +277,69 @@ export const RegistrationEditor = observer(function RegistrationEditor() {
             </>
           )}
 
+          {form.role === 'toolbelt' && (
+            <>
+              <Separator />
+              <div className="text-xs text-muted-foreground">
+                Webview tool shown in the iTerm2 toolbelt. Tools persist in iTerm2 until it
+                restarts; re-registering the same identifier updates it in place.
+              </div>
+              <Field label="Display name">
+                <Input
+                  value={form.toolbeltDisplayName}
+                  onChange={(e) =>
+                    workbench.updateRegistrationForm({ toolbeltDisplayName: e.target.value })
+                  }
+                  data-testid="toolbelt-display-name"
+                />
+              </Field>
+              <Field label="Identifier">
+                <Input
+                  value={form.toolbeltIdentifier}
+                  onChange={(e) =>
+                    workbench.updateRegistrationForm({ toolbeltIdentifier: e.target.value })
+                  }
+                  placeholder="com.example.my-tool"
+                  data-testid="toolbelt-identifier"
+                />
+              </Field>
+              <Field label="URL">
+                <Input
+                  value={form.toolbeltUrl}
+                  onChange={(e) =>
+                    workbench.updateRegistrationForm({ toolbeltUrl: e.target.value })
+                  }
+                  placeholder="https://example.com"
+                  data-testid="toolbelt-url"
+                />
+              </Field>
+              <Field label="Reveal if registered">
+                <input
+                  type="checkbox"
+                  checked={form.toolbeltReveal}
+                  onChange={(e) =>
+                    workbench.updateRegistrationForm({ toolbeltReveal: e.target.checked })
+                  }
+                />
+              </Field>
+            </>
+          )}
+
           <Separator />
+          <Field label="Preview">
+            <pre
+              className="max-h-48 overflow-auto rounded bg-muted p-2 font-mono text-[10px]"
+              data-testid="registration-preview"
+            >
+              {JSON.stringify(workbench.registrationDraft, null, 2)}
+            </pre>
+          </Field>
           <div className="flex items-center gap-2">
             <Button
               onClick={() => void workbench.registerRpc()}
               data-testid="registration-register"
             >
-              Register
+              Install
             </Button>
             {workbench.registrationLastResult && (
               <Badge
@@ -312,23 +377,39 @@ export const RegistrationEditor = observer(function RegistrationEditor() {
                   data-testid={`registration-${r.id}`}
                 >
                   <div className="flex items-center gap-2">
-                    <Badge variant="outline">{r.role}</Badge>
-                    <span className="font-mono">{r.name}</span>
+                    <Badge variant="outline">{ROLE_CAPABILITIES[r.role].label}</Badge>
+                    <span className="font-mono">{registrationDisplayName(r)}</span>
                     <Button
                       size="sm"
                       variant="ghost"
                       className="ml-auto"
                       onClick={() => void workbench.unregisterRpc(r.id)}
                       data-testid={`registration-unregister-${r.id}`}
+                      title={
+                        ROLE_CAPABILITIES[r.role].wireUnregister
+                          ? undefined
+                          : 'iTerm2 has no unregister for tools; this forgets it locally and iTerm2 keeps it until restart'
+                      }
                     >
-                      Unregister
+                      {ROLE_CAPABILITIES[r.role].wireUnregister ? 'Unregister' : 'Forget'}
                     </Button>
                   </div>
-                  {r.statusBar && (
+                  {r.role === 'status-bar' && (
                     <div className="mt-1 text-muted-foreground">
-                      id=<code>{r.statusBar.uniqueIdentifier}</code> ·{' '}
-                      {r.statusBar.knobs.length} knob(s) · cadence{' '}
-                      {r.statusBar.updateCadence}s
+                      id=<code>{r.attrs.uniqueIdentifier}</code> ·{' '}
+                      {r.attrs.knobs.length} knob(s) · cadence{' '}
+                      {r.attrs.updateCadence}s
+                    </div>
+                  )}
+                  {(r.role === 'session-title' || r.role === 'context-menu') && (
+                    <div className="mt-1 text-muted-foreground">
+                      id=<code>{r.attrs.uniqueIdentifier}</code>
+                    </div>
+                  )}
+                  {r.role === 'toolbelt' && (
+                    <div className="mt-1 text-muted-foreground">
+                      id=<code>{r.attrs.identifier}</code> · {r.attrs.url} · persists in
+                      iTerm2 until restart
                     </div>
                   )}
                 </li>
