@@ -9,24 +9,13 @@ import {
 import type { ConnectionOrchestrator } from './drivers/ConnectionOrchestrator';
 import type { ProfileSummary, ProfileListResult, ActionResult } from '@shared/rpc';
 
-export const PROFILE_KEYS = {
-  name: 'Name',
-  backgroundColor: 'Background Color',
-  foregroundColor: 'Foreground Color',
-  badgeText: 'Badge Text',
-  transparency: 'Transparency',
-  cursorColor: 'Cursor Color',
-  useTransparency: 'Use Transparency',
-  normalFont: 'Normal Font',
-} as const;
-
-const FETCH_KEYS = Object.values(PROFILE_KEYS);
-
 export async function listProfiles(
   orchestrator: ConnectionOrchestrator,
 ): Promise<ProfileListResult> {
+  // An empty properties list asks iTerm2 for EVERY profile property — the read-only API-view
+  // inspector's whole point is the full raw key space, not a curated subset.
   const req = create(ListProfilesRequestSchema, {
-    properties: [...FETCH_KEYS, 'Guid'],
+    properties: [],
     guids: [],
   });
   const response = await orchestrator.sendRequest({
@@ -48,7 +37,7 @@ export async function listProfiles(
     const guid = parseJson(map.get('Guid')) ?? '';
     return {
       guid: typeof guid === 'string' ? guid : String(guid ?? ''),
-      name: (parseJson(map.get(PROFILE_KEYS.name)) as string | undefined) ?? '(unnamed)',
+      name: (parseJson(map.get('Name')) as string | undefined) ?? '(unnamed)',
       properties: Object.fromEntries(map.entries()),
     };
   });

@@ -21,6 +21,8 @@ export function launchApp() {
     executablePath,
     args: ['-r', playwrightElectronLoader, mainEntry],
     cwd: repoRoot,
+    // Tests must never steal foreground focus from whatever the user is doing.
+    env: { ...process.env, WORKBENCH_BACKGROUND: '1' },
   });
 }
 

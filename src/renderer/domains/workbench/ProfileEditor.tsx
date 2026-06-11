@@ -1,8 +1,8 @@
+import { useState } from 'react';
 import { observer } from 'mobx-react-lite';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { Badge } from '@/components/ui/badge';
 import { useStore } from '@/stores/context';
 import {
   Select,
@@ -61,128 +61,88 @@ export const ProfileEditor = observer(function ProfileEditor() {
         </CardContent>
       </Card>
 
-      {selected && (
-        <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-base">Edit</CardTitle>
-          </CardHeader>
-          <CardContent className="grid gap-3 text-sm">
-            <Field label="Name">
-              <Input
-                value={workbench.profileEdit.name}
-                onChange={(e) => workbench.updateEdit({ name: e.target.value })}
-                data-testid="profile-edit-name"
-              />
-            </Field>
-            <Field label="Background">
-              <ColorInput
-                value={workbench.profileEdit.backgroundHex}
-                onChange={(v) => workbench.updateEdit({ backgroundHex: v })}
-                testId="profile-edit-bg"
-              />
-            </Field>
-            <Field label="Foreground">
-              <ColorInput
-                value={workbench.profileEdit.foregroundHex}
-                onChange={(v) => workbench.updateEdit({ foregroundHex: v })}
-                testId="profile-edit-fg"
-              />
-            </Field>
-            <Field label="Badge text">
-              <Input
-                value={workbench.profileEdit.badgeText}
-                onChange={(e) => workbench.updateEdit({ badgeText: e.target.value })}
-                data-testid="profile-edit-badge"
-              />
-            </Field>
-            <Field label="Transparency">
-              <Input
-                type="number"
-                step="0.05"
-                min="0"
-                max="1"
-                value={workbench.profileEdit.transparency}
-                onChange={(e) =>
-                  workbench.updateEdit({ transparency: e.target.value })
-                }
-              />
-            </Field>
-            <Field label="Use transparency">
-              <input
-                type="checkbox"
-                checked={workbench.profileEdit.useTransparency}
-                onChange={(e) =>
-                  workbench.updateEdit({ useTransparency: e.target.checked })
-                }
-              />
-            </Field>
-            <div className="flex items-center gap-2">
-              <Button
-                onClick={() => void workbench.applyProfileEdits()}
-                data-testid="profile-edit-apply"
-              >
-                Apply to profile
-              </Button>
-              {workbench.profileLastResult && (
-                <>
-                  <Badge
-                    variant={
-                      workbench.profileLastResult.ok ? 'default' : 'destructive'
-                    }
-                    data-testid="profile-edit-result"
-                  >
-                    {workbench.profileLastResult.ok ? 'applied' : 'error'}
-                  </Badge>
-                  <span className="text-xs text-muted-foreground">
-                    {workbench.profileLastResult.latencyMs} ms
-                  </span>
-                  {workbench.profileLastResult.error && (
-                    <span className="text-xs text-destructive">
-                      {workbench.profileLastResult.error}
-                    </span>
-                  )}
-                </>
-              )}
-            </div>
-          </CardContent>
-        </Card>
-      )}
+      {selected && <PropertyInspector properties={selected.properties} />}
     </div>
   );
 });
 
-function Field({ label, children }: { label: string; children: React.ReactNode }) {
-  return (
-    <label className="grid grid-cols-[8rem_1fr] items-center gap-2">
-      <span className="text-muted-foreground">{label}</span>
-      <div>{children}</div>
-    </label>
-  );
-}
-
-function ColorInput({
-  value,
-  onChange,
-  testId,
+// [LAW:one-source-of-truth] Read-only API view of the profile. iTerm2 Settings > Profiles is the
+// canonical human editor of shared profiles; this surface exposes what that UI never shows — the
+// exact property key strings and JSON value shapes the Python API and Dynamic Profiles consume.
+// Values render verbatim as received from the API, so a copied value IS the literal argument.
+const PropertyInspector = observer(function PropertyInspector({
+  properties,
 }: {
-  value: string;
-  onChange: (v: string) => void;
-  testId?: string;
+  properties: Record<string, string>;
 }) {
+  const [filter, setFilter] = useState('');
+  const [copied, setCopied] = useState<string | null>(null);
+  const needle = filter.trim().toLowerCase();
+  const rows = Object.entries(properties)
+    .filter(([key]) => key.toLowerCase().includes(needle))
+    .sort(([a], [b]) => a.localeCompare(b));
+
+  const copy = async (id: string, text: string) => {
+    await navigator.clipboard.writeText(text);
+    setCopied(id);
+  };
+
   return (
-    <div className="flex items-center gap-2">
-      <input
-        type="color"
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-        className="h-8 w-12 cursor-pointer"
-        data-testid={testId}
-      />
-      <Input
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-        className="max-w-[120px] font-mono text-xs"
-      />
-    </div>
+    <Card data-testid="profile-inspector">
+      <CardHeader className="pb-2">
+        <CardTitle className="text-base">Properties (API view)</CardTitle>
+      </CardHeader>
+      <CardContent className="grid gap-3 text-sm">
+        <div className="flex items-center gap-2">
+          <Input
+            value={filter}
+            onChange={(e) => setFilter(e.target.value)}
+            placeholder="Filter keys…"
+            data-testid="profile-inspector-filter"
+          />
+          <span className="whitespace-nowrap text-xs text-muted-foreground">
+            {rows.length} / {Object.keys(properties).length} keys
+          </span>
+        </div>
+        <div className="grid gap-1">
+          {rows.map(([key, value]) => (
+            <div
+              key={key}
+              className="grid grid-cols-[minmax(10rem,1fr)_2fr_auto] items-start gap-2 rounded border border-border/50 px-2 py-1"
+              data-testid="profile-inspector-row"
+              data-key={key}
+            >
+              <code className="break-all text-xs">{key}</code>
+              <code className="break-all text-xs text-muted-foreground">{value}</code>
+              <div className="flex gap-1">
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  className="h-6 px-2 text-xs"
+                  onClick={() => void copy(`key:${key}`, key)}
+                  data-testid="profile-inspector-copy-key"
+                >
+                  {copied === `key:${key}` ? 'copied' : 'key'}
+                </Button>
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  className="h-6 px-2 text-xs"
+                  onClick={() => void copy(`value:${key}`, value)}
+                  data-testid="profile-inspector-copy-value"
+                >
+                  {copied === `value:${key}` ? 'copied' : 'value'}
+                </Button>
+              </div>
+            </div>
+          ))}
+          {rows.length === 0 && (
+            <div className="text-xs text-muted-foreground">
+              No keys match the filter.
+            </div>
+          )}
+        </div>
+      </CardContent>
+    </Card>
   );
-}
+});
