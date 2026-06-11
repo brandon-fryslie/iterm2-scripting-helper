@@ -23,7 +23,6 @@ export type WorkbenchArtifact =
   | 'dynamic-profile'
   | 'escape-sequence'
   | 'registrations'
-  | 'custom-escape'
   | 'triggers';
 
 export interface ProfileEditState {
@@ -101,7 +100,6 @@ export class WorkbenchStore {
     registrationId: string | null;
   } | null = null;
 
-  customEscapeForm: CustomEscapeFormState = { sessionId: '', identity: '' };
   customEscapeSnapshot: CustomEscapeSnapshot = {
     subscriptions: [],
     entries: [],
@@ -508,10 +506,6 @@ export class WorkbenchStore {
     await this.refreshRegistrations();
   }
 
-  updateCustomEscapeForm(patch: Partial<CustomEscapeFormState>): void {
-    this.customEscapeForm = { ...this.customEscapeForm, ...patch };
-  }
-
   applyCustomEscapeSnapshot(snap: CustomEscapeSnapshot): void {
     this.customEscapeSnapshot = snap;
   }
@@ -521,17 +515,17 @@ export class WorkbenchStore {
     runInAction(() => this.applyCustomEscapeSnapshot(snap));
   }
 
-  // [LAW:effects-at-boundaries] The effective target session is resolved at the UI seam from
-  // entityFocus + the explicit override, then handed in as a value; the store never reaches for
-  // ambient focus.
-  async subscribeCustomEscape(sessionId: string): Promise<void> {
+  // [LAW:effects-at-boundaries] Both the effective target session and the identity are resolved
+  // at the UI seam (entityFocus + override, the emitter template's identity field) and handed in
+  // as values; the store never reaches for ambient focus or a parallel form.
+  async subscribeCustomEscape(sessionId: string, identity: string): Promise<void> {
     if (!sessionId) {
       this.customEscapeLastError = 'session required';
       return;
     }
     const result = await window.ipc.invoke('workbench/subscribe-custom-escape', {
       sessionId,
-      identity: this.customEscapeForm.identity,
+      identity,
     });
     runInAction(() => {
       this.customEscapeLastError = result.ok ? null : result.error ?? 'subscribe failed';
@@ -617,11 +611,6 @@ function initialRegistrationForm(): RegistrationFormState {
     toolbeltUrl: 'https://iterm2.com',
     toolbeltReveal: true,
   };
-}
-
-interface CustomEscapeFormState {
-  sessionId: string;
-  identity: string;
 }
 
 function hexToRgbDict(hex: string): Record<string, number | string> {

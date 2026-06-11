@@ -31,17 +31,12 @@ export const ARTIFACT_SCOPE: Record<WorkbenchArtifact, ArtifactScope> = {
   'escape-sequence': {
     kind: 'entity',
     label: 'Focused entity',
-    blurb: 'Emits to one live session — the focused entity, unless you override the target.',
+    blurb: 'Emits to (and subscribes on) one live session — the focused entity, unless you override the target.',
   },
   registrations: {
     kind: 'connection',
     label: 'Connection-wide',
     blurb: 'Registers an RPC for the whole iTerm2 connection, not a single session.',
-  },
-  'custom-escape': {
-    kind: 'entity',
-    label: 'Focused entity',
-    blurb: 'Subscribes to one live session — the focused entity, unless you override the target.',
   },
   triggers: {
     kind: 'profile',

@@ -1,4 +1,3 @@
-import { useEffect } from 'react';
 import { observer } from 'mobx-react-lite';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -15,6 +14,7 @@ import {
 import { Textarea } from '@/components/ui/textarea';
 import { useStore } from '@/stores/context';
 import { ExpressionProbe } from '@/components/ExpressionProbe';
+import { CustomEscapeSubscriber } from './CustomEscapeSubscriber';
 import { flatSessions, sessionEntityRef } from '@shared/domain';
 import type { AppEntitySessionRef } from '@shared/domain';
 import { ESCAPE_TEMPLATES, effectiveValues, renderTemplate } from '@shared/escape-sequences';
@@ -29,10 +29,6 @@ const TEMPLATE_GROUPS: ReadonlyArray<{ group: EscapeTemplate['group']; label: st
 
 export const EscapeSequenceEditor = observer(function EscapeSequenceEditor() {
   const { workbench, monitor, entityFocus } = useStore();
-
-  useEffect(() => {
-    void workbench.refreshCustomEscape();
-  }, [workbench]);
 
   const template: EscapeTemplate | undefined = ESCAPE_TEMPLATES.find((t: EscapeTemplate) => t.id === workbench.escapeTemplateId);
   const values = workbench.escapeTemplateValues[workbench.escapeTemplateId] ?? {};
@@ -222,6 +218,18 @@ export const EscapeSequenceEditor = observer(function EscapeSequenceEditor() {
           </div>
         </CardContent>
       </Card>
+
+      {/* OSC 1337 Custom= is a paired protocol: the emitter and its
+          CustomControlSequenceMonitor subscriber are one workflow, so the subscriber renders
+          here — bound to the same target and the template's identity — not on a separate
+          surface. [LAW:decomposition] */}
+      {template?.id === 'osc1337-custom' && (
+        <CustomEscapeSubscriber
+          targetId={targetId}
+          targetLabel={targetTitle || targetId.slice(0, 12) + '…'}
+          identity={display['identity'] ?? ''}
+        />
+      )}
 
       <Card>
         <CardHeader className="pb-2">

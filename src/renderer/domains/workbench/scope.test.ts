@@ -7,7 +7,6 @@ const ALL_ARTIFACTS: WorkbenchArtifact[] = [
   'dynamic-profile',
   'escape-sequence',
   'registrations',
-  'custom-escape',
   'triggers',
 ];
 
@@ -23,7 +22,7 @@ describe('ARTIFACT_SCOPE', () => {
 
   it('marks exactly the per-session editors as entity-scoped', () => {
     const entityScoped = ALL_ARTIFACTS.filter(isEntityScoped);
-    expect(entityScoped.sort()).toEqual(['custom-escape', 'escape-sequence']);
+    expect(entityScoped.sort()).toEqual(['escape-sequence']);
   });
 
   it('keeps profile and connection artifacts off the focused-entity anchor', () => {

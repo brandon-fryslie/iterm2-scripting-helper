@@ -191,52 +191,59 @@ test.describe('live iTerm2', () => {
       'Color',
     );
 
-    // Subscribe to custom escape on the focused session with an identity filter
-    const identity = `workbench-test-${Date.now()}`;
-    const subResult = await win.evaluate(async (args) => {
-      return window.ipc.invoke('workbench/subscribe-custom-escape', {
-        sessionId: args.sessionId,
-        identity: args.identity,
-      });
-    }, { sessionId, identity });
-    expect(subResult.ok).toBe(true);
-    expect(subResult.subscriptionId).toBeTruthy();
+    // Custom escape round-trip through the paired UI (449.2.3 acceptance): construct a
+    // Custom= sequence, subscribe to its identity, emit it, and watch the payload arrive in
+    // the paired subscriber — all on the one escape-sequence surface.
+    const identityA = `wb-a-${Date.now()}`;
+    const identityB = `wb-b-${Date.now()}`;
+    const payload = `hello-from-workbench-${Date.now()}`;
 
-    // Inject an OSC 1337 Custom= payload as terminal output (not typed input,
-    // which would just go to the shell) and expect it to surface in the
-    // subscriber log.
-    const payload = 'hello-from-workbench';
-    const sequence = `\x1b]1337;Custom=id=${identity}:${payload}\x1b\\`;
-    const bytesHex = Array.from(new TextEncoder().encode(sequence))
-      .map((b) => b.toString(16).padStart(2, '0'))
-      .join('');
-    await win.evaluate(async (args) => {
-      return window.ipc.invoke('actions/inject', {
-        entity: { kind: 'session', windowId: '', tabId: '', sessionId: args.sessionId },
-        sessionIds: [args.sessionId],
-        bytesHex: args.bytesHex,
-      });
-    }, { sessionId, bytesHex });
+    await closeSettings(win);
+    await win.getByTestId(`layout-session-${sessionId}`).click();
+    await win.getByTestId('workbench-rail-escape-sequence').click();
 
-    await expect(async () => {
-      const snap = await win.evaluate(() =>
-        window.ipc.invoke('workbench/custom-escape', undefined as never),
-      );
-      const matching = snap.entries.find(
-        (e) => e.identity === identity && e.payload.includes(payload),
-      );
-      expect(matching).toBeTruthy();
-    }).toPass({ timeout: 5000 });
+    await win.getByTestId('escape-template-select').click();
+    await win.getByTestId('escape-template-osc1337-custom').click();
+    await win.getByTestId('escape-field-identity').fill(identityA);
 
-    // Cleanup
-    const subscriptionId = subResult.subscriptionId ?? '';
+    // The paired subscriber derives target and identity from the emitter — no second picker.
+    const pairing = win.getByTestId('custom-escape-pairing');
+    await expect(pairing).toHaveAttribute('data-target', sessionId);
+    await expect(pairing).toHaveAttribute('data-identity', identityA);
+
+    await win.getByTestId('custom-escape-subscribe').click();
+    const subRows = win.locator('[data-testid^="custom-escape-sub-"]');
+    const subA = subRows.filter({ hasText: identityA });
+    await expect(subA).toBeVisible({ timeout: 5_000 });
+
+    // Second identity on the same session: the orchestrator must multiplex both local
+    // subscriptions over the single per-session wire subscription.
+    await win.getByTestId('escape-field-identity').fill(identityB);
+    await win.getByTestId('custom-escape-subscribe').click();
+    const subB = subRows.filter({ hasText: identityB });
+    await expect(subB).toBeVisible({ timeout: 5_000 });
+
+    // Dropping A must not tear down the shared wire subscription B still needs.
+    await subA.getByRole('button', { name: 'Unsubscribe' }).click();
+    await expect(subA).not.toBeVisible({ timeout: 5_000 });
+
+    await win.getByTestId('escape-field-payload').fill(payload);
+    await win.getByTestId('escape-send').click();
+    await expect(win.getByTestId('escape-last-result')).toHaveAttribute('data-ok', 'true');
+
+    const entry = win.locator('[data-testid^="custom-escape-entry-"]', {
+      hasText: payload,
+    });
+    await expect(entry).toBeVisible({ timeout: 5_000 });
+    await expect(entry).toContainText(identityB);
+
+    // Cleanup through the same surface, then drop the registration.
+    await subB.getByRole('button', { name: 'Unsubscribe' }).click();
+    await expect(subB).not.toBeVisible({ timeout: 5_000 });
     const regId = regResult.registrationId ?? '';
     await win.evaluate(async (args) => {
-      await window.ipc.invoke('workbench/unsubscribe-custom-escape', {
-        subscriptionId: args.subscriptionId,
-      });
       await window.ipc.invoke('workbench/unregister-rpc', { id: args.regId });
-    }, { subscriptionId, regId });
+    }, { regId });
 
     await app.close();
   });
