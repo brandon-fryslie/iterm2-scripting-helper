@@ -1,6 +1,7 @@
-import { makeAutoObservable, runInAction } from 'mobx';
+import { makeAutoObservable, observable, runInAction } from 'mobx';
 import type {
   ActionResult,
+  ArrangementSnapshot,
   DynamicProfileSnapshot,
   ProfileSummary,
   RegistrationSpec,
@@ -23,7 +24,8 @@ export type WorkbenchArtifact =
   | 'dynamic-profile'
   | 'escape-sequence'
   | 'registrations'
-  | 'triggers';
+  | 'triggers'
+  | 'arrangement';
 
 const EMPTY_DYNAMIC: DynamicProfileSnapshot = {
   folder: '',
@@ -88,8 +90,17 @@ export class WorkbenchStore {
   };
   customEscapeLastError: string | null = null;
 
+  // null until the first refresh — "not asked yet" is a distinct state from either source failing.
+  arrangements: ArrangementSnapshot | null = null;
+  selectedArrangementName: string | null = null;
+  // The second operand of the diff; the inspected arrangement is the first.
+  diffArrangementName: string | null = null;
+
   constructor() {
-    makeAutoObservable(this);
+    // [LAW:one-source-of-truth] The arrangement snapshot is an immutable value swapped whole on
+    // refresh; its JSON content is rendered, never edited. Deep observation would wrap it in
+    // Proxies (the structured-clone-over-IPC trap from PR #18) for zero benefit.
+    makeAutoObservable(this, { arrangements: observable.ref });
   }
 
   setArtifact(a: WorkbenchArtifact): void {
@@ -450,6 +461,38 @@ export class WorkbenchStore {
     await this.refreshCustomEscape();
   }
 
+  async refreshArrangements(): Promise<void> {
+    const snap = await window.ipc.invoke('workbench/arrangements', undefined as never);
+    runInAction(() => {
+      this.arrangements = snap;
+    });
+  }
+
+  selectArrangement(name: string | null): void {
+    this.selectedArrangementName = name;
+  }
+
+  selectDiffArrangement(name: string | null): void {
+    this.diffArrangementName = name;
+  }
+
+  // [LAW:one-source-of-truth] Each source stays authoritative for its own facet: the engine LIST
+  // for which names exist, the defaults domain for which have readable content. The index is the
+  // derived union, carrying per-name membership in each source so disagreement (cfprefsd lag, a
+  // stale defaults cache) renders as fact instead of being papered over.
+  get arrangementIndex(): Array<{ name: string; inEngine: boolean; hasContent: boolean }> {
+    if (!this.arrangements) return [];
+    const engineNames = this.arrangements.names.ok ? this.arrangements.names.names : [];
+    const contentNames = this.arrangements.contents.ok
+      ? Object.keys(this.arrangements.contents.arrangements)
+      : [];
+    const all = [...new Set([...engineNames, ...contentNames])].sort();
+    return all.map((name) => ({
+      name,
+      inEngine: engineNames.includes(name),
+      hasContent: contentNames.includes(name),
+    }));
+  }
 }
 
 interface RegistrationFormState {

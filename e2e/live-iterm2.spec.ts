@@ -678,6 +678,169 @@ end tell'`,
     }
   });
 
+  test('Author: arrangement artifact saves, lists, inspects, diffs, and restores', async () => {
+    const app = await launchApp();
+    const win = await app.firstWindow();
+
+    await connectViaGear(win);
+
+    // The save/restore verbs act on real iTerm2 windows; the test owns its own windows rather
+    // than capturing/restoring over the user's. Two windows so the scoped save (one window) and
+    // the unscoped save (all windows) are guaranteed to differ for the diff assertion.
+    const mkWindow = () =>
+      execSync(
+        `osascript -e 'tell application "iTerm2"
+set w to (create window with default profile)
+return unique ID of current session of w
+end tell'`,
+        { encoding: 'utf8' },
+      ).trim();
+    const sessionA = mkWindow();
+    const sessionB = mkWindow();
+    expect(sessionA).toMatch(/^[0-9A-F-]{36}$/);
+    expect(sessionB).toMatch(/^[0-9A-F-]{36}$/);
+
+    // The SavedArrangement wire message has no DELETE verb (only iTerm2's Window > Edit Window
+    // Arrangements can remove one), so fixed names make reruns overwrite instead of accumulate.
+    const nameAll = 'wb-e2e-arrangement-a';
+    const nameOne = 'wb-e2e-arrangement-b';
+
+    const layoutWindows = () =>
+      win.evaluate(async () => {
+        const layout = await window.ipc.invoke('monitor/layout', undefined as never);
+        return layout.windows.map((w) => w.windowId);
+      });
+
+    try {
+      // Wait until the dedicated windows surface in the layout, and capture the window id of
+      // sessionA's window for the scoped save.
+      let windowIdA = '';
+      await expect(async () => {
+        const found = await win.evaluate(async (args) => {
+          const layout = await window.ipc.invoke('monitor/layout', undefined as never);
+          for (const w of layout.windows) {
+            for (const t of w.tabs) {
+              for (const child of t.root?.children ?? []) {
+                if (child.kind === 'session' && child.session.sessionId === args.sessionA) {
+                  return w.windowId;
+                }
+              }
+            }
+          }
+          return '';
+        }, { sessionA });
+        expect(found).not.toBe('');
+        windowIdA = found;
+      }).toPass({ timeout: 10_000 });
+
+      await closeSettings(win);
+
+      // The artifact is connection-wide and reachable from the workbench rail.
+      await win.getByTestId('workbench-rail-arrangement').click();
+      await expect(win.getByTestId('artifact-scope-banner')).toHaveAttribute(
+        'data-scope',
+        'connection',
+      );
+
+      // Save all windows through the viewer UI.
+      await win.getByTestId('arrangement-save-name').fill(nameAll);
+      await win.getByTestId('arrangement-save').click();
+      await expect(win.getByTestId('arrangement-last-result')).toContainText('ok');
+
+      // Save one window through the action channel — the windowId variant the Act bar carries.
+      const scopedSave = await win.evaluate(async (args) => {
+        return window.ipc.invoke('actions/saved-arrangement', {
+          entity: { kind: 'app' },
+          op: 'save',
+          name: args.nameOne,
+          windowId: args.windowIdA,
+        });
+      }, { nameOne, windowIdA });
+      expect(scopedSave.ok, `scoped save: ${scopedSave.error}`).toBe(true);
+
+      // Both names converge in both sources: listed by the engine AND readable from defaults
+      // (no disagreement badges on their rows).
+      await expect(async () => {
+        await win.getByTestId('arrangement-refresh').click();
+        const rowAll = win.getByTestId(`arrangement-row-${nameAll}`);
+        const rowOne = win.getByTestId(`arrangement-row-${nameOne}`);
+        await expect(rowAll).toBeVisible();
+        await expect(rowOne).toBeVisible();
+        await expect(rowAll.locator('text=unknown to engine')).toHaveCount(0);
+        await expect(rowAll.locator('text=no defaults content')).toHaveCount(0);
+        await expect(rowOne.locator('text=unknown to engine')).toHaveCount(0);
+        await expect(rowOne.locator('text=no defaults content')).toHaveCount(0);
+      }).toPass({ timeout: 15_000 });
+
+      // JSON inspect renders the parsed defaults content of the saved arrangement.
+      await win.getByTestId(`arrangement-inspect-${nameAll}`).click();
+      const json = win.getByTestId('arrangement-json');
+      await expect(json).toBeVisible();
+      await expect(json).toContainText('Tabs');
+
+      // Diff: all-windows vs one-window must differ structurally.
+      await win.getByTestId(`arrangement-diff-${nameOne}`).click();
+      await expect(win.getByTestId('arrangement-diff-entries')).toBeVisible();
+
+      // Restore the one-window arrangement as a new window and watch the window count grow.
+      const before = await layoutWindows();
+      await win.getByTestId(`arrangement-restore-${nameOne}`).click();
+      await expect(win.getByTestId('arrangement-last-result')).toContainText(
+        `restore "${nameOne}": ok`,
+      );
+      let restoredWindows: string[] = [];
+      await expect(async () => {
+        const after = await layoutWindows();
+        restoredWindows = after.filter((id) => !before.includes(id));
+        expect(restoredWindows.length).toBeGreaterThan(0);
+      }).toPass({ timeout: 15_000 });
+
+      // A refusal status is a failed action, not a success with fine print: restoring a name
+      // that does not exist reports ARRANGEMENT_NOT_FOUND as the error.
+      const refused = await win.evaluate(async () => {
+        return window.ipc.invoke('actions/saved-arrangement', {
+          entity: { kind: 'app' },
+          op: 'restore',
+          name: 'wb-e2e-no-such-arrangement',
+        });
+      });
+      expect(refused.ok).toBe(false);
+      expect(refused.error).toContain('ARRANGEMENT_NOT_FOUND');
+
+      // Every fire above is an action event on the one spine.
+      const actionRows = win.locator(
+        '[data-testid^="activity-row-"][data-facet="action"]',
+      );
+      await expect(actionRows.first()).toBeVisible({ timeout: 10_000 });
+
+      // Close the restored window before teardown closes the originals.
+      const closeRestored = await win.evaluate(async (args) => {
+        return window.ipc.invoke('actions/close', {
+          entity: { kind: 'app' },
+          kind: 'windows',
+          ids: args.ids,
+          force: true,
+        });
+      }, { ids: restoredWindows });
+      expect.soft(closeRestored.ok).toBe(true);
+    } finally {
+      // Teardown through the app's own typed channel (AppleScript close hangs on the confirm
+      // modal); soft assertions keep every step running even when one fails.
+      for (const sessionId of [sessionA, sessionB]) {
+        const closeRes = await win.evaluate(async (args) => {
+          return window.ipc.invoke('actions/close', {
+            entity: { kind: 'session', windowId: '', tabId: '', sessionId: args.sessionId },
+            kind: 'sessions',
+            ids: [args.sessionId],
+            force: true,
+          });
+        }, { sessionId });
+        expect.soft(closeRes.ok).toBe(true);
+      }
+      await app.close();
+    }
+  });
+
   test('Act: send text + activate + snippet re-fires, all feeding Activity', async () => {
     const app = await launchApp();
     const win = await app.firstWindow();

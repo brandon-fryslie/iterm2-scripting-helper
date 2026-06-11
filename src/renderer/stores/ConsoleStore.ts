@@ -1,5 +1,5 @@
 import { makeAutoObservable, observable } from 'mobx';
-import type { ActionResult, RpcMethod, RpcArgs } from '@shared/rpc';
+import type { ActionResult, ArrangementOp, RpcMethod, RpcArgs } from '@shared/rpc';
 import type { EntityFocusStore } from './EntityFocusStore';
 
 export type ActionKind =
@@ -10,6 +10,7 @@ export type ActionKind =
   | 'invoke-function'
   | 'restart-session'
   | 'close'
+  | 'saved-arrangement'
   | 'raw-protobuf';
 
 type ActionMethod = Extract<RpcMethod, `actions/${string}`>;
@@ -25,6 +26,7 @@ const ACTION_METHODS: Record<ActionKind, ActionMethod> = {
   'invoke-function': 'actions/invoke-function',
   'restart-session': 'actions/restart-session',
   close: 'actions/close',
+  'saved-arrangement': 'actions/saved-arrangement',
   'raw-protobuf': 'actions/raw-protobuf',
 };
 
@@ -56,6 +58,9 @@ export interface ActionForms {
   };
   'restart-session': { sessionId: string; onlyIfExited: boolean };
   close: { kind: 'sessions' | 'tabs' | 'windows'; idsCsv: string; force: boolean };
+  // windowId follows the wire's dual semantics: scopes a save to one window's tabs, or targets a
+  // restore into an existing window; empty means whole-app save / restore as new windows.
+  'saved-arrangement': { op: ArrangementOp; name: string; windowId: string };
   'raw-protobuf': { envelopeJson: string };
 }
 
@@ -79,6 +84,7 @@ const DEFAULT_FORMS: ActionForms = {
   },
   'restart-session': { sessionId: '', onlyIfExited: false },
   close: { kind: 'sessions', idsCsv: '', force: false },
+  'saved-arrangement': { op: 'save', name: '', windowId: '' },
   'raw-protobuf': {
     envelopeJson: `{\n  "submessage": {\n    "listSessionsRequest": {}\n  }\n}`,
   },
@@ -171,6 +177,14 @@ export class ConsoleStore {
           kind: f.kind,
           ids: f.idsCsv.split(',').map((s) => s.trim()).filter(Boolean),
           force: f.force,
+        };
+      }
+      case 'saved-arrangement': {
+        const f = this.forms['saved-arrangement'];
+        return {
+          op: f.op,
+          name: f.name,
+          ...(f.windowId ? { windowId: f.windowId } : {}),
         };
       }
       case 'raw-protobuf':

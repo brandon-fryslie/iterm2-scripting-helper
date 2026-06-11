@@ -17,6 +17,9 @@ import {
   CloseRequest_CloseSessionsSchema,
   CloseRequest_CloseTabsSchema,
   CloseRequest_CloseWindowsSchema,
+  SavedArrangementRequestSchema,
+  SavedArrangementRequest_Action,
+  SavedArrangementResponse_Status,
   type ServerOriginatedMessage,
   type ActivateRequest,
   type InvokeFunctionRequest,
@@ -25,6 +28,7 @@ import {
 import type {
   ActionResult,
   ActivateTarget,
+  ArrangementOp,
   CloseTargetKind,
   InvokeScope,
 } from '@shared/rpc';
@@ -280,6 +284,46 @@ export async function actionClose(
   return fire(orchestrator, {
     submessage: { case: 'closeRequest', value },
   });
+}
+
+const ARRANGEMENT_OP_TO_WIRE: Record<ArrangementOp, SavedArrangementRequest_Action> = {
+  save: SavedArrangementRequest_Action.SAVE,
+  restore: SavedArrangementRequest_Action.RESTORE,
+};
+
+export async function actionSavedArrangement(
+  orchestrator: ConnectionOrchestrator,
+  args: { op: ArrangementOp; name: string; windowId?: string },
+): Promise<ActionResult> {
+  if (!args.name) {
+    return {
+      ok: false,
+      error: 'arrangement name required',
+      latencyMs: 0,
+      responseCase: null,
+      payload: null,
+      requestId: null,
+    };
+  }
+  const value = create(SavedArrangementRequestSchema, {
+    name: args.name,
+    action: ARRANGEMENT_OP_TO_WIRE[args.op],
+    ...(args.windowId ? { windowId: args.windowId } : {}),
+  });
+  const result = await fire(
+    orchestrator,
+    { submessage: { case: 'savedArrangementRequest', value } },
+    (msg) => {
+      if (msg.submessage.case !== 'savedArrangementResponse') return null;
+      return { status: SavedArrangementResponse_Status[msg.submessage.value.status] };
+    },
+  );
+  // [LAW:no-silent-failure] A transport-level success carrying a refusal status (arrangement or
+  // window not found, malformed request) is a failed action, not a success with fine print.
+  if (result.ok && result.payload && result.payload.status !== 'OK') {
+    return { ...result, ok: false, error: `iTerm2 refused: ${String(result.payload.status)}` };
+  }
+  return result;
 }
 
 export async function actionRawProtobuf(

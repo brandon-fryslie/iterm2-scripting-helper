@@ -16,6 +16,7 @@ import {
   InvokeFunctionForm,
   RestartSessionForm,
   CloseForm,
+  SavedArrangementForm,
   RawProtobufForm,
 } from './ActionForms';
 
@@ -27,6 +28,7 @@ const ACTIONS: Array<{ kind: ActionKind; label: string }> = [
   { kind: 'invoke-function', label: 'Invoke function' },
   { kind: 'restart-session', label: 'Restart' },
   { kind: 'close', label: 'Close' },
+  { kind: 'saved-arrangement', label: 'Arrangement' },
   { kind: 'raw-protobuf', label: 'Raw protobuf' },
 ];
 
@@ -38,6 +40,7 @@ const FORM_COMPONENTS: Record<ActionKind, React.ComponentType> = {
   'invoke-function': InvokeFunctionForm,
   'restart-session': RestartSessionForm,
   close: CloseForm,
+  'saved-arrangement': SavedArrangementForm,
   'raw-protobuf': RawProtobufForm,
 };
 

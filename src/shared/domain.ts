@@ -258,8 +258,10 @@ export type AppEventKind =
   | 'action'
   | 'invocation';
 
-// The eight things a user can do to the focused entity. One closed set ([LAW:no-mode-explosion]):
+// The things a user can do to the focused entity. One closed set ([LAW:no-mode-explosion]):
 // every console affordance is one of these, distinguished by `kind` and the shape of its payload.
+// Save/restore of a named arrangement is ONE kind — the wire models it as one request varying by
+// an op value, and the type mirrors the wire ([LAW:dataflow-not-control-flow]).
 export type AppActionKind =
   | 'send-text'
   | 'inject'
@@ -268,6 +270,7 @@ export type AppActionKind =
   | 'invoke-function'
   | 'restart-session'
   | 'close'
+  | 'saved-arrangement'
   | 'raw-protobuf';
 
 // [LAW:one-source-of-truth] The canonical result of firing an action, used both as the value returned

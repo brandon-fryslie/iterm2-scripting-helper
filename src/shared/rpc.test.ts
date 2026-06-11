@@ -32,6 +32,7 @@ describe('RpcSchema', () => {
       | 'actions/invoke-function'
       | 'actions/restart-session'
       | 'actions/close'
+      | 'actions/saved-arrangement'
       | 'actions/raw-protobuf'
       | 'workbench/list-profiles'
       | 'workbench/dynamic-profiles'
@@ -43,6 +44,7 @@ describe('RpcSchema', () => {
       | 'workbench/subscribe-custom-escape'
       | 'workbench/unsubscribe-custom-escape'
       | 'workbench/custom-escape'
+      | 'workbench/arrangements'
     >();
   });
 
