@@ -505,16 +505,27 @@ export class ConnectionOrchestrator extends EventEmitter {
     this.monitor.registrations.remove(spec.id);
   }
 
+  // [LAW:no-ambient-temporal-coupling] Single owner of the custom-escape wire lifecycle. The
+  // identity filter is local (the wire request carries none), so iTerm2 holds at most one
+  // subscription per session and the local subscription set multiplexes over it: the wire sub
+  // goes up with the first local sub for a session and down with the last. Without this,
+  // a second subscribe returns ALREADY_SUBSCRIBED (silently) and the first unsubscribe kills
+  // notifications for every remaining local sub on that session.
   async subscribeCustomEscape(
     subscriptionId: string,
     sessionId: string,
     identity: string,
   ): Promise<void> {
-    await this.sendNotificationRequest(
-      NotificationType.NOTIFY_ON_CUSTOM_ESCAPE_SEQUENCE,
-      sessionId,
-      true,
-    );
+    const wireIsUp = this.monitor.customEscape
+      .snapshot()
+      .subscriptions.some((s) => s.sessionId === sessionId);
+    if (!wireIsUp) {
+      await this.sendNotificationRequest(
+        NotificationType.NOTIFY_ON_CUSTOM_ESCAPE_SEQUENCE,
+        sessionId,
+        true,
+      );
+    }
     this.monitor.customEscape.addSubscription({
       id: subscriptionId,
       sessionId,
@@ -527,12 +538,17 @@ export class ConnectionOrchestrator extends EventEmitter {
     const snap = this.monitor.customEscape.snapshot();
     const sub = snap.subscriptions.find((s) => s.id === subscriptionId);
     if (!sub) return;
-    await this.sendNotificationRequest(
-      NotificationType.NOTIFY_ON_CUSTOM_ESCAPE_SEQUENCE,
-      sub.sessionId,
-      false,
-    ).catch(() => void 0);
     this.monitor.customEscape.removeSubscription(subscriptionId);
+    const wireStillNeeded = this.monitor.customEscape
+      .snapshot()
+      .subscriptions.some((s) => s.sessionId === sub.sessionId);
+    if (!wireStillNeeded) {
+      await this.sendNotificationRequest(
+        NotificationType.NOTIFY_ON_CUSTOM_ESCAPE_SEQUENCE,
+        sub.sessionId,
+        false,
+      ).catch(() => void 0);
+    }
   }
 
   async respondToServerRpc(

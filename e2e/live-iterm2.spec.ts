@@ -194,8 +194,9 @@ test.describe('live iTerm2', () => {
     // Custom escape round-trip through the paired UI (449.2.3 acceptance): construct a
     // Custom= sequence, subscribe to its identity, emit it, and watch the payload arrive in
     // the paired subscriber — all on the one escape-sequence surface.
-    const identity = `workbench-test-${Date.now()}`;
-    const payload = 'hello-from-workbench';
+    const identityA = `wb-a-${Date.now()}`;
+    const identityB = `wb-b-${Date.now()}`;
+    const payload = `hello-from-workbench-${Date.now()}`;
 
     await closeSettings(win);
     await win.getByTestId(`layout-session-${sessionId}`).click();
@@ -203,19 +204,30 @@ test.describe('live iTerm2', () => {
 
     await win.getByTestId('escape-template-select').click();
     await win.getByTestId('escape-template-osc1337-custom').click();
-    await win.getByTestId('escape-field-identity').fill(identity);
-    await win.getByTestId('escape-field-payload').fill(payload);
+    await win.getByTestId('escape-field-identity').fill(identityA);
 
     // The paired subscriber derives target and identity from the emitter — no second picker.
     const pairing = win.getByTestId('custom-escape-pairing');
     await expect(pairing).toHaveAttribute('data-target', sessionId);
-    await expect(pairing).toHaveAttribute('data-identity', identity);
+    await expect(pairing).toHaveAttribute('data-identity', identityA);
 
     await win.getByTestId('custom-escape-subscribe').click();
-    const subRow = win.locator('[data-testid^="custom-escape-sub-"]');
-    await expect(subRow).toBeVisible({ timeout: 5_000 });
-    await expect(subRow).toContainText(identity);
+    const subRows = win.locator('[data-testid^="custom-escape-sub-"]');
+    const subA = subRows.filter({ hasText: identityA });
+    await expect(subA).toBeVisible({ timeout: 5_000 });
 
+    // Second identity on the same session: the orchestrator must multiplex both local
+    // subscriptions over the single per-session wire subscription.
+    await win.getByTestId('escape-field-identity').fill(identityB);
+    await win.getByTestId('custom-escape-subscribe').click();
+    const subB = subRows.filter({ hasText: identityB });
+    await expect(subB).toBeVisible({ timeout: 5_000 });
+
+    // Dropping A must not tear down the shared wire subscription B still needs.
+    await subA.getByRole('button', { name: 'Unsubscribe' }).click();
+    await expect(subA).not.toBeVisible({ timeout: 5_000 });
+
+    await win.getByTestId('escape-field-payload').fill(payload);
     await win.getByTestId('escape-send').click();
     await expect(win.getByTestId('escape-last-result')).toHaveAttribute('data-ok', 'true');
 
@@ -223,11 +235,11 @@ test.describe('live iTerm2', () => {
       hasText: payload,
     });
     await expect(entry).toBeVisible({ timeout: 5_000 });
-    await expect(entry).toContainText(identity);
+    await expect(entry).toContainText(identityB);
 
     // Cleanup through the same surface, then drop the registration.
-    await subRow.getByRole('button', { name: 'Unsubscribe' }).click();
-    await expect(subRow).not.toBeVisible({ timeout: 5_000 });
+    await subB.getByRole('button', { name: 'Unsubscribe' }).click();
+    await expect(subB).not.toBeVisible({ timeout: 5_000 });
     const regId = regResult.registrationId ?? '';
     await win.evaluate(async (args) => {
       await window.ipc.invoke('workbench/unregister-rpc', { id: args.regId });
