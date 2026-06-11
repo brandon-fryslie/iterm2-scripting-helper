@@ -390,7 +390,7 @@ test.describe('live iTerm2', () => {
     await app.close();
   });
 
-  test('Author: profile edit applies; dynamic profile round-trips; escape template emits', async () => {
+  test('Author: profile inspector lists API properties; dynamic profile round-trips; escape template emits', async () => {
     const app = await launchApp();
     const win = await app.firstWindow();
 
@@ -412,7 +412,9 @@ test.describe('live iTerm2', () => {
     // The Author facet is co-present — its artifact rail is reachable without leaving the workspace.
     await closeSettings(win);
 
-    // Profiles artifact: pick a profile, apply an edit, verify success.
+    // Profiles artifact: pick a profile through the UI, verify the read-only inspector
+    // lists the API's raw property keys. There is deliberately NO write path here (449.8.1):
+    // iTerm2 Settings > Profiles is the canonical editor of shared profiles.
     await win.getByTestId('workbench-rail-profile').click();
     // Scope banner must tell the truth about each artifact's scope (449.7.7).
     await expect(win.getByTestId('artifact-scope-banner')).toHaveAttribute(
@@ -422,24 +424,29 @@ test.describe('live iTerm2', () => {
     await win.getByTestId('workbench-refresh-profiles').click();
     // Wait for profiles to populate in the select
     await expect(win.getByTestId('workbench-profile-select')).toBeVisible({ timeout: 10_000 });
-    // Select a profile by opening the dropdown and clicking the default
-    await win.evaluate(
-      (args) =>
-        (window as unknown as { __storeSelect?: (g: string) => void }).__storeSelect?.(args.guid),
-      { guid: probe.guid },
-    );
-    // Fall back: set via store bridge by firing an activate to refresh state
-    // The picker state change is tricky to script via pure events; instead, use the store directly via a small helper.
-    // Use a programmatic apply by firing set-profile-property with a known GUID.
-    const applyResult = await win.evaluate(async (args) => {
-      return window.ipc.invoke('workbench/set-profile-property', {
-        guids: [args.guid],
-        assignments: [
-          { key: 'Badge Text', jsonValue: JSON.stringify(`workbench-test-${Date.now()}`) },
-        ],
-      });
-    }, { guid: probe.guid });
-    expect(applyResult.ok).toBe(true);
+    await win.getByTestId('workbench-profile-select').click();
+    await win.getByRole('option', { name: probe.name }).first().click();
+    // Every profile the API reports carries at least Name and Guid keys.
+    const inspector = win.getByTestId('profile-inspector');
+    await expect(inspector).toBeVisible();
+    await expect(
+      inspector.locator('[data-testid="profile-inspector-row"][data-key="Name"]'),
+    ).toBeVisible();
+    const totalRows = await inspector.getByTestId('profile-inspector-row').count();
+    expect(totalRows).toBeGreaterThan(1);
+    // Filter narrows the listing to matching keys.
+    await win.getByTestId('profile-inspector-filter').fill('Guid');
+    const filteredRows = await inspector.getByTestId('profile-inspector-row').count();
+    expect(filteredRows).toBeGreaterThan(0);
+    expect(filteredRows).toBeLessThan(totalRows);
+    // Per-row copy puts the exact key string on the clipboard.
+    await inspector
+      .locator('[data-testid="profile-inspector-row"][data-key="Guid"]')
+      .getByTestId('profile-inspector-copy-key')
+      .click();
+    const clipboardKey = await win.evaluate(() => navigator.clipboard.readText());
+    expect(clipboardKey).toBe('Guid');
+    await win.getByTestId('profile-inspector-filter').fill('');
 
     // Dynamic Profiles: write a temp file, verify it appears in the snapshot.
     await win.getByTestId('workbench-rail-dynamic-profile').click();

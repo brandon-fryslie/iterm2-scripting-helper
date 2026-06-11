@@ -22,15 +22,24 @@ if (started) {
   app.quit();
 }
 
+// [LAW:effects-at-boundaries] Putting a window on the user's screen is a side effect on their
+// desktop. The e2e launcher declares background intent as a value at the process boundary; this
+// is the one place that honors it — the window is never shown at all (Playwright drives it via
+// CDP, which needs neither focus nor an on-screen window; throttling is disabled so the hidden
+// renderer still paints and lays out).
+const runInBackground = process.env.WORKBENCH_BACKGROUND === '1';
+
 function createWindow(): void {
   const mainWindow = new BrowserWindow({
     width: 1280,
     height: 800,
+    show: !runInBackground,
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true,
       nodeIntegration: false,
       sandbox: true,
+      backgroundThrottling: !runInBackground,
     },
   });
 
@@ -122,6 +131,9 @@ autorun(() => {
 // well. A post-MVP heartbeat-based delta push will replace this polling story.
 
 app.whenReady().then(() => {
+  if (runInBackground && process.platform === 'darwin') {
+    app.setActivationPolicy('accessory');
+  }
   registerIpc(connectionStore, orchestrator, monitorStores, {
     dynamicProfiles: dynamicProfileStore,
     dynamicProfileWatcher,
