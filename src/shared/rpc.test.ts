@@ -34,7 +34,6 @@ describe('RpcSchema', () => {
       | 'actions/close'
       | 'actions/raw-protobuf'
       | 'workbench/list-profiles'
-      | 'workbench/set-profile-property'
       | 'workbench/dynamic-profiles'
       | 'workbench/save-dynamic-profile'
       | 'workbench/delete-dynamic-profile'
