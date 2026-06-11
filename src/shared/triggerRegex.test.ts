@@ -21,6 +21,11 @@ describe('classifyTriggerRegex — MUST FLAG (ICU-divergent)', () => {
     [String.raw`\V`, 'non-vertical-whitespace'],
     [String.raw`\p{Letter}+`, 'Unicode property'],
     [String.raw`\P{Nd}`, 'negated Unicode property'],
+    [String.raw`\e\[31m`, 'ICU ESC escape — ANSI color trigger'],
+    [String.raw`\abell`, 'ICU BEL escape'],
+    [String.raw`\x{41}`, 'braced hex escape'],
+    [String.raw`\u{1F600}`, 'braced code point escape'],
+    [String.raw`\U0001F600`, '8-digit code point escape'],
     ['a*+b', 'possessive star'],
     ['a++b', 'possessive plus'],
     ['a?+b', 'possessive optional'],
@@ -61,6 +66,8 @@ describe('classifyTriggerRegex — MUST NOT FLAG (portable near-misses)', () => 
     '[a-z:&]single & and : inside a class',
     String.raw`[\[\]] escaped brackets in a class`,
     String.raw`price \$\d+`,
+    String.raw`\x1b\[31m unbraced hex escape`,
+    '\\uFFFF unbraced unicode escape',
   ];
   it.each(portable)('%s', (pattern) => {
     expect(classifyTriggerRegex(pattern)).toEqual({ kind: 'portable' });

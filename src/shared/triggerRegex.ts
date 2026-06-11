@@ -26,6 +26,9 @@ export type TriggerTestResult =
 
 // ICU escapes whose JS meaning silently differs (JS treats most as an identity escape — the bare
 // literal letter — and \v/\V as the single U+000B character vs ICU's vertical-whitespace class).
+// Deliberately NOT here: \d \w \b, whose ICU forms are Unicode-wide while JS is ASCII-bounded.
+// Flagging them would mark nearly every real trigger untestable; the residual divergence is named
+// in the visible engine caveat instead, so the tester's claim stays honest. [FRAMING:representation]
 const DIVERGENT_ESCAPES: Record<string, string> = {
   A: String.raw`\A (ICU start-of-input anchor; JS matches literal "A")`,
   Z: String.raw`\Z (ICU end-of-input anchor; JS matches literal "Z")`,
@@ -42,6 +45,16 @@ const DIVERGENT_ESCAPES: Record<string, string> = {
   V: String.raw`\V (ICU non-vertical-whitespace; JS matches literal "V")`,
   p: String.raw`\p{...} (ICU Unicode property; JS without /u matches literal "p")`,
   P: String.raw`\P{...} (ICU Unicode property; JS without /u matches literal "P")`,
+  a: String.raw`\a (ICU BEL U+0007; JS matches literal "a")`,
+  e: String.raw`\e (ICU ESC U+001B; JS matches literal "e")`,
+  U: String.raw`\Uhhhhhhhh (ICU 8-digit code point; JS matches literal "U")`,
+};
+
+// \xhh and \uhhhh agree across engines, but the BRACED operand forms are ICU-only: JS Annex B
+// degrades \x{ to a literal "x" with "{...}" reparsed as a quantifier — a silent, bizarre rewrite.
+const DIVERGENT_BRACED_ESCAPES: Record<string, string> = {
+  x: String.raw`\x{...} (ICU braced hex escape; JS matches literal "x" repeated by the brace count)`,
+  u: String.raw`\u{...} (ICU braced code point; JS matches literal "u" repeated by the brace count)`,
 };
 
 // At least one flag character, so portable groups — (?: (?= (?! (?<= (?<! (?<name> — never match.
@@ -59,6 +72,9 @@ export function classifyTriggerRegex(pattern: string): TriggerRegexPortability {
       const next = pattern[i + 1];
       if (next !== undefined && next in DIVERGENT_ESCAPES) {
         constructs.add(DIVERGENT_ESCAPES[next]);
+      }
+      if (next !== undefined && next in DIVERGENT_BRACED_ESCAPES && pattern[i + 2] === '{') {
+        constructs.add(DIVERGENT_BRACED_ESCAPES[next]);
       }
       i++; // the escaped character is consumed; it can open nothing
       prev = '';
@@ -92,7 +108,7 @@ export function classifyTriggerRegex(pattern: string): TriggerRegexPortability {
       continue;
     }
     if (ch === '(' && INLINE_FLAG_GROUP.test(pattern.slice(i))) {
-      constructs.add('(?flags) (ICU inline flags; JS rejects the syntax)');
+      constructs.add('(?flags) (ICU inline flags; JS support is partial and version-dependent)');
       prev = ch;
       continue;
     }

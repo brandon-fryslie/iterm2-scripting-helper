@@ -34,18 +34,28 @@ export const TriggersViewer = observer(function TriggersViewer() {
   const { workbench, monitor } = useStore();
   const [sample, setSample] = useState('');
   const [source, setSource] = useState<SampleSource>('session');
-  const [copied, setCopied] = useState(false);
+  // [LAW:one-source-of-truth] The badge is derived by comparing the copied text against the
+  // JSON currently shown, so switching profiles can never leave a "copied" claim about other data.
+  const [copyResult, setCopyResult] = useState<{ text: string; ok: boolean } | null>(null);
 
   const selected = workbench.selectedProfileGuid
     ? workbench.profiles.find((p) => p.guid === workbench.selectedProfileGuid)
     : null;
 
+  // null = the profile has no Triggers property at all; distinct from an empty array.
+  const rawTriggers = selected ? selected.properties['Triggers'] ?? null : null;
   let triggers: TriggerDict[] = [];
   let parseError: string | null = null;
-  if (selected) {
+  if (rawTriggers !== null) {
+    // iTerm2 data is a trust boundary: the property must parse AND be an array before any
+    // element flows into the evaluator.
     try {
-      const raw = selected.properties['Triggers'];
-      triggers = raw ? (JSON.parse(raw) as TriggerDict[]) : [];
+      const parsed: unknown = JSON.parse(rawTriggers);
+      if (!Array.isArray(parsed)) {
+        parseError = 'Triggers property is not a JSON array';
+      } else {
+        triggers = parsed as TriggerDict[];
+      }
     } catch (err) {
       parseError = err instanceof Error ? err.message : String(err);
     }
@@ -56,8 +66,13 @@ export const TriggersViewer = observer(function TriggersViewer() {
     source === 'session' ? sessionLines : sample === '' ? [] : sample.split('\n');
 
   const copyRawJson = async (text: string) => {
-    await navigator.clipboard.writeText(text);
-    setCopied(true);
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopyResult({ text, ok: true });
+    } catch {
+      // [LAW:no-silent-failure] A rejected clipboard write surfaces as its own badge state.
+      setCopyResult({ text, ok: false });
+    }
   };
 
   return (
@@ -110,7 +125,8 @@ export const TriggersViewer = observer(function TriggersViewer() {
                 Engine caveat: this tester runs JavaScript RegExp; iTerm2 evaluates
                 trigger regexes with the ICU engine. Patterns using constructs the two
                 engines disagree on are flagged "cannot test" instead of being
-                mis-evaluated.
+                mis-evaluated. Residual divergence: <code>\d</code>/<code>\w</code> are
+                ASCII-bounded here but Unicode-wide in ICU.
               </p>
               <div className="flex gap-1">
                 <Button
@@ -205,11 +221,19 @@ export const TriggersViewer = observer(function TriggersViewer() {
             <CardHeader className="pb-2 flex flex-row items-center justify-between">
               <CardTitle className="text-base">Raw JSON</CardTitle>
               <div className="flex items-center gap-2">
-                {copied && <Badge variant="secondary">copied</Badge>}
+                {copyResult && copyResult.text === rawTriggers && (
+                  <Badge
+                    variant={copyResult.ok ? 'secondary' : 'destructive'}
+                    data-testid="triggers-copy-result"
+                  >
+                    {copyResult.ok ? 'copied' : 'copy failed'}
+                  </Badge>
+                )}
                 <Button
                   size="sm"
                   variant="outline"
-                  onClick={() => void copyRawJson(selected.properties['Triggers'] ?? '[]')}
+                  disabled={rawTriggers === null}
+                  onClick={() => rawTriggers !== null && void copyRawJson(rawTriggers)}
                   data-testid="triggers-copy-json"
                 >
                   Copy
@@ -218,14 +242,16 @@ export const TriggersViewer = observer(function TriggersViewer() {
             </CardHeader>
             <CardContent>
               <p className="mb-2 text-xs text-muted-foreground">
-                This is the exact value of the profile's <code>Triggers</code> property —
-                the JSON a Dynamic Profile embeds verbatim.
+                {rawTriggers === null
+                  ? 'This profile has no Triggers property.'
+                  : "This is the exact value of the profile's Triggers property — the JSON a Dynamic Profile embeds verbatim."}
               </p>
               <Textarea
                 rows={10}
                 className="font-mono text-xs"
                 readOnly
-                value={selected.properties['Triggers'] ?? '[]'}
+                value={rawTriggers ?? ''}
+                placeholder="Triggers property not set on this profile"
                 data-testid="triggers-raw"
               />
             </CardContent>
@@ -277,6 +303,8 @@ function TriggerResultBadge({ idx, result }: { idx: number; result: TriggerTestR
           no regex
         </Badge>
       );
+    default:
+      return result satisfies never;
   }
 }
 
@@ -314,5 +342,7 @@ function TriggerResultDetail({
     case 'no-input':
     case 'no-regex':
       return null;
+    default:
+      return result satisfies never;
   }
 }
