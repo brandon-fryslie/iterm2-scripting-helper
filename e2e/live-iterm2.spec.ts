@@ -863,8 +863,6 @@ end tell'`,
       .trim()
       .split(',');
     const [sessionA, sessionB] = ids;
-    expect(sessionA).toMatch(/^[0-9A-F-]{36}$/);
-    expect(sessionB).toMatch(/^[0-9A-F-]{36}$/);
 
     // The user's pre-existing table, restored verbatim in teardown — the test's domain rides on
     // sessions it owns, so the captured table never references them. A failed capture aborts
@@ -873,6 +871,10 @@ end tell'`,
     let initialTable: { ok: true; domains: string[][] } | null = null;
 
     try {
+      // Inside the guarded block so a surprise id format still tears down the app and sessions.
+      expect(sessionA).toMatch(/^[0-9A-F-]{36}$/);
+      expect(sessionB).toMatch(/^[0-9A-F-]{36}$/);
+
       const captured = await win.evaluate(async () =>
         window.ipc.invoke('workbench/broadcast-domains', undefined as never),
       );

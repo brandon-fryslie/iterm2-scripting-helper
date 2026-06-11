@@ -110,6 +110,10 @@ export class WorkbenchStore {
   // The editing buffer over the live table. Every op replaces it whole with a new value from the
   // pure @shared/broadcastDomains helpers; null means "no live table loaded to edit yet".
   broadcastDraft: BroadcastDraft | null = null;
+  // The engine table the draft was seeded from — the baseline that makes dirtiness a pure value
+  // comparison, insensitive to whether the latest read happened to fail. (Same contract as
+  // dynamicEditorBaseBody.) [LAW:one-source-of-truth]
+  broadcastDraftBase: BroadcastDraft | null = null;
   // Click-to-move modality: the session chip armed for "move here". The drag modality carries the
   // same value through dataTransfer instead; both land on moveBroadcastSession.
   armedBroadcastSessionId: string | null = null;
@@ -124,6 +128,7 @@ export class WorkbenchStore {
       arrangements: observable.ref,
       broadcastDomains: observable.ref,
       broadcastDraft: observable.ref,
+      broadcastDraftBase: observable.ref,
     });
   }
 
@@ -505,20 +510,26 @@ export class WorkbenchStore {
     runInAction(() => {
       // A clean draft follows the engine; a dirty draft is the user's pending intent and is left
       // alone — the divergence renders as the dirty state with explicit apply/reset, never a
-      // silent buffer swap. (Same contract as the dynamic-profile editor.) Cleanliness is judged
-      // against the table the draft was edited over, before the swap. [LAW:no-ambient-temporal-coupling]
-      const wasDirty = this.broadcastDraftDirty;
+      // silent buffer swap. (Same contract as the dynamic-profile editor.) Dirtiness is draft vs.
+      // the baseline it was seeded from, so an intervening failed read cannot poison the check
+      // and discard edits on the next successful one.
       this.broadcastDomains = result;
-      if (result.ok && !wasDirty) {
-        this.broadcastDraft = result.domains;
+      if (result.ok) {
+        if (!this.broadcastDraftDirty) {
+          this.broadcastDraft = result.domains;
+          this.broadcastDraftBase = result.domains;
+        } else if (this.broadcastDraft !== null && domainsEqual(this.broadcastDraft, result.domains)) {
+          // The engine caught up with the pending edits (the apply landed): the draft is no
+          // longer pending intent but the synced state — rebase so it reads clean.
+          this.broadcastDraftBase = result.domains;
+        }
       }
     });
   }
 
   get broadcastDraftDirty(): boolean {
-    if (this.broadcastDraft === null) return false;
-    if (this.broadcastDomains === null || !this.broadcastDomains.ok) return false;
-    return !domainsEqual(this.broadcastDraft, this.broadcastDomains.domains);
+    if (this.broadcastDraft === null || this.broadcastDraftBase === null) return false;
+    return !domainsEqual(this.broadcastDraft, this.broadcastDraftBase);
   }
 
   addBroadcastDomain(): void {
@@ -543,8 +554,13 @@ export class WorkbenchStore {
     this.armedBroadcastSessionId = sessionId;
   }
 
+  // Discard pending edits in favor of the engine: the draft re-seeds from the last successful
+  // read, which becomes the new baseline.
   resetBroadcastDraft(): void {
-    if (this.broadcastDomains?.ok) this.broadcastDraft = this.broadcastDomains.domains;
+    if (this.broadcastDomains?.ok) {
+      this.broadcastDraft = this.broadcastDomains.domains;
+      this.broadcastDraftBase = this.broadcastDomains.domains;
+    }
   }
 
   // [LAW:one-source-of-truth] Each source stays authoritative for its own facet: the engine LIST

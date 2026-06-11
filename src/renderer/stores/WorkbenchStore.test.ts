@@ -204,6 +204,28 @@ describe('WorkbenchStore broadcast domain draft', () => {
     expect(store.armedBroadcastSessionId).toBeNull();
   });
 
+  it('edits survive a failed refresh followed by a successful one — the error read cannot poison dirtiness', async () => {
+    await store.refreshBroadcastDomains();
+    store.moveBroadcastSession('s2', null);
+    live = { ok: false, error: 'IPC blip' };
+    await store.refreshBroadcastDomains();
+    expect(store.broadcastDraft).toEqual([['s1']]);
+    live = { ok: true, domains: [['s1', 's2']] };
+    await store.refreshBroadcastDomains();
+    expect(store.broadcastDraft).toEqual([['s1']]);
+    expect(store.broadcastDraftDirty).toBe(true);
+  });
+
+  it('a refresh whose table matches the pending draft rebases it to clean — the apply landed', async () => {
+    await store.refreshBroadcastDomains();
+    store.moveBroadcastSession('s2', null);
+    expect(store.broadcastDraftDirty).toBe(true);
+    live = { ok: true, domains: [['s1']] };
+    await store.refreshBroadcastDomains();
+    expect(store.broadcastDraft).toEqual([['s1']]);
+    expect(store.broadcastDraftDirty).toBe(false);
+  });
+
   it('a failed engine read never fabricates a draft', async () => {
     live = { ok: false, error: 'not connected' };
     await store.refreshBroadcastDomains();
