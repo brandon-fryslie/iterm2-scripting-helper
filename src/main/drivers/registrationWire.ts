@@ -100,6 +100,13 @@ function buildRoleAttrs(spec: RpcRegistrationSpec): RegistrationRequestInit | un
         },
       };
   }
+  // [LAW:types-are-the-program] Reachable only if a new RPC role escapes the switch above; the
+  // `never` assignment makes that a compile error instead of a silent attrs-less registration.
+  return assertExhausted(spec);
+}
+
+function assertExhausted(spec: never): never {
+  throw new Error(`Unhandled RPC role: ${JSON.stringify(spec)}`);
 }
 
 function buildStatusBarAttrs(sb: StatusBarAttrs) {

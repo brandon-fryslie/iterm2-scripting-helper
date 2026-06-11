@@ -209,22 +209,21 @@ export type ToolbeltRegistrationSpec = Extract<RegistrationSpec, { role: 'toolbe
 
 export interface RoleCapabilities {
   label: string;
-  // The server invokes this registration (server-originated RPC). Toolbelt tools are webviews and
-  // are never invoked.
-  invocable: boolean;
   // iTerm2 has a wire message to remove it. The API has no unregister-tool message: a toolbelt tool
-  // persists in iTerm2 until restart, and unregistering only forgets it locally.
+  // persists in iTerm2 until restart, and unregistering only forgets it locally. This is the
+  // UI-facing projection of the union shape (RpcRegistrationSpec vs the toolbelt arm); the union
+  // itself is what routes the wire paths.
   wireUnregister: boolean;
 }
 
-// [LAW:dataflow-not-control-flow] Per-role behavior differences are values consumed by the one
-// editor and the one orchestrator path — never separate per-role editor components.
+// [LAW:dataflow-not-control-flow] Per-role display differences are values consumed by the one
+// editor — never separate per-role editor components.
 export const ROLE_CAPABILITIES: Record<RegistrationRole, RoleCapabilities> = {
-  generic: { label: 'Generic RPC', invocable: true, wireUnregister: true },
-  'status-bar': { label: 'Status Bar Component', invocable: true, wireUnregister: true },
-  'session-title': { label: 'Session Title Provider', invocable: true, wireUnregister: true },
-  'context-menu': { label: 'Context Menu Provider', invocable: true, wireUnregister: true },
-  toolbelt: { label: 'Toolbelt Tool', invocable: false, wireUnregister: false },
+  generic: { label: 'Generic RPC', wireUnregister: true },
+  'status-bar': { label: 'Status Bar Component', wireUnregister: true },
+  'session-title': { label: 'Session Title Provider', wireUnregister: true },
+  'context-menu': { label: 'Context Menu Provider', wireUnregister: true },
+  toolbelt: { label: 'Toolbelt Tool', wireUnregister: false },
 };
 
 export function registrationDisplayName(spec: RegistrationBody): string {
