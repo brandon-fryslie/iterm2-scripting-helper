@@ -14,6 +14,11 @@ export function moveSession(
   sessionId: string,
   toDomainIndex: number | null,
 ): BroadcastDraft {
+  // [LAW:no-silent-failure] A stale index must not return a draft with the session quietly
+  // dropped from everywhere — that corruption would surface only at apply time, far from its cause.
+  if (toDomainIndex !== null && (toDomainIndex < 0 || toDomainIndex >= draft.length)) {
+    throw new RangeError(`no domain at index ${toDomainIndex} (draft has ${draft.length})`);
+  }
   const removed = draft.map((domain) => domain.filter((id) => id !== sessionId));
   if (toDomainIndex === null) return removed;
   return removed.map((domain, idx) =>

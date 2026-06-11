@@ -867,12 +867,18 @@ end tell'`,
     expect(sessionB).toMatch(/^[0-9A-F-]{36}$/);
 
     // The user's pre-existing table, restored verbatim in teardown — the test's domain rides on
-    // sessions it owns, so the captured table never references them.
-    const initialTable = await win.evaluate(async () =>
-      window.ipc.invoke('workbench/broadcast-domains', undefined as never),
-    );
+    // sessions it owns, so the captured table never references them. A failed capture aborts
+    // before any mutation: restoring a guessed table (or clearing) would rewrite state the test
+    // never knew, so teardown only ever restores a table it actually read.
+    let initialTable: { ok: true; domains: string[][] } | null = null;
 
     try {
+      const captured = await win.evaluate(async () =>
+        window.ipc.invoke('workbench/broadcast-domains', undefined as never),
+      );
+      expect(captured.ok, `initial table read: ${captured.ok ? '' : captured.error}`).toBe(true);
+      if (captured.ok) initialTable = captured;
+
       // Both sessions must surface in the layout before the editor can place them.
       await expect(async () => {
         const present = await win.evaluate(async (args) => {
@@ -948,14 +954,17 @@ end tell'`,
       );
       await expect(actionRows.first()).toBeVisible({ timeout: 10_000 });
     } finally {
-      // Put the user's table back exactly as found, then drop the window.
-      const cleared = await win.evaluate(async (args) => {
-        return window.ipc.invoke('actions/set-broadcast-domains', {
-          entity: { kind: 'app' },
-          domains: args.domains,
-        });
-      }, { domains: initialTable.ok ? initialTable.domains : [] });
-      expect.soft(cleared.ok).toBe(true);
+      // Put the user's table back exactly as found, then drop the window. No capture means the
+      // test aborted before mutating, so there is nothing to restore — never write a guess.
+      if (initialTable !== null) {
+        const restored = await win.evaluate(async (args) => {
+          return window.ipc.invoke('actions/set-broadcast-domains', {
+            entity: { kind: 'app' },
+            domains: args.domains,
+          });
+        }, { domains: initialTable.domains });
+        expect.soft(restored.ok).toBe(true);
+      }
       for (const sessionId of [sessionA, sessionB]) {
         const closeRes = await win.evaluate(async (args) => {
           return window.ipc.invoke('actions/close', {

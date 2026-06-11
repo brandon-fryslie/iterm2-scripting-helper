@@ -53,6 +53,11 @@ describe('broadcast draft ops', () => {
     expect(moveSession([['s1', 's2']], 's1', 0)).toEqual([['s2', 's1']]);
   });
 
+  it('moveSession refuses an out-of-bounds target instead of silently dropping the session', () => {
+    expect(() => moveSession([['s1']], 's1', 1)).toThrow(RangeError);
+    expect(() => moveSession([['s1']], 's1', -1)).toThrow(RangeError);
+  });
+
   it('add/remove domain are positional value updates', () => {
     expect(addDomain([['s1']])).toEqual([['s1'], []]);
     expect(removeDomain([['s1'], ['s2']], 0)).toEqual([['s2']]);
