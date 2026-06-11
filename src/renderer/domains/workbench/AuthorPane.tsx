@@ -6,7 +6,6 @@ import { ProfileEditor } from './ProfileEditor';
 import { DynamicProfileEditor } from './DynamicProfileEditor';
 import { EscapeSequenceEditor } from './EscapeSequenceEditor';
 import { RegistrationEditor } from './RegistrationEditor';
-import { CustomEscapeSubscriber } from './CustomEscapeSubscriber';
 import { TriggersViewer } from './TriggersViewer';
 import { ArtifactScopeBanner } from './ArtifactScopeBanner';
 
@@ -15,7 +14,6 @@ const RAIL: Array<{ id: WorkbenchArtifact; label: string }> = [
   { id: 'dynamic-profile', label: 'Dynamic Profiles' },
   { id: 'escape-sequence', label: 'Escape Sequences' },
   { id: 'registrations', label: 'Registrations' },
-  { id: 'custom-escape', label: 'Custom Escape Subscriber' },
   { id: 'triggers', label: 'Triggers' },
 ];
 
@@ -48,7 +46,6 @@ export const AuthorPane = observer(function AuthorPane() {
         {workbench.artifact === 'dynamic-profile' && <DynamicProfileEditor />}
         {workbench.artifact === 'escape-sequence' && <EscapeSequenceEditor />}
         {workbench.artifact === 'registrations' && <RegistrationEditor />}
-        {workbench.artifact === 'custom-escape' && <CustomEscapeSubscriber />}
         {workbench.artifact === 'triggers' && <TriggersViewer />}
       </section>
     </div>

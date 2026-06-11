@@ -2,20 +2,22 @@ import { useEffect } from 'react';
 import { observer } from 'mobx-react-lite';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select';
 import { useStore } from '@/stores/context';
-import { flatSessions } from '@shared/domain';
 
-export const CustomEscapeSubscriber = observer(function CustomEscapeSubscriber() {
-  const { workbench, monitor, entityFocus } = useStore();
+// [LAW:one-source-of-truth] The paired subscriber owns no target picker and no identity field:
+// both arrive as values from the emitter's seam, so "emit to A while subscribed to B" and
+// "emit identity X while filtering on Y" are unrepresentable in this workflow.
+export const CustomEscapeSubscriber = observer(function CustomEscapeSubscriber({
+  targetId,
+  targetLabel,
+  identity,
+}: {
+  targetId: string;
+  targetLabel: string;
+  identity: string;
+}) {
+  const { workbench } = useStore();
 
   useEffect(() => {
     void workbench.refreshCustomEscape();
@@ -26,84 +28,41 @@ export const CustomEscapeSubscriber = observer(function CustomEscapeSubscriber()
   }, [workbench]);
 
   const snap = workbench.customEscapeSnapshot;
-  const form = workbench.customEscapeForm;
-
-  const sessions: Array<{ sessionId: string; title: string }> = [];
-  for (const w of monitor.layout.windows) {
-    for (const t of w.tabs) for (const s of flatSessions(t)) sessions.push({ sessionId: s.sessionId, title: s.title });
-  }
-
-  // [LAW:one-source-of-truth] Subscribe to the focused session by default; the picker is an
-  // explicit override (empty = follow focus), not a competing source for "which session".
-  const targetId = form.sessionId || entityFocus.sessionId || '';
-  const usingFocus = form.sessionId === '';
-  const targetTitle = sessions.find((s) => s.sessionId === targetId)?.title;
 
   return (
     <div className="grid gap-4" data-testid="workbench-custom-escape">
       <Card>
         <CardHeader className="pb-2">
-          <CardTitle className="text-base">Custom Escape Subscriber</CardTitle>
+          <CardTitle className="text-base">Paired subscriber</CardTitle>
         </CardHeader>
         <CardContent className="grid gap-3 text-sm">
           <p className="text-xs text-muted-foreground">
-            Subscribe to <code>OSC 1337 ; Custom=id=&lt;identity&gt;:...</code> sequences
-            on the chosen session. Pair with the Emit-to-session form above to round-trip
-            a payload.
+            Listens for <code>OSC 1337 ; Custom=id=&lt;identity&gt;:...</code> sequences via
+            CustomControlSequenceMonitor. It follows the emitter above: same target session,
+            and the identity filter is the template&apos;s <code>identity</code> field.
           </p>
-          <label className="grid grid-cols-[10rem_1fr] items-center gap-2 text-xs">
-            <span className="text-muted-foreground">Session</span>
-            <Select
-              value={form.sessionId || '__focus__'}
-              onValueChange={(v) =>
-                workbench.updateCustomEscapeForm({ sessionId: v === '__focus__' ? '' : v })
-              }
-            >
-              <SelectTrigger data-testid="custom-escape-session">
-                <SelectValue placeholder="Follow focus" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="__focus__">Follow focus</SelectItem>
-                {sessions.map((s) => (
-                  <SelectItem key={s.sessionId} value={s.sessionId}>
-                    {s.title || s.sessionId.slice(0, 12) + '…'}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </label>
           <div
             className="text-xs text-muted-foreground"
-            data-testid="custom-escape-effective-target"
+            data-testid="custom-escape-pairing"
             data-target={targetId || 'none'}
+            data-identity={identity || 'none'}
           >
-            {targetId ? (
+            {targetId && identity ? (
               <>
-                Subscribing to{' '}
-                <span className="font-mono text-foreground">
-                  {targetTitle || targetId.slice(0, 12) + '…'}
-                </span>{' '}
-                {usingFocus ? '(focused session)' : '(override)'}
+                Will subscribe to identity{' '}
+                <span className="font-mono text-foreground">{identity}</span> on{' '}
+                <span className="font-mono text-foreground">{targetLabel}</span>
               </>
-            ) : (
+            ) : !targetId ? (
               'No target session — focus a session or override above.'
+            ) : (
+              'Fill the identity field above to pair the subscriber.'
             )}
           </div>
-          <label className="grid grid-cols-[10rem_1fr] items-center gap-2 text-xs">
-            <span className="text-muted-foreground">Identity filter</span>
-            <Input
-              value={form.identity}
-              onChange={(e) =>
-                workbench.updateCustomEscapeForm({ identity: e.target.value })
-              }
-              placeholder="(empty = all identities)"
-              data-testid="custom-escape-identity"
-            />
-          </label>
           <div className="flex items-center gap-2">
             <Button
-              onClick={() => void workbench.subscribeCustomEscape(targetId)}
-              disabled={!targetId}
+              onClick={() => void workbench.subscribeCustomEscape(targetId, identity)}
+              disabled={!targetId || !identity}
               data-testid="custom-escape-subscribe"
             >
               Subscribe
@@ -150,8 +109,8 @@ export const CustomEscapeSubscriber = observer(function CustomEscapeSubscriber()
         <CardContent className="max-h-[40vh] overflow-auto">
           {snap.entries.length === 0 ? (
             <p className="text-xs text-muted-foreground">
-              No payloads yet. Emit <code>OSC 1337 ; Custom=id=&lt;identity&gt;:payload</code>
-              to the subscribed session to see entries here.
+              No payloads yet. Subscribe, then press &ldquo;Emit to session&rdquo; above to
+              round-trip the payload into this list.
             </p>
           ) : (
             <ul className="grid gap-1 font-mono text-xs">
