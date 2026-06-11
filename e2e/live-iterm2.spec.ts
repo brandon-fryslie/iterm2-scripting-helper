@@ -847,10 +847,21 @@ end tell'`,
 
     await connectViaGear(win);
 
-    // Broadcast domains may not span windows, so the test owns one window split into two
-    // sessions — the smallest layout where a domain is legal.
-    const ids = execSync(
-      `osascript -e 'tell application "iTerm2"
+    // The user's pre-existing table, restored verbatim in teardown — the test's domain rides on
+    // sessions it owns, so the captured table never references them. A failed capture aborts
+    // before any mutation: restoring a guessed table (or clearing) would rewrite state the test
+    // never knew, so teardown only ever restores a table it actually read.
+    let initialTable: { ok: true; domains: string[][] } | null = null;
+    // Assigned inside the guarded block; teardown closes only sessions that were actually created.
+    let sessionA = '';
+    let sessionB = '';
+
+    try {
+      // Broadcast domains may not span windows, so the test owns one window split into two
+      // sessions — the smallest layout where a domain is legal. Created inside the guarded block
+      // so any failure from here on still tears down the app and whatever sessions exist.
+      const ids = execSync(
+        `osascript -e 'tell application "iTerm2"
 set w to (create window with default profile)
 set sA to current session of w
 tell sA
@@ -858,20 +869,11 @@ tell sA
 end tell
 return (unique ID of sA) & "," & (unique ID of sB)
 end tell'`,
-      { encoding: 'utf8' },
-    )
-      .trim()
-      .split(',');
-    const [sessionA, sessionB] = ids;
-
-    // The user's pre-existing table, restored verbatim in teardown — the test's domain rides on
-    // sessions it owns, so the captured table never references them. A failed capture aborts
-    // before any mutation: restoring a guessed table (or clearing) would rewrite state the test
-    // never knew, so teardown only ever restores a table it actually read.
-    let initialTable: { ok: true; domains: string[][] } | null = null;
-
-    try {
-      // Inside the guarded block so a surprise id format still tears down the app and sessions.
+        { encoding: 'utf8' },
+      )
+        .trim()
+        .split(',');
+      [sessionA = '', sessionB = ''] = ids;
       expect(sessionA).toMatch(/^[0-9A-F-]{36}$/);
       expect(sessionB).toMatch(/^[0-9A-F-]{36}$/);
 
@@ -967,7 +969,7 @@ end tell'`,
         }, { domains: initialTable.domains });
         expect.soft(restored.ok).toBe(true);
       }
-      for (const sessionId of [sessionA, sessionB]) {
+      for (const sessionId of [sessionA, sessionB].filter(Boolean)) {
         const closeRes = await win.evaluate(async (args) => {
           return window.ipc.invoke('actions/close', {
             entity: { kind: 'session', windowId: '', tabId: '', sessionId: args.sessionId },
