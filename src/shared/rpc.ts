@@ -132,6 +132,13 @@ export interface ArrangementSnapshot {
   contents: ArrangementContentsResult;
 }
 
+// The engine's broadcast-domain table, verbatim: each domain is the session-id set iTerm2 reports
+// for it. One authority (GetBroadcastDomainsRequest); the editor's draft is derived from this and
+// explicitly applied back, never a second source of truth. [LAW:one-source-of-truth]
+export type BroadcastDomainsResult =
+  | { ok: true; domains: string[][] }
+  | { ok: false; error: string };
+
 export interface ProfileSummary {
   guid: string;
   name: string;
@@ -395,6 +402,12 @@ export type RpcSchema = {
     args: { entity: AppEntityRef; op: ArrangementOp; name: string; windowId?: string };
     result: ActionResult;
   };
+  // The wire's SET replaces the whole table atomically; the args mirror that — the full table as
+  // one value, never an incremental patch the engine doesn't model. [LAW:dataflow-not-control-flow]
+  'actions/set-broadcast-domains': {
+    args: { entity: AppEntityRef; domains: string[][] };
+    result: ActionResult;
+  };
   'actions/raw-protobuf': {
     args: { entity: AppEntityRef; envelopeJson: string };
     result: ActionResult;
@@ -442,6 +455,10 @@ export type RpcSchema = {
   'workbench/arrangements': {
     args: void;
     result: ArrangementSnapshot;
+  };
+  'workbench/broadcast-domains': {
+    args: void;
+    result: BroadcastDomainsResult;
   };
 };
 

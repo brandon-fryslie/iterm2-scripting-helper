@@ -48,6 +48,11 @@ export const ARTIFACT_SCOPE: Record<WorkbenchArtifact, ArtifactScope> = {
     label: 'Connection-wide',
     blurb: 'Saves and restores named window arrangements for the whole iTerm2 app.',
   },
+  'broadcast-domain': {
+    kind: 'connection',
+    label: 'Connection-wide',
+    blurb: "Rewrites iTerm2's entire broadcast-domain table in one atomic apply.",
+  },
 };
 
 // [LAW:single-enforcer] The one predicate that answers "does this artifact act on the focused

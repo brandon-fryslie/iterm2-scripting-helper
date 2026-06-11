@@ -142,3 +142,95 @@ describe('WorkbenchStore dynamic profile sync state machine', () => {
     expect(store.dynamicFolderBlockers).toEqual(['broken.json']);
   });
 });
+
+describe('WorkbenchStore broadcast domain draft', () => {
+  let store: WorkbenchStore;
+  let live: { ok: true; domains: string[][] } | { ok: false; error: string };
+
+  beforeEach(() => {
+    live = { ok: true, domains: [['s1', 's2']] };
+    const invoke = vi.fn(async (method: string) => {
+      if (method !== 'workbench/broadcast-domains') throw new Error(`unexpected ${method}`);
+      return live;
+    });
+    (globalThis as unknown as { window: unknown }).window = { ipc: { invoke } };
+    store = new WorkbenchStore();
+  });
+
+  it('the first read seeds the draft from the engine table and reads clean', async () => {
+    await store.refreshBroadcastDomains();
+    expect(store.broadcastDraft).toEqual([['s1', 's2']]);
+    expect(store.broadcastDraftDirty).toBe(false);
+  });
+
+  it('edits dirty the draft; reset returns to the live table', async () => {
+    await store.refreshBroadcastDomains();
+    store.moveBroadcastSession('s2', null);
+    expect(store.broadcastDraft).toEqual([['s1']]);
+    expect(store.broadcastDraftDirty).toBe(true);
+    store.resetBroadcastDraft();
+    expect(store.broadcastDraft).toEqual([['s1', 's2']]);
+    expect(store.broadcastDraftDirty).toBe(false);
+  });
+
+  it('a clean draft follows an external engine change on refresh', async () => {
+    await store.refreshBroadcastDomains();
+    live = { ok: true, domains: [['s3', 's4']] };
+    await store.refreshBroadcastDomains();
+    expect(store.broadcastDraft).toEqual([['s3', 's4']]);
+  });
+
+  it('a dirty draft survives refresh — pending intent is never silently swapped', async () => {
+    await store.refreshBroadcastDomains();
+    store.moveBroadcastSession('s2', null);
+    live = { ok: true, domains: [['s3', 's4']] };
+    await store.refreshBroadcastDomains();
+    expect(store.broadcastDraft).toEqual([['s1']]);
+    expect(store.broadcastDraftDirty).toBe(true);
+  });
+
+  it('reordering members or domains does not read dirty — membership is the fact', async () => {
+    live = { ok: true, domains: [['s1', 's2'], ['s3']] };
+    await store.refreshBroadcastDomains();
+    store.moveBroadcastSession('s1', 0); // re-append into its own domain
+    expect(store.broadcastDraft).toEqual([['s2', 's1'], ['s3']]);
+    expect(store.broadcastDraftDirty).toBe(false);
+  });
+
+  it('moving disarms the click-to-move selection', async () => {
+    await store.refreshBroadcastDomains();
+    store.armBroadcastSession('s2');
+    store.moveBroadcastSession('s2', null);
+    expect(store.armedBroadcastSessionId).toBeNull();
+  });
+
+  it('edits survive a failed refresh followed by a successful one — the error read cannot poison dirtiness', async () => {
+    await store.refreshBroadcastDomains();
+    store.moveBroadcastSession('s2', null);
+    live = { ok: false, error: 'IPC blip' };
+    await store.refreshBroadcastDomains();
+    expect(store.broadcastDraft).toEqual([['s1']]);
+    live = { ok: true, domains: [['s1', 's2']] };
+    await store.refreshBroadcastDomains();
+    expect(store.broadcastDraft).toEqual([['s1']]);
+    expect(store.broadcastDraftDirty).toBe(true);
+  });
+
+  it('a refresh whose table matches the pending draft rebases it to clean — the apply landed', async () => {
+    await store.refreshBroadcastDomains();
+    store.moveBroadcastSession('s2', null);
+    expect(store.broadcastDraftDirty).toBe(true);
+    live = { ok: true, domains: [['s1']] };
+    await store.refreshBroadcastDomains();
+    expect(store.broadcastDraft).toEqual([['s1']]);
+    expect(store.broadcastDraftDirty).toBe(false);
+  });
+
+  it('a failed engine read never fabricates a draft', async () => {
+    live = { ok: false, error: 'not connected' };
+    await store.refreshBroadcastDomains();
+    expect(store.broadcastDomains).toEqual({ ok: false, error: 'not connected' });
+    expect(store.broadcastDraft).toBeNull();
+    expect(store.broadcastDraftDirty).toBe(false);
+  });
+});

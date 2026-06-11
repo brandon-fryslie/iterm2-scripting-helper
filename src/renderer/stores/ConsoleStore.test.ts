@@ -99,3 +99,31 @@ describe('ConsoleStore act-in-context', () => {
     expect(fired.args).toMatchObject({ op: 'save', name: 'snap', windowId: 'w9' });
   });
 });
+
+describe('ConsoleStore set-broadcast-domains form', () => {
+  let store: ConsoleStore;
+  let ipc: ReturnType<typeof fakeIpc>;
+
+  beforeEach(() => {
+    ipc = fakeIpc();
+    (globalThis as unknown as { window: unknown }).window = { ipc };
+    store = new ConsoleStore(new EntityFocusStore());
+  });
+
+  it('parses the line-per-domain text into the wire table and attaches the entity', async () => {
+    store.updateForm('set-broadcast-domains', { domainsText: 's1, s2\ns3 s4' });
+    await store.fire('set-broadcast-domains');
+    const fired = ipc.appended[0];
+    expect(fired.method).toBe('actions/set-broadcast-domains');
+    expect(fired.args.domains).toEqual([
+      ['s1', 's2'],
+      ['s3', 's4'],
+    ]);
+    expect(fired.args.entity).toEqual({ kind: 'app' });
+  });
+
+  it('empty text fires the empty table — the wire encoding of "clear all broadcasting"', async () => {
+    await store.fire('set-broadcast-domains');
+    expect(ipc.appended[0].args.domains).toEqual([]);
+  });
+});

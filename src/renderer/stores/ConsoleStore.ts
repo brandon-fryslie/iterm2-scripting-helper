@@ -6,6 +6,7 @@ import type {
   RpcMethod,
   RpcArgs,
 } from '@shared/rpc';
+import { parseDomainsText } from '@shared/broadcastDomains';
 import type { EntityFocusStore } from './EntityFocusStore';
 
 // [LAW:one-source-of-truth] The console fires exactly the action kinds the spine records;
@@ -26,6 +27,7 @@ const ACTION_METHODS: Record<ActionKind, ActionMethod> = {
   'restart-session': 'actions/restart-session',
   close: 'actions/close',
   'saved-arrangement': 'actions/saved-arrangement',
+  'set-broadcast-domains': 'actions/set-broadcast-domains',
   'raw-protobuf': 'actions/raw-protobuf',
 };
 
@@ -59,6 +61,9 @@ export interface ActionForms {
   close: { kind: 'sessions' | 'tabs' | 'windows'; idsCsv: string; force: boolean };
   // windowId semantics live on the rpc.ts ArrangementOp type, the one home of that truth.
   'saved-arrangement': { op: ArrangementOp; name: string; windowId: string };
+  // One domain per line, members separated by commas or whitespace; the parse lives in
+  // @shared/broadcastDomains, the one home of that encoding.
+  'set-broadcast-domains': { domainsText: string };
   'raw-protobuf': { envelopeJson: string };
 }
 
@@ -83,6 +88,7 @@ const DEFAULT_FORMS: ActionForms = {
   'restart-session': { sessionId: '', onlyIfExited: false },
   close: { kind: 'sessions', idsCsv: '', force: false },
   'saved-arrangement': { op: 'save', name: '', windowId: '' },
+  'set-broadcast-domains': { domainsText: '' },
   'raw-protobuf': {
     envelopeJson: `{\n  "submessage": {\n    "listSessionsRequest": {}\n  }\n}`,
   },
@@ -185,6 +191,8 @@ export class ConsoleStore {
           ...(f.windowId ? { windowId: f.windowId } : {}),
         };
       }
+      case 'set-broadcast-domains':
+        return { domains: parseDomainsText(this.forms['set-broadcast-domains'].domainsText) };
       case 'raw-protobuf':
         return { envelopeJson: this.forms['raw-protobuf'].envelopeJson };
     }
