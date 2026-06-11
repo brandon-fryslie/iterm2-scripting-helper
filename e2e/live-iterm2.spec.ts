@@ -1,5 +1,6 @@
 import { test, expect, type Page } from '@playwright/test';
 import path from 'node:path';
+import { execSync } from 'node:child_process';
 import { existsSync } from 'node:fs';
 import os from 'node:os';
 import { launchApp } from './launch-app';
@@ -535,6 +536,146 @@ test.describe('live iTerm2', () => {
     await expect(screenPane.locator('.xterm-rows')).toContainText(marker, { timeout: 10_000 });
 
     await app.close();
+  });
+
+  test('Author: triggers view is read-only, engine-truthful, and dry-runs against captured session output', async () => {
+    const app = await launchApp();
+    const win = await app.firstWindow();
+
+    await connectViaGear(win);
+
+    // The dry run reads the FOCUSED session's captured screen. Borrowing whatever session the
+    // user is working in races their redraws (a full-screen TUI overdraws the injected marker
+    // within one frame). [LAW:no-ambient-temporal-coupling] the test owns its terminal: a
+    // dedicated iTerm2 window, created and closed here.
+    const testSessionId = execSync(
+      `osascript -e 'tell application "iTerm2"
+set w to (create window with default profile)
+return unique ID of current session of w
+end tell'`,
+      { encoding: 'utf8' },
+    ).trim();
+    expect(testSessionId).toMatch(/^[0-9A-F-]{36}$/);
+
+    // From here real iTerm2 state exists (a window, then a dynamic profile): every exit path
+    // must tear both down, or a failed assertion leaks them into the user's environment.
+    const t = Date.now();
+    const marker = `trigger-e2e-${t}-fire`;
+    const profileName = `trigger-test-${t}`;
+    const tempBasename = `trigger-test-${t}.json`;
+    try {
+
+    // Author a profile WITH triggers the only way this app legitimately can (449.8.2): as a
+    // Dynamic Profile. One portable trigger and one ICU-only trigger pin both tester verdicts.
+    const write = await win.evaluate(async (args) => {
+      return window.ipc.invoke('workbench/save-dynamic-profile', {
+        basename: args.basename,
+        body: JSON.stringify({
+          Profiles: [
+            {
+              Guid: `trigger-testguid-${args.t}`,
+              Name: args.profileName,
+              'Dynamic Profile Parent Name': 'Default',
+              Triggers: [
+                { regex: args.marker, action: 'HighlightTrigger' },
+                { regex: '\\herror', action: 'BellTrigger' },
+              ],
+            },
+          ],
+        }),
+      });
+    }, { basename: tempBasename, t, profileName, marker });
+    expect(write.ok).toBe(true);
+
+    // iTerm2 hot-loads the dynamic profile; it surfaces through the same list-profiles read
+    // the triggers view renders from.
+    await expect(async () => {
+      const prof = await win.evaluate(() =>
+        window.ipc.invoke('workbench/list-profiles', undefined as never),
+      );
+      expect(prof.profiles.map((p) => p.name)).toContain(profileName);
+    }).toPass({ timeout: 15_000 });
+
+    await closeSettings(win);
+
+    // Focus the dedicated session and put the firing marker into its captured output.
+    await expect(win.getByTestId(`layout-session-${testSessionId}`)).toBeVisible({
+      timeout: 10_000,
+    });
+    await win.getByTestId(`layout-session-${testSessionId}`).click();
+    const markerHex = Array.from(new TextEncoder().encode(`\r\n${marker}\r\n`))
+      .map((b) => b.toString(16).padStart(2, '0'))
+      .join('');
+    await win.evaluate(async (args) => {
+      return window.ipc.invoke('actions/inject', {
+        entity: { kind: 'session', windowId: '', tabId: '', sessionId: args.sessionId },
+        sessionIds: [args.sessionId],
+        bytesHex: args.markerHex,
+      });
+    }, { sessionId: testSessionId, markerHex });
+    await expect(win.getByTestId('screen-pane').locator('.xterm-rows')).toContainText(
+      marker,
+      { timeout: 10_000 },
+    );
+
+    await win.getByTestId('workbench-rail-triggers').click();
+    await win.getByTestId('triggers-refresh-profiles').click();
+    await win.getByTestId('triggers-profile-select').click();
+    await win.getByRole('option', { name: profileName }).click();
+
+    // The engine caveat is always visible, and there is no write affordance anywhere.
+    await expect(win.getByTestId('triggers-engine-caveat')).toBeVisible();
+    await expect(win.getByTestId('workbench-triggers').getByText('Apply to profile')).toHaveCount(0);
+
+    // Default source is the focused session's captured output: the portable trigger fires on the
+    // injected marker; the ICU-only trigger is flagged untestable, never a false no-match.
+    await expect(win.getByTestId('triggers-session-info')).toContainText(testSessionId);
+    await expect(win.getByTestId('trigger-result-0')).toHaveAttribute('data-result', 'fired', {
+      timeout: 10_000,
+    });
+    await expect(win.getByTestId('trigger-result-1')).toHaveAttribute(
+      'data-result',
+      'untestable',
+    );
+
+    // Pasted-text source evaluates the same triggers against the pasted lines.
+    await win.getByTestId('triggers-source-pasted').click();
+    await expect(win.getByTestId('trigger-result-0')).toHaveAttribute('data-result', 'no-input');
+    await win.getByTestId('triggers-sample').fill(`noise\n${marker} tail`);
+    await expect(win.getByTestId('trigger-result-0')).toHaveAttribute('data-result', 'fired');
+
+    // A firing trigger names the action it would take and the line it fired on.
+    await expect(win.getByTestId('trigger-0')).toContainText('would run HighlightTrigger');
+
+    // The raw JSON is the exact Triggers property value, and Copy puts it on the clipboard.
+    // The copy badge is the synchronization point: the write is async behind the click.
+    await expect(win.getByTestId('triggers-raw')).toHaveValue(new RegExp(marker));
+    await win.getByTestId('triggers-copy-json').click();
+    await expect(win.getByTestId('triggers-copy-result')).toHaveText('copied');
+    const clipboard = await win.evaluate(() => navigator.clipboard.readText());
+    expect(clipboard).toContain(marker);
+
+    } finally {
+      // Teardown through the app's own typed channel: force-closing the session skips iTerm2's
+      // close-confirmation modal, which makes AppleScript window closing hang. Soft assertions
+      // keep every teardown step running even when one fails. [LAW:no-silent-failure]
+      const closeRes = await win.evaluate(async (args) => {
+        return window.ipc.invoke('actions/close', {
+          entity: { kind: 'session', windowId: '', tabId: '', sessionId: args.sessionId },
+          kind: 'sessions',
+          ids: [args.sessionId],
+          force: true,
+        });
+      }, { sessionId: testSessionId });
+      expect.soft(closeRes.ok).toBe(true);
+      const del = await win.evaluate(async (args) => {
+        return window.ipc.invoke('workbench/delete-dynamic-profile', {
+          basename: args.basename,
+        });
+      }, { basename: tempBasename });
+      expect.soft(del.ok).toBe(true);
+      await app.close();
+    }
   });
 
   test('Act: send text + activate + snippet re-fires, all feeding Activity', async () => {

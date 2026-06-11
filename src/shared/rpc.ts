@@ -375,13 +375,6 @@ export type RpcSchema = {
     args: void;
     result: ProfileListResult;
   };
-  'workbench/set-profile-property': {
-    args: {
-      guids: string[];
-      assignments: Array<{ key: string; jsonValue: string }>;
-    };
-    result: ActionResult;
-  };
   'workbench/dynamic-profiles': {
     args: void;
     result: DynamicProfileSnapshot;

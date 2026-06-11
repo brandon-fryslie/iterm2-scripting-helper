@@ -88,9 +88,6 @@ export class WorkbenchStore {
   };
   customEscapeLastError: string | null = null;
 
-  triggersDraft = '';
-  triggersLastResult: { ok: boolean; error: string | null } | null = null;
-
   constructor() {
     makeAutoObservable(this);
   }
@@ -453,37 +450,6 @@ export class WorkbenchStore {
     await this.refreshCustomEscape();
   }
 
-  setTriggersDraft(draft: string): void {
-    this.triggersDraft = draft;
-  }
-
-  async applyTriggersDraft(): Promise<void> {
-    if (!this.selectedProfileGuid) return;
-    try {
-      const parsed = JSON.parse(this.triggersDraft);
-      if (!Array.isArray(parsed)) {
-        throw new Error('triggers must be a JSON array');
-      }
-    } catch (err) {
-      runInAction(() => {
-        this.triggersLastResult = {
-          ok: false,
-          error: err instanceof Error ? err.message : String(err),
-        };
-      });
-      return;
-    }
-    const result = await window.ipc.invoke('workbench/set-profile-property', {
-      guids: [this.selectedProfileGuid],
-      assignments: [
-        { key: 'Triggers', jsonValue: this.triggersDraft },
-      ],
-    });
-    runInAction(() => {
-      this.triggersLastResult = { ok: result.ok, error: result.error };
-    });
-    if (result.ok) void this.refreshProfiles();
-  }
 }
 
 interface RegistrationFormState {

@@ -35,7 +35,7 @@ import {
   actionClose,
   actionRawProtobuf,
 } from './actions';
-import { listProfiles, setProfileProperty } from './workbench';
+import { listProfiles } from './workbench';
 
 type Handlers = { [M in RpcMethod]: (args: RpcArgs<M>) => Promise<RpcResult<M>> };
 
@@ -170,7 +170,6 @@ export function registerIpc(
       actionRawProtobuf(orchestrator, args),
     ),
     'workbench/list-profiles': () => listProfiles(orchestrator),
-    'workbench/set-profile-property': (args) => setProfileProperty(orchestrator, args),
     'workbench/dynamic-profiles': async () => {
       await workbench.dynamicProfileWatcher.refresh().catch(() => void 0);
       return workbench.dynamicProfiles.snapshot();
