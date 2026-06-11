@@ -6,7 +6,13 @@ import {
   SavedArrangementRequest_Action,
   SavedArrangementResponse_Status,
 } from '@shared/proto/gen/api_pb';
-import { parsePlist, plistToJson, isPlistDict, type PlistJson } from '@shared/plist';
+import {
+  parsePlist,
+  plistToJson,
+  isPlistDict,
+  setOwnProperty,
+  type PlistJson,
+} from '@shared/plist';
 import type {
   ArrangementNamesResult,
   ArrangementContentsResult,
@@ -42,7 +48,7 @@ export async function readArrangementContents(): Promise<ArrangementContentsResu
     }
     const arrangements: Record<string, PlistJson> = {};
     for (const [name, value] of Object.entries(raw)) {
-      arrangements[name] = plistToJson(value);
+      setOwnProperty(arrangements, name, plistToJson(value));
     }
     return { ok: true, arrangements };
   } catch (err) {
@@ -74,7 +80,10 @@ export async function listArrangementNames(
     }
     const { status, names } = response.submessage.value;
     if (status !== SavedArrangementResponse_Status.OK) {
-      return { ok: false, error: `iTerm2 refused: ${SavedArrangementResponse_Status[status]}` };
+      return {
+        ok: false,
+        error: `iTerm2 refused: ${SavedArrangementResponse_Status[status] ?? status}`,
+      };
     }
     return { ok: true, names };
   } catch (err) {

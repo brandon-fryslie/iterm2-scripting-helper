@@ -37,6 +37,24 @@ describe('diffJson', () => {
     expect(diffJson('s', 0)).toEqual([{ kind: 'changed', path: '', before: 's', after: 0 }]);
   });
 
+  // `key in obj` sees Object.prototype members; membership must mean own keys only.
+  it('treats keys shadowing Object.prototype members as ordinary keys', () => {
+    expect(diffJson({ toString: 'a' }, {})).toEqual([
+      { kind: 'removed', path: 'toString', before: 'a' },
+    ]);
+    expect(diffJson({}, { constructor: 'x' })).toEqual([
+      { kind: 'added', path: 'constructor', after: 'x' },
+    ]);
+  });
+
+  it('treats NaN as equal to NaN and 0 as equal to -0', () => {
+    expect(diffJson({ a: NaN }, { a: NaN })).toEqual([]);
+    expect(diffJson({ a: 0 }, { a: -0 })).toEqual([]);
+    expect(diffJson({ a: NaN }, { a: 1 })).toEqual([
+      { kind: 'changed', path: 'a', before: NaN, after: 1 },
+    ]);
+  });
+
   it('distinguishes null from absent', () => {
     expect(diffJson({ a: null }, {})).toEqual([{ kind: 'removed', path: 'a', before: null }]);
     expect(diffJson({ a: null }, { a: null })).toEqual([]);

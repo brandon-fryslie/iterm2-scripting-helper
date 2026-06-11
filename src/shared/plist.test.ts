@@ -84,6 +84,37 @@ describe('parsePlist', () => {
     expect(plistToJson(NaN)).toBe('nan');
   });
 
+  // Plain `out[key] = v` would set the prototype instead of an own property, silently dropping
+  // the entry — and arrangement names are user-chosen dict keys.
+  it('keeps __proto__ as an own dict key instead of corrupting the prototype', () => {
+    const value = parsePlist(
+      '<plist><dict><key>__proto__</key><dict><key>polluted</key><string>x</string></dict><key>ok</key><string>y</string></dict></plist>',
+    ) as { [key: string]: unknown };
+    expect(Object.keys(value).sort()).toEqual(['__proto__', 'ok']);
+    expect(Object.getPrototypeOf(value)).toBe(Object.prototype);
+    const json = plistToJson(value as never) as { [key: string]: unknown };
+    // An expected object literal can't carry a __proto__ key (the literal syntax itself sets the
+    // prototype), so assert via own-property descriptors.
+    expect(Object.keys(json).sort()).toEqual(['__proto__', 'ok']);
+    expect(Object.getOwnPropertyDescriptor(json, '__proto__')?.value).toEqual({ polluted: 'x' });
+    expect(json.ok).toBe('y');
+    expect(({} as { polluted?: string }).polluted).toBeUndefined();
+  });
+
+  it('rejects out-of-range and malformed character references as parse errors', () => {
+    expect(() => parsePlist('<plist><string>&#x110000;</string></plist>')).toThrow(
+      PlistParseError,
+    );
+    expect(() => parsePlist('<plist><string>&#1a;</string></plist>')).toThrow(PlistParseError);
+  });
+
+  it('rejects integers beyond safe precision and non-plist real spellings', () => {
+    expect(() =>
+      parsePlist('<plist><integer>9223372036854775807</integer></plist>'),
+    ).toThrow(PlistParseError);
+    expect(() => parsePlist('<plist><real>0x10</real></plist>')).toThrow(PlistParseError);
+  });
+
   it('rejects content outside the plist grammar', () => {
     expect(() => parsePlist('<plist><blob>x</blob></plist>')).toThrow(PlistParseError);
     expect(() => parsePlist('<plist><integer>twelve</integer></plist>')).toThrow(PlistParseError);

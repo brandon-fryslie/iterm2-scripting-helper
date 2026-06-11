@@ -1,17 +1,16 @@
 import { makeAutoObservable, observable } from 'mobx';
-import type { ActionResult, ArrangementOp, RpcMethod, RpcArgs } from '@shared/rpc';
+import type {
+  ActionResult,
+  AppActionKind,
+  ArrangementOp,
+  RpcMethod,
+  RpcArgs,
+} from '@shared/rpc';
 import type { EntityFocusStore } from './EntityFocusStore';
 
-export type ActionKind =
-  | 'send-text'
-  | 'inject'
-  | 'activate'
-  | 'menu-item'
-  | 'invoke-function'
-  | 'restart-session'
-  | 'close'
-  | 'saved-arrangement'
-  | 'raw-protobuf';
+// [LAW:one-source-of-truth] The console fires exactly the action kinds the spine records;
+// domain.ts owns the closed set.
+export type ActionKind = AppActionKind;
 
 type ActionMethod = Extract<RpcMethod, `actions/${string}`>;
 // The protocol args a form produces, before the focused entity is attached at fire time. The entity
@@ -58,8 +57,7 @@ export interface ActionForms {
   };
   'restart-session': { sessionId: string; onlyIfExited: boolean };
   close: { kind: 'sessions' | 'tabs' | 'windows'; idsCsv: string; force: boolean };
-  // windowId follows the wire's dual semantics: scopes a save to one window's tabs, or targets a
-  // restore into an existing window; empty means whole-app save / restore as new windows.
+  // windowId semantics live on the rpc.ts ArrangementOp type, the one home of that truth.
   'saved-arrangement': { op: ArrangementOp; name: string; windowId: string };
   'raw-protobuf': { envelopeJson: string };
 }

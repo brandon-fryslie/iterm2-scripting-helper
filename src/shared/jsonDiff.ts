@@ -39,18 +39,34 @@ function walk(path: string, before: JsonValue, after: JsonValue, out: JsonDiffEn
     return;
   }
   if (isRecord(before) && isRecord(after)) {
+    // `in` would see inherited properties (a key named 'toString' vs Object.prototype's);
+    // membership here means own keys only.
     for (const key of Object.keys(before)) {
-      if (key in after) walk(joinPath(path, key), before[key], after[key], out);
+      if (Object.hasOwn(after, key)) walk(joinPath(path, key), before[key], after[key], out);
       else out.push({ kind: 'removed', path: joinPath(path, key), before: before[key] });
     }
     for (const key of Object.keys(after)) {
-      if (!(key in before)) out.push({ kind: 'added', path: joinPath(path, key), after: after[key] });
+      if (!Object.hasOwn(before, key)) {
+        out.push({ kind: 'added', path: joinPath(path, key), after: after[key] });
+      }
     }
     return;
   }
-  if (before !== after) {
+  if (!leafEqual(before, after)) {
     out.push({ kind: 'changed', path, before, after });
   }
+}
+
+// === plus NaN-equals-NaN (a self-unequal leaf would diff against itself forever), while keeping
+// JSON's 0 === -0.
+function leafEqual(before: JsonValue, after: JsonValue): boolean {
+  if (before === after) return true;
+  return (
+    typeof before === 'number' &&
+    typeof after === 'number' &&
+    Number.isNaN(before) &&
+    Number.isNaN(after)
+  );
 }
 
 export function diffJson(before: JsonValue, after: JsonValue): JsonDiffEntry[] {

@@ -310,18 +310,34 @@ export async function actionSavedArrangement(
     action: ARRANGEMENT_OP_TO_WIRE[args.op],
     ...(args.windowId ? { windowId: args.windowId } : {}),
   });
+  let wireStatus: SavedArrangementResponse_Status | null = null;
   const result = await fire(
     orchestrator,
     { submessage: { case: 'savedArrangementRequest', value } },
     (msg) => {
       if (msg.submessage.case !== 'savedArrangementResponse') return null;
-      return { status: SavedArrangementResponse_Status[msg.submessage.value.status] };
+      wireStatus = msg.submessage.value.status;
+      return { status: SavedArrangementResponse_Status[wireStatus] ?? String(wireStatus) };
     },
   );
-  // [LAW:no-silent-failure] A transport-level success carrying a refusal status (arrangement or
-  // window not found, malformed request) is a failed action, not a success with fine print.
-  if (result.ok && result.payload && result.payload.status !== 'OK') {
-    return { ...result, ok: false, error: `iTerm2 refused: ${String(result.payload.status)}` };
+  if (!result.ok) return result;
+  // [LAW:no-silent-failure] Transport success is not action success: a response that never carried
+  // a savedArrangementResponse has no status to trust, and a refusal status (arrangement or window
+  // not found, malformed request) is a failed action, not a success with fine print. The check
+  // compares the wire enum value itself, same encoding the LIST read uses.
+  if (wireStatus === null) {
+    return {
+      ...result,
+      ok: false,
+      error: `expected savedArrangementResponse, got ${result.responseCase ?? '<none>'}`,
+    };
+  }
+  if (wireStatus !== SavedArrangementResponse_Status.OK) {
+    return {
+      ...result,
+      ok: false,
+      error: `iTerm2 refused: ${SavedArrangementResponse_Status[wireStatus] ?? wireStatus}`,
+    };
   }
   return result;
 }

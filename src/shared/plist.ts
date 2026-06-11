@@ -39,8 +39,10 @@ export class PlistParseError extends Error {
 
 // [FRAMING:representation] The display projection, named as one: where PlistValue is the truth,
 // this is what JSON-only consumers (inspect panes, diffs) render. Dates become ISO strings; data
-// becomes an explicit `{ $plistData, byteLength, base64 }` marker object rather than being dropped
-// or stringified ambiguously.
+// becomes a `{ $plistData, byteLength, base64 }` object rather than being dropped or stringified
+// ambiguously. The shape is a display convention, not a typed discriminant — the projection is
+// one-way (rendered and diffed, never un-projected), so a real dict with those keys cannot be
+// misinterpreted by any consumer that exists.
 export type PlistJson =
   | string
   | number
@@ -66,7 +68,7 @@ export function plistToJson(value: PlistValue): PlistJson {
   if (Array.isArray(value)) return value.map(plistToJson);
   if (typeof value === 'object') {
     const out: { [key: string]: PlistJson } = {};
-    for (const [k, v] of Object.entries(value)) out[k] = plistToJson(v);
+    for (const [k, v] of Object.entries(value)) setOwnProperty(out, k, plistToJson(v));
     return out;
   }
   return value;
@@ -88,18 +90,31 @@ const ENTITIES: Record<string, string> = {
 };
 
 function decodeEntities(text: string, basePos: number): string {
-  return text.replace(/&(#x?[0-9a-fA-F]+|[a-zA-Z]+);/g, (whole, body: string, offset: number) => {
-    if (body.startsWith('#x') || body.startsWith('#X')) {
-      return String.fromCodePoint(parseInt(body.slice(2), 16));
-    }
+  return text.replace(/&([^;&]*);/g, (whole, body: string, offset: number) => {
+    const fail = () => new PlistParseError(`invalid entity ${whole}`, basePos + offset);
     if (body.startsWith('#')) {
-      return String.fromCodePoint(parseInt(body.slice(1), 10));
+      const hex = /^#[xX]([0-9a-fA-F]+)$/.exec(body);
+      const dec = /^#([0-9]+)$/.exec(body);
+      if (!hex && !dec) throw fail();
+      const codePoint = hex ? parseInt(hex[1], 16) : parseInt(dec![1], 10);
+      if (codePoint > 0x10ffff) throw fail();
+      return String.fromCodePoint(codePoint);
     }
     const named = ENTITIES[body];
-    if (named === undefined) {
-      throw new PlistParseError(`unknown entity ${whole}`, basePos + offset);
-    }
+    if (named === undefined) throw fail();
     return named;
+  });
+}
+
+// Plain `out[key] = value` on keys like '__proto__' sets the prototype instead of an own property,
+// silently dropping (or worse, inheriting) user-chosen keys — arrangement names are exactly such
+// keys. defineProperty always creates an own property.
+export function setOwnProperty<T>(target: { [key: string]: T }, key: string, value: T): void {
+  Object.defineProperty(target, key, {
+    value,
+    enumerable: true,
+    writable: true,
+    configurable: true,
   });
 }
 
@@ -222,7 +237,11 @@ class Parser {
         if (tag.selfClosing) this.fail('empty <integer/>');
         const text = this.textUntilClose('integer').trim();
         if (!/^[+-]?\d+$/.test(text)) this.fail(`invalid integer "${text}"`);
-        return Number(text);
+        const value = Number(text);
+        // plist integers are 64-bit; silently rounding past 2^53 would be a lie. Fail loudly —
+        // no real iTerm2 domain observed carries one, and honesty beats lenience here.
+        if (!Number.isSafeInteger(value)) this.fail(`integer "${text}" exceeds safe precision`);
+        return value;
       }
       case 'real': {
         if (tag.selfClosing) this.fail('empty <real/>');
@@ -231,9 +250,11 @@ class Parser {
         // real `defaults export` output); JS Number() does not accept those spellings.
         const special = REAL_SPECIALS[text.toLowerCase()];
         if (special !== undefined) return special;
-        const value = Number(text);
-        if (text === '' || Number.isNaN(value)) this.fail(`invalid real "${text}"`);
-        return value;
+        // Number() also accepts hex/binary spellings that are not plist reals; reject them.
+        if (!/^[+-]?(\d+\.?\d*|\.\d+)([eE][+-]?\d+)?$/.test(text)) {
+          this.fail(`invalid real "${text}"`);
+        }
+        return Number(text);
       }
       case 'date': {
         if (tag.selfClosing) this.fail('empty <date/>');
@@ -267,7 +288,7 @@ class Parser {
           const keyTag = this.openTag();
           if (keyTag.name !== 'key') this.fail(`expected <key>, found <${keyTag.name}>`);
           const key = keyTag.selfClosing ? '' : this.textUntilClose('key');
-          out[key] = this.parseValue();
+          setOwnProperty(out, key, this.parseValue());
         }
         this.closeTag('dict');
         return out;
