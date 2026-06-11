@@ -31,6 +31,11 @@ export function addDomain(draft: BroadcastDraft): BroadcastDraft {
 }
 
 export function removeDomain(draft: BroadcastDraft, index: number): BroadcastDraft {
+  // [LAW:no-silent-failure] Same contract as moveSession: a stale index is refused, never a
+  // silent no-op that loses the user's remove.
+  if (index < 0 || index >= draft.length) {
+    throw new RangeError(`no domain at index ${index} (draft has ${draft.length})`);
+  }
   return draft.filter((_, idx) => idx !== index);
 }
 

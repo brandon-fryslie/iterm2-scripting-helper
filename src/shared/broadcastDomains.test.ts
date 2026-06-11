@@ -63,6 +63,11 @@ describe('broadcast draft ops', () => {
     expect(removeDomain([['s1'], ['s2']], 0)).toEqual([['s2']]);
   });
 
+  it('removeDomain refuses an out-of-bounds index instead of silently dropping the remove', () => {
+    expect(() => removeDomain([['s1']], 1)).toThrow(RangeError);
+    expect(() => removeDomain([['s1']], -1)).toThrow(RangeError);
+  });
+
   it('applyableDomains strips empty scaffolding domains', () => {
     expect(applyableDomains([[], ['s1'], []])).toEqual([['s1']]);
   });
