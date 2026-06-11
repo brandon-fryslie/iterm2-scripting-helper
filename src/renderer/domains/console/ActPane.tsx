@@ -17,6 +17,7 @@ import {
   RestartSessionForm,
   CloseForm,
   SavedArrangementForm,
+  SetBroadcastDomainsForm,
   RawProtobufForm,
 } from './ActionForms';
 
@@ -29,6 +30,7 @@ const ACTIONS: Array<{ kind: ActionKind; label: string }> = [
   { kind: 'restart-session', label: 'Restart' },
   { kind: 'close', label: 'Close' },
   { kind: 'saved-arrangement', label: 'Arrangement' },
+  { kind: 'set-broadcast-domains', label: 'Broadcast' },
   { kind: 'raw-protobuf', label: 'Raw protobuf' },
 ];
 
@@ -41,6 +43,7 @@ const FORM_COMPONENTS: Record<ActionKind, React.ComponentType> = {
   'restart-session': RestartSessionForm,
   close: CloseForm,
   'saved-arrangement': SavedArrangementForm,
+  'set-broadcast-domains': SetBroadcastDomainsForm,
   'raw-protobuf': RawProtobufForm,
 };
 

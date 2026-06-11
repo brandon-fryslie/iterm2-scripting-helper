@@ -841,6 +841,136 @@ end tell'`,
     }
   });
 
+  test('Author: broadcast domain editor reads, edits, applies, and surfaces refusals', async () => {
+    const app = await launchApp();
+    const win = await app.firstWindow();
+
+    await connectViaGear(win);
+
+    // Broadcast domains may not span windows, so the test owns one window split into two
+    // sessions — the smallest layout where a domain is legal.
+    const ids = execSync(
+      `osascript -e 'tell application "iTerm2"
+set w to (create window with default profile)
+set sA to current session of w
+tell sA
+  set sB to (split horizontally with default profile)
+end tell
+return (unique ID of sA) & "," & (unique ID of sB)
+end tell'`,
+      { encoding: 'utf8' },
+    )
+      .trim()
+      .split(',');
+    const [sessionA, sessionB] = ids;
+    expect(sessionA).toMatch(/^[0-9A-F-]{36}$/);
+    expect(sessionB).toMatch(/^[0-9A-F-]{36}$/);
+
+    // The user's pre-existing table, restored verbatim in teardown — the test's domain rides on
+    // sessions it owns, so the captured table never references them.
+    const initialTable = await win.evaluate(async () =>
+      window.ipc.invoke('workbench/broadcast-domains', undefined as never),
+    );
+
+    try {
+      // Both sessions must surface in the layout before the editor can place them.
+      await expect(async () => {
+        const present = await win.evaluate(async (args) => {
+          const layout = await window.ipc.invoke('monitor/layout', undefined as never);
+          const all: string[] = [];
+          for (const w of layout.windows) {
+            for (const t of w.tabs) {
+              const walk = (node: { children: Array<{ kind: string; session?: { sessionId: string }; node?: unknown }> } | null): void => {
+                for (const child of node?.children ?? []) {
+                  if (child.kind === 'session' && child.session) all.push(child.session.sessionId);
+                  else if (child.kind === 'node') walk(child.node as never);
+                }
+              };
+              walk(t.root);
+            }
+          }
+          return all;
+        }, {});
+        expect(present).toContain(sessionA);
+        expect(present).toContain(sessionB);
+      }).toPass({ timeout: 10_000 });
+
+      await closeSettings(win);
+
+      // Connection-wide artifact, reachable from the workbench rail.
+      await win.getByTestId('workbench-rail-broadcast-domain').click();
+      await expect(win.getByTestId('artifact-scope-banner')).toHaveAttribute(
+        'data-scope',
+        'connection',
+      );
+      await expect(win.getByTestId('workbench-broadcast-domain')).toBeVisible();
+      await win.getByTestId('broadcast-refresh').click();
+      await expect(win.getByTestId('broadcast-load-error')).toHaveCount(0);
+
+      // Build a domain with the click-to-move modality (drag and click feed the same move seam).
+      await win.getByTestId('broadcast-add-domain').click();
+      await win.getByTestId(`broadcast-chip-${sessionA}`).click();
+      await win.getByTestId('broadcast-move-here-0').click();
+      await win.getByTestId(`broadcast-chip-${sessionB}`).click();
+      await win.getByTestId('broadcast-move-here-0').click();
+      await expect(win.getByTestId('broadcast-dirty')).toBeVisible();
+
+      // Apply replaces the engine table; the editor refreshes from the engine and reads clean.
+      await win.getByTestId('broadcast-apply').click();
+      await expect(win.getByTestId('broadcast-last-result')).toContainText('apply: ok');
+      await expect(win.getByTestId('broadcast-dirty')).toHaveCount(0);
+
+      // Engine round-trip: the GET verb reports the membership the SET wrote.
+      const readBack = await win.evaluate(async () =>
+        window.ipc.invoke('workbench/broadcast-domains', undefined as never),
+      );
+      expect(readBack.ok, `read back: ${readBack.ok ? '' : readBack.error}`).toBe(true);
+      if (readBack.ok) {
+        const match = readBack.domains.find(
+          (d) => d.includes(sessionA) && d.includes(sessionB),
+        );
+        expect(match, JSON.stringify(readBack.domains)).toBeTruthy();
+      }
+
+      // A refusal status is a failed action, not a success with fine print.
+      const refused = await win.evaluate(async () => {
+        return window.ipc.invoke('actions/set-broadcast-domains', {
+          entity: { kind: 'app' },
+          domains: [['00000000-0000-0000-0000-000000000000']],
+        });
+      });
+      expect(refused.ok).toBe(false);
+      expect(refused.error).toContain('SESSION_NOT_FOUND');
+
+      // Every apply above is an action event on the one spine.
+      const actionRows = win.locator(
+        '[data-testid^="activity-row-"][data-facet="action"]',
+      );
+      await expect(actionRows.first()).toBeVisible({ timeout: 10_000 });
+    } finally {
+      // Put the user's table back exactly as found, then drop the window.
+      const cleared = await win.evaluate(async (args) => {
+        return window.ipc.invoke('actions/set-broadcast-domains', {
+          entity: { kind: 'app' },
+          domains: args.domains,
+        });
+      }, { domains: initialTable.ok ? initialTable.domains : [] });
+      expect.soft(cleared.ok).toBe(true);
+      for (const sessionId of [sessionA, sessionB]) {
+        const closeRes = await win.evaluate(async (args) => {
+          return window.ipc.invoke('actions/close', {
+            entity: { kind: 'session', windowId: '', tabId: '', sessionId: args.sessionId },
+            kind: 'sessions',
+            ids: [args.sessionId],
+            force: true,
+          });
+        }, { sessionId });
+        expect.soft(closeRes.ok).toBe(true);
+      }
+      await app.close();
+    }
+  });
+
   test('Act: send text + activate + snippet re-fires, all feeding Activity', async () => {
     const app = await launchApp();
     const win = await app.firstWindow();

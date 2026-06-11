@@ -342,6 +342,31 @@ export const SavedArrangementForm = observer(function SavedArrangementForm() {
   );
 });
 
+export const SetBroadcastDomainsForm = observer(function SetBroadcastDomainsForm() {
+  const { console: c } = useStore();
+  const f = c.forms['set-broadcast-domains'];
+  return (
+    <div className="grid gap-2" data-testid="form-set-broadcast-domains">
+      <Field label="Domains">
+        <Textarea
+          value={f.domainsText}
+          onChange={(e) =>
+            c.updateForm('set-broadcast-domains', { domainsText: e.target.value })
+          }
+          rows={5}
+          placeholder={'one domain per line: session ids separated by commas or spaces\n(empty = clear all broadcast domains)'}
+          className="font-mono text-xs"
+          data-testid="set-broadcast-domains-text"
+        />
+      </Field>
+      <p className="text-[10px] text-muted-foreground">
+        Replaces the entire broadcast table. The Workbench's Broadcast Domains editor offers
+        the same action with drag-and-drop.
+      </p>
+    </div>
+  );
+});
+
 export const RawProtobufForm = observer(function RawProtobufForm() {
   const { console: c } = useStore();
   const f = c.forms['raw-protobuf'];

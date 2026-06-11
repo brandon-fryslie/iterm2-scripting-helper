@@ -271,6 +271,7 @@ export type AppActionKind =
   | 'restart-session'
   | 'close'
   | 'saved-arrangement'
+  | 'set-broadcast-domains'
   | 'raw-protobuf';
 
 // [LAW:one-source-of-truth] The canonical result of firing an action, used both as the value returned

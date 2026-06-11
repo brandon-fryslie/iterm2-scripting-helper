@@ -20,6 +20,9 @@ import {
   SavedArrangementRequestSchema,
   SavedArrangementRequest_Action,
   SavedArrangementResponse_Status,
+  BroadcastDomainSchema,
+  SetBroadcastDomainsRequestSchema,
+  SetBroadcastDomainsResponse_Status,
   type ServerOriginatedMessage,
   type ActivateRequest,
   type InvokeFunctionRequest,
@@ -337,6 +340,58 @@ export async function actionSavedArrangement(
       ...result,
       ok: false,
       error: `iTerm2 refused: ${SavedArrangementResponse_Status[wireStatus] ?? wireStatus}`,
+    };
+  }
+  return result;
+}
+
+export async function actionSetBroadcastDomains(
+  orchestrator: ConnectionOrchestrator,
+  args: { domains: string[][] },
+): Promise<ActionResult> {
+  // An empty table is a legal value (it clears all broadcasting); an empty *domain* is not a
+  // statement the wire models, so it is rejected here before it can confuse the engine.
+  if (args.domains.some((domain) => domain.length === 0)) {
+    return {
+      ok: false,
+      error: 'every domain must contain at least one session id',
+      latencyMs: 0,
+      responseCase: null,
+      payload: null,
+      requestId: null,
+    };
+  }
+  const value = create(SetBroadcastDomainsRequestSchema, {
+    broadcastDomains: args.domains.map((sessionIds) =>
+      create(BroadcastDomainSchema, { sessionIds }),
+    ),
+  });
+  let wireStatus: SetBroadcastDomainsResponse_Status | null = null;
+  const result = await fire(
+    orchestrator,
+    { submessage: { case: 'setBroadcastDomainsRequest', value } },
+    (msg) => {
+      if (msg.submessage.case !== 'setBroadcastDomainsResponse') return null;
+      wireStatus = msg.submessage.value.status;
+      return { status: SetBroadcastDomainsResponse_Status[wireStatus] ?? String(wireStatus) };
+    },
+  );
+  if (!result.ok) return result;
+  // [LAW:no-silent-failure] Transport success is not action success: no setBroadcastDomainsResponse
+  // means no status to trust, and a refusal status (session not found, domains not disjoint,
+  // sessions spanning windows) is a failed action, not a success with fine print.
+  if (wireStatus === null) {
+    return {
+      ...result,
+      ok: false,
+      error: `expected setBroadcastDomainsResponse, got ${result.responseCase ?? '<none>'}`,
+    };
+  }
+  if (wireStatus !== SetBroadcastDomainsResponse_Status.OK) {
+    return {
+      ...result,
+      ok: false,
+      error: `iTerm2 refused: ${SetBroadcastDomainsResponse_Status[wireStatus] ?? wireStatus}`,
     };
   }
   return result;

@@ -34,10 +34,12 @@ import {
   actionRestartSession,
   actionClose,
   actionSavedArrangement,
+  actionSetBroadcastDomains,
   actionRawProtobuf,
 } from './actions';
 import { listProfiles } from './workbench';
 import { arrangementSnapshot } from './arrangements';
+import { getBroadcastDomains } from './broadcastDomains';
 
 type Handlers = { [M in RpcMethod]: (args: RpcArgs<M>) => Promise<RpcResult<M>> };
 
@@ -171,6 +173,9 @@ export function registerIpc(
     'actions/saved-arrangement': action('saved-arrangement', (args) =>
       actionSavedArrangement(orchestrator, args),
     ),
+    'actions/set-broadcast-domains': action('set-broadcast-domains', (args) =>
+      actionSetBroadcastDomains(orchestrator, args),
+    ),
     'actions/raw-protobuf': action('raw-protobuf', (args) =>
       actionRawProtobuf(orchestrator, args),
     ),
@@ -266,6 +271,7 @@ export function registerIpc(
     },
     'workbench/custom-escape': async () => monitor.customEscape.snapshot(),
     'workbench/arrangements': async () => arrangementSnapshot(orchestrator),
+    'workbench/broadcast-domains': async () => getBroadcastDomains(orchestrator),
   };
 
   ipcMain.handle('rpc', async (_event, payload: { method: RpcMethod; args: unknown }) => {
