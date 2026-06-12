@@ -47,6 +47,7 @@ describe('RpcSchema', () => {
       | 'workbench/custom-escape'
       | 'workbench/arrangements'
       | 'workbench/broadcast-domains'
+      | 'workbench/key-bindings'
     >();
   });
 

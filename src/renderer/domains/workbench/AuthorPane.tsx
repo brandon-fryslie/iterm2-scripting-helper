@@ -9,6 +9,7 @@ import { RegistrationEditor } from './RegistrationEditor';
 import { TriggersViewer } from './TriggersViewer';
 import { ArrangementViewer } from './ArrangementViewer';
 import { BroadcastDomainEditor } from './BroadcastDomainEditor';
+import { KeyBindingsViewer } from './KeyBindingsViewer';
 import { ArtifactScopeBanner } from './ArtifactScopeBanner';
 
 const RAIL: Array<{ id: WorkbenchArtifact; label: string }> = [
@@ -19,6 +20,7 @@ const RAIL: Array<{ id: WorkbenchArtifact; label: string }> = [
   { id: 'triggers', label: 'Triggers' },
   { id: 'arrangement', label: 'Arrangements' },
   { id: 'broadcast-domain', label: 'Broadcast Domains' },
+  { id: 'key-bindings', label: 'Key Bindings' },
 ];
 
 // Authored behavior: artifacts that preview and act against the focused entity. The entity-scoped
@@ -53,6 +55,7 @@ export const AuthorPane = observer(function AuthorPane() {
         {workbench.artifact === 'triggers' && <TriggersViewer />}
         {workbench.artifact === 'arrangement' && <ArrangementViewer />}
         {workbench.artifact === 'broadcast-domain' && <BroadcastDomainEditor />}
+        {workbench.artifact === 'key-bindings' && <KeyBindingsViewer />}
       </section>
     </div>
   );

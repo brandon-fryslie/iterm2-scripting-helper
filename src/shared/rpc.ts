@@ -139,6 +139,31 @@ export type BroadcastDomainsResult =
   | { ok: true; domains: string[][] }
   | { ok: false; error: string };
 
+// [LAW:one-source-of-truth] Key bindings and snippets live only in the defaults domain;
+// there is no engine authority to disagree with — one source, one result.
+export interface KeyBindingEntry {
+  key: string;       // raw GlobalKeyMap key (e.g. "0x61-0x100000")
+  action: number;    // action integer
+  parameter: string; // action-specific parameter
+  label: string;     // user-visible label (if any)
+  version: number;
+}
+
+export interface SnippetEntry {
+  title: string;
+  value: string;
+  tags: string[];
+}
+
+export type KeyBindingsSnapshot =
+  | {
+      ok: true;
+      globalBindings: KeyBindingEntry[];
+      snippets: SnippetEntry[];
+      pasteConfig: Record<string, PlistJson>;
+    }
+  | { ok: false; error: string };
+
 export interface ProfileSummary {
   guid: string;
   name: string;
@@ -459,6 +484,10 @@ export type RpcSchema = {
   'workbench/broadcast-domains': {
     args: void;
     result: BroadcastDomainsResult;
+  };
+  'workbench/key-bindings': {
+    args: void;
+    result: KeyBindingsSnapshot;
   };
 };
 

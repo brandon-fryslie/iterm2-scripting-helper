@@ -4,6 +4,7 @@ import type {
   ArrangementSnapshot,
   BroadcastDomainsResult,
   DynamicProfileSnapshot,
+  KeyBindingsSnapshot,
   ProfileSummary,
   RegistrationSpec,
   RegistrationBody,
@@ -34,7 +35,8 @@ export type WorkbenchArtifact =
   | 'registrations'
   | 'triggers'
   | 'arrangement'
-  | 'broadcast-domain';
+  | 'broadcast-domain'
+  | 'key-bindings';
 
 const EMPTY_DYNAMIC: DynamicProfileSnapshot = {
   folder: '',
@@ -118,6 +120,9 @@ export class WorkbenchStore {
   // same value through dataTransfer instead; both land on moveBroadcastSession.
   armedBroadcastSessionId: string | null = null;
 
+  // null until the first read — "not asked yet" distinct from the defaults read failing.
+  keyBindings: KeyBindingsSnapshot | null = null;
+
   constructor() {
     // [LAW:one-source-of-truth] The arrangement and broadcast snapshots are immutable values
     // swapped whole on refresh; their content is rendered, never edited in place. Deep observation
@@ -129,6 +134,7 @@ export class WorkbenchStore {
       broadcastDomains: observable.ref,
       broadcastDraft: observable.ref,
       broadcastDraftBase: observable.ref,
+      keyBindings: observable.ref,
     });
   }
 
@@ -561,6 +567,13 @@ export class WorkbenchStore {
       this.broadcastDraft = this.broadcastDomains.domains;
       this.broadcastDraftBase = this.broadcastDomains.domains;
     }
+  }
+
+  async refreshKeyBindings(): Promise<void> {
+    const snap = await window.ipc.invoke('workbench/key-bindings', undefined as never);
+    runInAction(() => {
+      this.keyBindings = snap;
+    });
   }
 
   // [LAW:one-source-of-truth] Each source stays authoritative for its own facet: the engine LIST

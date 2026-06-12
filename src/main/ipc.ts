@@ -40,6 +40,7 @@ import {
 import { listProfiles } from './workbench';
 import { arrangementSnapshot } from './arrangements';
 import { getBroadcastDomains } from './broadcastDomains';
+import { readKeyBindingsSnapshot } from './keyBindings';
 
 type Handlers = { [M in RpcMethod]: (args: RpcArgs<M>) => Promise<RpcResult<M>> };
 
@@ -272,6 +273,7 @@ export function registerIpc(
     'workbench/custom-escape': async () => monitor.customEscape.snapshot(),
     'workbench/arrangements': async () => arrangementSnapshot(orchestrator),
     'workbench/broadcast-domains': async () => getBroadcastDomains(orchestrator),
+    'workbench/key-bindings': async () => readKeyBindingsSnapshot(),
   };
 
   ipcMain.handle('rpc', async (_event, payload: { method: RpcMethod; args: unknown }) => {
