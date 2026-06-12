@@ -113,6 +113,10 @@ export type CloseTargetKind = 'sessions' | 'tabs' | 'windows';
 // two action kinds would be two types for the same behavior.
 export type TransactionOp = 'begin' | 'end';
 
+// The two scripting runtime values accepted by osascript's -l flag. 'JavaScript' is JXA
+// (JavaScript for Automation). Values match the flag argument verbatim.
+export type OsascriptLanguage = 'AppleScript' | 'JavaScript';
+
 // The two verbs of the SavedArrangementRequest wire message that mutate state; LIST is a read and
 // belongs to the workbench snapshot, not the action. windowId follows the wire's dual semantics:
 // with 'save' it scopes the save to one window's tabs, with 'restore' it restores into an existing
@@ -450,6 +454,12 @@ export type RpcSchema = {
     args: { entity: AppEntityRef; op: TransactionOp };
     result: ActionResult;
   };
+  // osascript runs locally via subprocess — no wire round-trip, no requestId. The result carries
+  // stdout on success or stderr (trimmed) as the error on failure. [LAW:effects-at-boundaries]
+  'actions/osascript': {
+    args: { entity: AppEntityRef; script: string; language: OsascriptLanguage };
+    result: ActionResult;
+  };
   'actions/raw-protobuf': {
     args: { entity: AppEntityRef; envelopeJson: string };
     result: ActionResult;
@@ -505,6 +515,12 @@ export type RpcSchema = {
   'workbench/key-bindings': {
     args: void;
     result: KeyBindingsSnapshot;
+  };
+  // Raw sdef XML for /Applications/iTerm.app. The main process runs sdef(1) and returns the stdout;
+  // parsing (DOMParser) belongs in the renderer where a real XML engine is available.
+  'workbench/sdef-text': {
+    args: void;
+    result: { text: string | null };
   };
 };
 

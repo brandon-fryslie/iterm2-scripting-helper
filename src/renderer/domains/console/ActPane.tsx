@@ -21,6 +21,7 @@ import {
   GetSelectionForm,
   SetSelectionForm,
   TransactionForm,
+  OsascriptForm,
   RawProtobufForm,
 } from './ActionForms';
 
@@ -37,6 +38,7 @@ const ACTIONS: Array<{ kind: ActionKind; label: string }> = [
   { kind: 'get-selection', label: 'Get selection' },
   { kind: 'set-selection', label: 'Set selection' },
   { kind: 'transaction', label: 'Transaction' },
+  { kind: 'osascript', label: 'AppleScript/JXA' },
   { kind: 'raw-protobuf', label: 'Raw protobuf' },
 ];
 
@@ -53,6 +55,7 @@ const FORM_COMPONENTS: Record<ActionKind, React.ComponentType> = {
   'get-selection': GetSelectionForm,
   'set-selection': SetSelectionForm,
   transaction: TransactionForm,
+  osascript: OsascriptForm,
   'raw-protobuf': RawProtobufForm,
 };
 

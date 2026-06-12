@@ -40,6 +40,7 @@ import {
   actionTransaction,
   actionRawProtobuf,
 } from './actions';
+import { actionOsascript, getSdefText } from './osascript';
 import { listProfiles } from './workbench';
 import { arrangementSnapshot } from './arrangements';
 import { getBroadcastDomains } from './broadcastDomains';
@@ -189,6 +190,7 @@ export function registerIpc(
     'actions/transaction': action('transaction', (args) =>
       actionTransaction(orchestrator, args),
     ),
+    'actions/osascript': action('osascript', (args) => actionOsascript(args)),
     'actions/raw-protobuf': action('raw-protobuf', (args) =>
       actionRawProtobuf(orchestrator, args),
     ),
@@ -286,6 +288,7 @@ export function registerIpc(
     'workbench/arrangements': async () => arrangementSnapshot(orchestrator),
     'workbench/broadcast-domains': async () => getBroadcastDomains(orchestrator),
     'workbench/key-bindings': async () => readKeyBindingsSnapshot(),
+    'workbench/sdef-text': async () => getSdefText(),
   };
 
   ipcMain.handle('rpc', async (_event, payload: { method: RpcMethod; args: unknown }) => {

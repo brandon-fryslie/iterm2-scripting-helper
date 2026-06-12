@@ -37,6 +37,7 @@ describe('RpcSchema', () => {
       | 'actions/get-selection'
       | 'actions/set-selection'
       | 'actions/transaction'
+      | 'actions/osascript'
       | 'actions/raw-protobuf'
       | 'workbench/list-profiles'
       | 'workbench/dynamic-profiles'
@@ -51,6 +52,7 @@ describe('RpcSchema', () => {
       | 'workbench/arrangements'
       | 'workbench/broadcast-domains'
       | 'workbench/key-bindings'
+      | 'workbench/sdef-text'
     >();
   });
 

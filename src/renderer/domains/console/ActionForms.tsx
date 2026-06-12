@@ -1,3 +1,4 @@
+import { useState, useEffect } from 'react';
 import { observer } from 'mobx-react-lite';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
@@ -9,6 +10,7 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { useStore } from '@/stores/context';
+import type { OsascriptLanguage } from '@shared/rpc';
 
 function Field({ label, children }: { label: string; children: React.ReactNode }) {
   return (
@@ -462,6 +464,288 @@ export const TransactionForm = observer(function TransactionForm() {
         Freezes iTerm2&apos;s main loop while in a transaction. Always end the transaction —
         leaving it open locks the app until it times out.
       </p>
+    </div>
+  );
+});
+
+// ─── Static AS ↔ Proto template pairs ──────────────────────────────────────
+// Each entry shows an AppleScript (or JXA) script alongside the proto request that
+// achieves the same effect. These are curated, not computed from script output.
+interface OsascriptTemplate {
+  name: string;
+  language: OsascriptLanguage;
+  script: string;
+  protoNote: string | null;
+  protoExample: string | null;
+}
+
+const OSASCRIPT_TEMPLATES: OsascriptTemplate[] = [
+  {
+    name: 'Get focused session id',
+    language: 'AppleScript',
+    script: 'tell application "iTerm2"\n  id of current session of current tab of current window\nend tell',
+    protoNote: 'listSessionsRequest returns all sessions with their IDs',
+    protoExample: '{ "submessage": { "listSessionsRequest": {} } }',
+  },
+  {
+    name: 'Write text to session',
+    language: 'AppleScript',
+    script: 'tell application "iTerm2"\n  tell current session of current tab of current window\n    write text "echo hello"\n  end tell\nend tell',
+    protoNote: 'sendTextRequest — same effect over the wire',
+    protoExample: '{\n  "submessage": {\n    "sendTextRequest": {\n      "session": "<sessionId>",\n      "text": "echo hello"\n    }\n  }\n}',
+  },
+  {
+    name: 'Create tab',
+    language: 'AppleScript',
+    script: 'tell application "iTerm2"\n  tell current window\n    create tab with default profile\n  end tell\nend tell',
+    protoNote: null,
+    protoExample: null,
+  },
+  {
+    name: 'Split pane vertically',
+    language: 'AppleScript',
+    script: 'tell application "iTerm2"\n  tell current session of current tab of current window\n    split vertically with default profile\n  end tell\nend tell',
+    protoNote: null,
+    protoExample: null,
+  },
+  {
+    name: 'Get session variable (JXA)',
+    language: 'JavaScript',
+    script: 'const iterm = Application("iTerm2")\nconst sess = iterm.currentWindow().currentTab().currentSession()\nsess.variable({name: "session.name"})',
+    protoNote: 'monitor/probe-variable or a variable-subscription can read the same variable',
+    protoExample: null,
+  },
+  {
+    name: 'Write text (JXA)',
+    language: 'JavaScript',
+    script: 'Application("iTerm2").currentWindow().currentTab().currentSession().write({text: "echo hello\\n"})',
+    protoNote: 'sendTextRequest over the wire',
+    protoExample: '{\n  "submessage": {\n    "sendTextRequest": {\n      "session": "<sessionId>",\n      "text": "echo hello\\n"\n    }\n  }\n}',
+  },
+];
+
+// ─── Sdef reference (lazy) ──────────────────────────────────────────────────
+
+interface SdefClass {
+  name: string;
+  description: string;
+  properties: { name: string; type: string; description: string }[];
+}
+
+interface SdefCommand {
+  name: string;
+  description: string;
+}
+
+interface SdefSummary {
+  classes: SdefClass[];
+  commands: SdefCommand[];
+}
+
+function parseSdef(xml: string): SdefSummary {
+  const doc = new DOMParser().parseFromString(xml, 'application/xml');
+  const classes = Array.from(doc.querySelectorAll('suite > class')).map((el) => ({
+    name: el.getAttribute('name') ?? '',
+    description: el.getAttribute('description') ?? '',
+    properties: Array.from(el.querySelectorAll('property')).map((p) => ({
+      name: p.getAttribute('name') ?? '',
+      type: p.getAttribute('type') ?? '',
+      description: p.getAttribute('description') ?? '',
+    })),
+  }));
+  const commands = Array.from(doc.querySelectorAll('suite > command')).map((el) => ({
+    name: el.getAttribute('name') ?? '',
+    description: el.getAttribute('description') ?? '',
+  }));
+  return {
+    classes: classes.filter((c) => c.name),
+    commands: commands.filter((c) => c.name),
+  };
+}
+
+export const OsascriptForm = observer(function OsascriptForm() {
+  const { console: c } = useStore();
+  const f = c.forms.osascript;
+
+  // Templates panel
+  const [showTemplates, setShowTemplates] = useState(false);
+
+  // Sdef reference panel
+  const [showSdef, setShowSdef] = useState(false);
+  const [sdef, setSdef] = useState<SdefSummary | null>(null);
+  const [sdefError, setSdefError] = useState<string | null>(null);
+  const [sdefFilter, setSdefFilter] = useState('');
+
+  // [LAW:no-ambient-temporal-coupling] fetch triggered by explicit user expansion, not by mount.
+  useEffect(() => {
+    if (!showSdef || sdef !== null || sdefError !== null) return;
+    void window.ipc.invoke('workbench/sdef-text', undefined).then((res) => {
+      if (res.text) {
+        setSdef(parseSdef(res.text));
+      } else {
+        setSdefError('Could not load sdef — is iTerm2 installed at /Applications/iTerm.app?');
+      }
+    });
+  }, [showSdef, sdef, sdefError]);
+
+  const filterLower = sdefFilter.toLowerCase();
+  const filteredClasses = sdef?.classes.filter(
+    (cl) => !filterLower || cl.name.includes(filterLower) || cl.description.toLowerCase().includes(filterLower),
+  );
+  const filteredCommands = sdef?.commands.filter(
+    (cmd) => !filterLower || cmd.name.includes(filterLower) || cmd.description.toLowerCase().includes(filterLower),
+  );
+
+  return (
+    <div className="grid gap-2" data-testid="form-osascript">
+      <Field label="Language">
+        <Select
+          value={f.language}
+          onValueChange={(v) => c.updateForm('osascript', { language: v as OsascriptLanguage })}
+        >
+          <SelectTrigger data-testid="osascript-language">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="AppleScript">AppleScript</SelectItem>
+            <SelectItem value="JavaScript">JavaScript (JXA)</SelectItem>
+          </SelectContent>
+        </Select>
+      </Field>
+      <Field label="Script">
+        <Textarea
+          value={f.script}
+          onChange={(e) => c.updateForm('osascript', { script: e.target.value })}
+          rows={7}
+          placeholder={
+            f.language === 'AppleScript'
+              ? 'tell application "iTerm2"\n  ...\nend tell'
+              : 'Application("iTerm2").currentWindow().currentTab().currentSession().write({text: "hello"})'
+          }
+          className="font-mono text-xs"
+          data-testid="osascript-script"
+        />
+      </Field>
+
+      {/* Templates */}
+      <details
+        open={showTemplates}
+        onToggle={(e) => setShowTemplates((e.target as HTMLDetailsElement).open)}
+        className="rounded border px-2 py-1"
+        data-testid="osascript-templates"
+      >
+        <summary className="cursor-pointer text-xs font-medium select-none">
+          Common scripts &amp; proto equivalents
+        </summary>
+        <div className="mt-2 grid gap-2">
+          {OSASCRIPT_TEMPLATES.map((tpl) => (
+            <div key={tpl.name} className="rounded border p-2 text-xs">
+              <div className="flex items-center justify-between gap-2 mb-1">
+                <span className="font-medium">{tpl.name}</span>
+                <span className="text-[10px] text-muted-foreground">{tpl.language}</span>
+                <button
+                  className="rounded bg-primary px-2 py-0.5 text-[10px] text-primary-foreground hover:bg-primary/90"
+                  onClick={() =>
+                    c.updateForm('osascript', { script: tpl.script, language: tpl.language })
+                  }
+                  data-testid={`osascript-tpl-${tpl.name.toLowerCase().replace(/\s+/g, '-')}`}
+                >
+                  Use
+                </button>
+              </div>
+              <pre className="mb-1 overflow-x-auto rounded bg-muted px-2 py-1 font-mono text-[10px] leading-relaxed whitespace-pre-wrap">
+                {tpl.script}
+              </pre>
+              {tpl.protoNote && (
+                <p className="text-[10px] text-muted-foreground">
+                  Proto equivalent: {tpl.protoNote}
+                  {tpl.protoExample && (
+                    <pre className="mt-0.5 overflow-x-auto rounded bg-muted px-2 py-1 font-mono text-[10px] whitespace-pre-wrap">
+                      {tpl.protoExample}
+                    </pre>
+                  )}
+                </p>
+              )}
+            </div>
+          ))}
+        </div>
+      </details>
+
+      {/* Sdef reference */}
+      <details
+        open={showSdef}
+        onToggle={(e) => setShowSdef((e.target as HTMLDetailsElement).open)}
+        className="rounded border px-2 py-1"
+        data-testid="osascript-sdef"
+      >
+        <summary className="cursor-pointer text-xs font-medium select-none">
+          iTerm2 sdef reference (classes &amp; commands)
+        </summary>
+        <div className="mt-2">
+          {sdefError && (
+            <p className="text-[10px] text-destructive">{sdefError}</p>
+          )}
+          {!sdef && !sdefError && showSdef && (
+            <p className="text-[10px] text-muted-foreground">Loading…</p>
+          )}
+          {sdef && (
+            <>
+              <Input
+                value={sdefFilter}
+                onChange={(e) => setSdefFilter(e.target.value)}
+                placeholder="Filter classes or commands…"
+                className="mb-2 h-6 text-xs"
+                data-testid="osascript-sdef-filter"
+              />
+              <div className="max-h-56 overflow-y-auto text-xs space-y-1">
+                {filteredClasses && filteredClasses.length > 0 && (
+                  <div>
+                    <p className="font-semibold text-[10px] uppercase text-muted-foreground mb-0.5">Classes</p>
+                    {filteredClasses.map((cl) => (
+                      <details key={cl.name} className="mb-0.5">
+                        <summary className="cursor-pointer font-mono font-medium">
+                          {cl.name}
+                          {cl.description && (
+                            <span className="ml-2 font-sans font-normal text-muted-foreground text-[10px]">
+                              {cl.description}
+                            </span>
+                          )}
+                        </summary>
+                        {cl.properties.length > 0 && (
+                          <ul className="ml-3 mt-0.5 space-y-0.5">
+                            {cl.properties.map((p) => (
+                              <li key={p.name} className="font-mono text-[10px]">
+                                <span className="text-primary">{p.name}</span>
+                                {p.type && <span className="text-muted-foreground"> : {p.type}</span>}
+                                {p.description && (
+                                  <span className="text-muted-foreground font-sans"> — {p.description}</span>
+                                )}
+                              </li>
+                            ))}
+                          </ul>
+                        )}
+                      </details>
+                    ))}
+                  </div>
+                )}
+                {filteredCommands && filteredCommands.length > 0 && (
+                  <div>
+                    <p className="font-semibold text-[10px] uppercase text-muted-foreground mb-0.5">Commands</p>
+                    {filteredCommands.map((cmd) => (
+                      <div key={cmd.name} className="font-mono text-[10px]">
+                        <span className="text-primary">{cmd.name}</span>
+                        {cmd.description && (
+                          <span className="text-muted-foreground font-sans ml-2">{cmd.description}</span>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </>
+          )}
+        </div>
+      </details>
     </div>
   );
 });
