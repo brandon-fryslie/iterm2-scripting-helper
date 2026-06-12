@@ -53,6 +53,12 @@ export const ARTIFACT_SCOPE: Record<WorkbenchArtifact, ArtifactScope> = {
     label: 'Connection-wide',
     blurb: "Rewrites iTerm2's entire broadcast-domain table in one atomic apply.",
   },
+  'key-bindings': {
+    kind: 'connection',
+    label: 'Connection-wide',
+    blurb:
+      'Inspects global key bindings and snippets from the defaults domain; iTerm2 Settings is the canonical editor.',
+  },
 };
 
 // [LAW:single-enforcer] The one predicate that answers "does this artifact act on the focused
