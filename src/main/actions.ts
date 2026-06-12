@@ -23,6 +23,11 @@ import {
   BroadcastDomainSchema,
   SetBroadcastDomainsRequestSchema,
   SetBroadcastDomainsResponse_Status,
+  SelectionRequestSchema,
+  SelectionSchema,
+  SelectionResponse_Status,
+  TransactionRequestSchema,
+  TransactionResponse_Status,
   type ServerOriginatedMessage,
   type ActivateRequest,
   type InvokeFunctionRequest,
@@ -34,6 +39,7 @@ import type {
   ArrangementOp,
   CloseTargetKind,
   InvokeScope,
+  TransactionOp,
 } from '@shared/rpc';
 import type { ConnectionOrchestrator } from './drivers/ConnectionOrchestrator';
 
@@ -432,4 +438,132 @@ export async function actionRawProtobuf(
   return fire(orchestrator, envelope, (msg) => ({
     responseJson: JSON.stringify(toJson(ServerOriginatedMessageSchema, msg), null, 2),
   }));
+}
+
+export async function actionGetSelection(
+  orchestrator: ConnectionOrchestrator,
+  args: { sessionId: string },
+): Promise<ActionResult> {
+  const value = create(SelectionRequestSchema, {
+    request: { case: 'getSelectionRequest', value: { sessionId: args.sessionId } },
+  });
+  let wireStatus: SelectionResponse_Status | null = null;
+  const result = await fire(
+    orchestrator,
+    { submessage: { case: 'selectionRequest', value } },
+    (msg) => {
+      if (msg.submessage.case !== 'selectionResponse') return null;
+      wireStatus = msg.submessage.value.status;
+      const resp = msg.submessage.value.response;
+      const selectionJson =
+        resp.case === 'getSelectionResponse' && resp.value.selection
+          ? JSON.stringify(toJson(SelectionSchema, resp.value.selection), null, 2)
+          : null;
+      return {
+        status: SelectionResponse_Status[wireStatus] ?? String(wireStatus),
+        ...(selectionJson != null ? { selectionJson } : {}),
+      };
+    },
+  );
+  if (!result.ok) return result;
+  if (wireStatus === null) {
+    return {
+      ...result,
+      ok: false,
+      error: `expected selectionResponse, got ${result.responseCase ?? '<none>'}`,
+    };
+  }
+  // [LAW:no-silent-failure] non-OK status is a failed action, not ok-with-fine-print.
+  if (wireStatus !== SelectionResponse_Status.OK) {
+    return {
+      ...result,
+      ok: false,
+      error: `iTerm2 refused: ${SelectionResponse_Status[wireStatus] ?? wireStatus}`,
+    };
+  }
+  return result;
+}
+
+export async function actionSetSelection(
+  orchestrator: ConnectionOrchestrator,
+  args: { sessionId: string; selectionJson: string },
+): Promise<ActionResult> {
+  let selection;
+  try {
+    selection = fromJsonString(SelectionSchema, args.selectionJson || '{}');
+  } catch (err) {
+    return {
+      ok: false,
+      error: `invalid selection JSON: ${err instanceof Error ? err.message : String(err)}`,
+      latencyMs: 0,
+      responseCase: null,
+      payload: null,
+      requestId: null,
+    };
+  }
+  const value = create(SelectionRequestSchema, {
+    request: {
+      case: 'setSelectionRequest',
+      value: { sessionId: args.sessionId, selection },
+    },
+  });
+  let wireStatus: SelectionResponse_Status | null = null;
+  const result = await fire(
+    orchestrator,
+    { submessage: { case: 'selectionRequest', value } },
+    (msg) => {
+      if (msg.submessage.case !== 'selectionResponse') return null;
+      wireStatus = msg.submessage.value.status;
+      return { status: SelectionResponse_Status[wireStatus] ?? String(wireStatus) };
+    },
+  );
+  if (!result.ok) return result;
+  if (wireStatus === null) {
+    return {
+      ...result,
+      ok: false,
+      error: `expected selectionResponse, got ${result.responseCase ?? '<none>'}`,
+    };
+  }
+  if (wireStatus !== SelectionResponse_Status.OK) {
+    return {
+      ...result,
+      ok: false,
+      error: `iTerm2 refused: ${SelectionResponse_Status[wireStatus] ?? wireStatus}`,
+    };
+  }
+  return result;
+}
+
+export async function actionTransaction(
+  orchestrator: ConnectionOrchestrator,
+  args: { op: TransactionOp },
+): Promise<ActionResult> {
+  const value = create(TransactionRequestSchema, { begin: args.op === 'begin' });
+  let wireStatus: TransactionResponse_Status | null = null;
+  const result = await fire(
+    orchestrator,
+    { submessage: { case: 'transactionRequest', value } },
+    (msg) => {
+      if (msg.submessage.case !== 'transactionResponse') return null;
+      wireStatus = msg.submessage.value.status;
+      return { status: TransactionResponse_Status[wireStatus] ?? String(wireStatus) };
+    },
+  );
+  if (!result.ok) return result;
+  if (wireStatus === null) {
+    return {
+      ...result,
+      ok: false,
+      error: `expected transactionResponse, got ${result.responseCase ?? '<none>'}`,
+    };
+  }
+  if (wireStatus !== TransactionResponse_Status.OK) {
+    return {
+      ...result,
+      ok: false,
+      error: `iTerm2 refused: ${TransactionResponse_Status[wireStatus] ?? wireStatus}`,
+    };
+  }
+  return result;
 }

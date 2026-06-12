@@ -3,6 +3,7 @@ import type {
   ActionResult,
   AppActionKind,
   ArrangementOp,
+  TransactionOp,
   RpcMethod,
   RpcArgs,
 } from '@shared/rpc';
@@ -28,6 +29,9 @@ const ACTION_METHODS: Record<ActionKind, ActionMethod> = {
   close: 'actions/close',
   'saved-arrangement': 'actions/saved-arrangement',
   'set-broadcast-domains': 'actions/set-broadcast-domains',
+  'get-selection': 'actions/get-selection',
+  'set-selection': 'actions/set-selection',
+  transaction: 'actions/transaction',
   'raw-protobuf': 'actions/raw-protobuf',
 };
 
@@ -64,6 +68,10 @@ export interface ActionForms {
   // One domain per line, members separated by commas or whitespace; the parse lives in
   // @shared/broadcastDomains, the one home of that encoding.
   'set-broadcast-domains': { domainsText: string };
+  'get-selection': { sessionId: string };
+  // selectionJson: JSON-encoded iterm2.Selection proto; paste get-selection output to set it back.
+  'set-selection': { sessionId: string; selectionJson: string };
+  transaction: { op: TransactionOp };
   'raw-protobuf': { envelopeJson: string };
 }
 
@@ -89,6 +97,9 @@ const DEFAULT_FORMS: ActionForms = {
   close: { kind: 'sessions', idsCsv: '', force: false },
   'saved-arrangement': { op: 'save', name: '', windowId: '' },
   'set-broadcast-domains': { domainsText: '' },
+  'get-selection': { sessionId: '' },
+  'set-selection': { sessionId: '', selectionJson: '{}' },
+  transaction: { op: 'begin' as TransactionOp },
   'raw-protobuf': {
     envelopeJson: `{\n  "submessage": {\n    "listSessionsRequest": {}\n  }\n}`,
   },
@@ -193,6 +204,19 @@ export class ConsoleStore {
       }
       case 'set-broadcast-domains':
         return { domains: parseDomainsText(this.forms['set-broadcast-domains'].domainsText) };
+      case 'get-selection': {
+        const f = this.forms['get-selection'];
+        return { sessionId: f.sessionId || this.focusedSessionId };
+      }
+      case 'set-selection': {
+        const f = this.forms['set-selection'];
+        return {
+          sessionId: f.sessionId || this.focusedSessionId,
+          selectionJson: f.selectionJson,
+        };
+      }
+      case 'transaction':
+        return { op: this.forms.transaction.op };
       case 'raw-protobuf':
         return { envelopeJson: this.forms['raw-protobuf'].envelopeJson };
     }
