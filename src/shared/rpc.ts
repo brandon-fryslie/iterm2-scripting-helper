@@ -117,6 +117,10 @@ export type TransactionOp = 'begin' | 'end';
 // (JavaScript for Automation). Values match the flag argument verbatim.
 export type OsascriptLanguage = 'AppleScript' | 'JavaScript';
 
+// [LAW:types-are-the-program] text and error are mutually exclusive — success carries the XML
+// string, failure carries the real cause from the main-process subprocess.
+export type SdefTextResult = { text: string; error: null } | { text: null; error: string };
+
 // The two verbs of the SavedArrangementRequest wire message that mutate state; LIST is a read and
 // belongs to the workbench snapshot, not the action. windowId follows the wire's dual semantics:
 // with 'save' it scopes the save to one window's tabs, with 'restore' it restores into an existing
@@ -518,9 +522,11 @@ export type RpcSchema = {
   };
   // Raw sdef XML for /Applications/iTerm.app. The main process runs sdef(1) and returns the stdout;
   // parsing (DOMParser) belongs in the renderer where a real XML engine is available.
+  // [LAW:types-are-the-program] Discriminated union: text and error are mutually exclusive so
+  // callers narrow with `if (res.text)` and get string-typed error in the else branch.
   'workbench/sdef-text': {
     args: void;
-    result: { text: string | null };
+    result: SdefTextResult;
   };
 };
 

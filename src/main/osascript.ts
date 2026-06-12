@@ -1,9 +1,6 @@
-import { execFile } from 'child_process';
-import { promisify } from 'util';
-import type { ActionResult, OsascriptLanguage } from '@shared/rpc';
+import type { ActionResult, OsascriptLanguage, SdefTextResult } from '@shared/rpc';
 import type { AppEntityRef } from '@shared/domain';
-
-const execFileAsync = promisify(execFile);
+import { execFileAsync } from './execFileAsync';
 
 // [LAW:effects-at-boundaries] osascript runs locally as a subprocess — no wire protocol involved.
 // The action boundary is the same (ActionResult shape, action() spine append), but the effect is
@@ -27,7 +24,9 @@ export async function actionOsascript(
     const { stdout, stderr } = await execFileAsync(
       'osascript',
       ['-l', args.language, '-e', args.script],
-      { timeout: 30_000 },
+      // [LAW:no-ambient-temporal-coupling] SIGKILL (not SIGTERM) ensures the subprocess is
+      // terminated even when osascript is blocked in a display dialog run-loop.
+      { timeout: 30_000, killSignal: 'SIGKILL' },
     );
     return {
       ok: true,
@@ -55,13 +54,22 @@ export async function actionOsascript(
   }
 }
 
-export async function getSdefText(): Promise<{ text: string | null }> {
-  try {
-    const { stdout } = await execFileAsync('sdef', ['/Applications/iTerm.app'], {
-      timeout: 10_000,
+// [LAW:effects-at-boundaries] sdef output is static for a given iTerm2 version — one subprocess
+// per main-process lifetime is the right cost. Concurrent calls share the in-flight Promise.
+// Failures clear the cache so the next panel open retries cleanly.
+// [LAW:no-silent-failure] The real error cause is propagated in SdefTextResult.error so the
+// renderer can distinguish missing sdef binary, wrong app path, timeout, and permission errors.
+let _sdefFetch: Promise<SdefTextResult> | null = null;
+
+export function getSdefText(): Promise<SdefTextResult> {
+  if (_sdefFetch !== null) return _sdefFetch;
+  _sdefFetch = execFileAsync('sdef', ['/Applications/iTerm.app'], { timeout: 10_000 })
+    .then(({ stdout }): SdefTextResult => ({ text: stdout, error: null }))
+    .catch((err: unknown): SdefTextResult => {
+      _sdefFetch = null; // clear so the next open retries
+      const message = err instanceof Error ? err.message : String(err);
+      console.error('[getSdefText] sdef subprocess failed:', message);
+      return { text: null, error: message };
     });
-    return { text: stdout };
-  } catch {
-    return { text: null };
-  }
+  return _sdefFetch;
 }

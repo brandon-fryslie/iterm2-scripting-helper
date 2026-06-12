@@ -1,6 +1,5 @@
-import { execFile } from 'child_process';
-import { promisify } from 'util';
 import { create } from '@bufbuild/protobuf';
+import { execFileAsync } from './execFileAsync';
 import {
   SavedArrangementRequestSchema,
   SavedArrangementRequest_Action,
@@ -19,8 +18,6 @@ import type {
   ArrangementSnapshot,
 } from '@shared/rpc';
 import type { ConnectionOrchestrator } from './drivers/ConnectionOrchestrator';
-
-const execFileAsync = promisify(execFile);
 
 // Arrangements with "include contents" enabled embed screen state; budget well past any real domain.
 const DEFAULTS_MAX_BUFFER = 256 * 1024 * 1024;

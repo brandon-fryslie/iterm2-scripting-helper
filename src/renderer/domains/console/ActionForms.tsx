@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo, useRef } from 'react';
 import { observer } from 'mobx-react-lite';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
@@ -542,8 +542,10 @@ interface SdefSummary {
   commands: SdefCommand[];
 }
 
-function parseSdef(xml: string): SdefSummary {
+// Returns null when DOMParser produces a <parsererror> document (malformed/truncated XML).
+function parseSdef(xml: string): SdefSummary | null {
   const doc = new DOMParser().parseFromString(xml, 'application/xml');
+  if (doc.querySelector('parsererror')) return null;
   const classes = Array.from(doc.querySelectorAll('suite > class')).map((el) => ({
     name: el.getAttribute('name') ?? '',
     description: el.getAttribute('description') ?? '',
@@ -563,38 +565,72 @@ function parseSdef(xml: string): SdefSummary {
   };
 }
 
+// [LAW:types-are-the-program] Discriminated union makes every sdef lifecycle state explicit and
+// illegal combinations (e.g. error set but no retry path) unrepresentable.
+type SdefState =
+  | { status: 'idle' }
+  | { status: 'loading' }
+  | { status: 'ok'; data: SdefSummary }
+  | { status: 'error'; message: string };
+
 export const OsascriptForm = observer(function OsascriptForm() {
   const { console: c } = useStore();
   const f = c.forms.osascript;
 
-  // Templates panel
-  const [showTemplates, setShowTemplates] = useState(false);
-
-  // Sdef reference panel
   const [showSdef, setShowSdef] = useState(false);
-  const [sdef, setSdef] = useState<SdefSummary | null>(null);
-  const [sdefError, setSdefError] = useState<string | null>(null);
+  const [sdefState, setSdefState] = useState<SdefState>({ status: 'idle' });
+  // Ref lets the effect read current state without being re-triggered by it.
+  const sdefStateRef = useRef(sdefState);
+  sdefStateRef.current = sdefState;
   const [sdefFilter, setSdefFilter] = useState('');
 
-  // [LAW:no-ambient-temporal-coupling] fetch triggered by explicit user expansion, not by mount.
+  // [LAW:no-ambient-temporal-coupling] fetch triggered by explicit expansion, not mount.
+  // Closing resets to 'idle' so reopening retries cleanly. [LAW:types-are-the-program]
   useEffect(() => {
-    if (!showSdef || sdef !== null || sdefError !== null) return;
-    void window.ipc.invoke('workbench/sdef-text', undefined).then((res) => {
-      if (res.text) {
-        setSdef(parseSdef(res.text));
-      } else {
-        setSdefError('Could not load sdef — is iTerm2 installed at /Applications/iTerm.app?');
-      }
-    });
-  }, [showSdef, sdef, sdefError]);
+    if (!showSdef) {
+      setSdefState({ status: 'idle' });
+      return;
+    }
+    if (sdefStateRef.current.status !== 'idle') return;
+    let cancelled = false;
+    setSdefState({ status: 'loading' });
+    window.ipc
+      .invoke('workbench/sdef-text', undefined)
+      .then((res) => {
+        if (cancelled) return;
+        if (res.text !== null) {
+          const parsed = parseSdef(res.text);
+          setSdefState(
+            parsed
+              ? { status: 'ok', data: parsed }
+              : { status: 'error', message: 'sdef XML could not be parsed — the iTerm2 installation may be incomplete' },
+          );
+        } else {
+          setSdefState({ status: 'error', message: res.error });
+        }
+      })
+      .catch((err: unknown) => {
+        if (cancelled) return;
+        setSdefState({ status: 'error', message: err instanceof Error ? err.message : String(err) });
+      });
+    return () => { cancelled = true; };
+  }, [showSdef]);
 
-  const filterLower = sdefFilter.toLowerCase();
-  const filteredClasses = sdef?.classes.filter(
-    (cl) => !filterLower || cl.name.includes(filterLower) || cl.description.toLowerCase().includes(filterLower),
-  );
-  const filteredCommands = sdef?.commands.filter(
-    (cmd) => !filterLower || cmd.name.includes(filterLower) || cmd.description.toLowerCase().includes(filterLower),
-  );
+  const filteredClasses = useMemo(() => {
+    if (sdefState.status !== 'ok') return [];
+    const lower = sdefFilter.toLowerCase();
+    return sdefState.data.classes.filter(
+      (cl) => !lower || cl.name.includes(lower) || cl.description.toLowerCase().includes(lower),
+    );
+  }, [sdefState, sdefFilter]);
+
+  const filteredCommands = useMemo(() => {
+    if (sdefState.status !== 'ok') return [];
+    const lower = sdefFilter.toLowerCase();
+    return sdefState.data.commands.filter(
+      (cmd) => !lower || cmd.name.includes(lower) || cmd.description.toLowerCase().includes(lower),
+    );
+  }, [sdefState, sdefFilter]);
 
   return (
     <div className="grid gap-2" data-testid="form-osascript">
@@ -627,10 +663,8 @@ export const OsascriptForm = observer(function OsascriptForm() {
         />
       </Field>
 
-      {/* Templates */}
+      {/* Templates — uncontrolled; browser owns the open state */}
       <details
-        open={showTemplates}
-        onToggle={(e) => setShowTemplates((e.target as HTMLDetailsElement).open)}
         className="rounded border px-2 py-1"
         data-testid="osascript-templates"
       >
@@ -682,13 +716,13 @@ export const OsascriptForm = observer(function OsascriptForm() {
           iTerm2 sdef reference (classes &amp; commands)
         </summary>
         <div className="mt-2">
-          {sdefError && (
-            <p className="text-[10px] text-destructive">{sdefError}</p>
+          {sdefState.status === 'error' && (
+            <p className="text-[10px] text-destructive">{sdefState.message}</p>
           )}
-          {!sdef && !sdefError && showSdef && (
+          {sdefState.status === 'loading' && (
             <p className="text-[10px] text-muted-foreground">Loading…</p>
           )}
-          {sdef && (
+          {sdefState.status === 'ok' && (
             <>
               <Input
                 value={sdefFilter}
@@ -698,7 +732,7 @@ export const OsascriptForm = observer(function OsascriptForm() {
                 data-testid="osascript-sdef-filter"
               />
               <div className="max-h-56 overflow-y-auto text-xs space-y-1">
-                {filteredClasses && filteredClasses.length > 0 && (
+                {filteredClasses.length > 0 && (
                   <div>
                     <p className="font-semibold text-[10px] uppercase text-muted-foreground mb-0.5">Classes</p>
                     {filteredClasses.map((cl) => (
@@ -728,7 +762,7 @@ export const OsascriptForm = observer(function OsascriptForm() {
                     ))}
                   </div>
                 )}
-                {filteredCommands && filteredCommands.length > 0 && (
+                {filteredCommands.length > 0 && (
                   <div>
                     <p className="font-semibold text-[10px] uppercase text-muted-foreground mb-0.5">Commands</p>
                     {filteredCommands.map((cmd) => (
