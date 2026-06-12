@@ -109,6 +109,10 @@ export type InvokeScope =
 
 export type CloseTargetKind = 'sessions' | 'tabs' | 'windows';
 
+// [LAW:dataflow-not-control-flow] begin/end transaction is ONE op value over ONE wire message;
+// two action kinds would be two types for the same behavior.
+export type TransactionOp = 'begin' | 'end';
+
 // The two verbs of the SavedArrangementRequest wire message that mutate state; LIST is a read and
 // belongs to the workbench snapshot, not the action. windowId follows the wire's dual semantics:
 // with 'save' it scopes the save to one window's tabs, with 'restore' it restores into an existing
@@ -431,6 +435,19 @@ export type RpcSchema = {
   // one value, never an incremental patch the engine doesn't model. [LAW:dataflow-not-control-flow]
   'actions/set-broadcast-domains': {
     args: { entity: AppEntityRef; domains: string[][] };
+    result: ActionResult;
+  };
+  'actions/get-selection': {
+    args: { entity: AppEntityRef; sessionId: string };
+    result: ActionResult;
+  };
+  // selectionJson is a JSON-encoded iterm2.Selection proto (output of get-selection can be pasted back).
+  'actions/set-selection': {
+    args: { entity: AppEntityRef; sessionId: string; selectionJson: string };
+    result: ActionResult;
+  };
+  'actions/transaction': {
+    args: { entity: AppEntityRef; op: TransactionOp };
     result: ActionResult;
   };
   'actions/raw-protobuf': {

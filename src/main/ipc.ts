@@ -35,6 +35,9 @@ import {
   actionClose,
   actionSavedArrangement,
   actionSetBroadcastDomains,
+  actionGetSelection,
+  actionSetSelection,
+  actionTransaction,
   actionRawProtobuf,
 } from './actions';
 import { listProfiles } from './workbench';
@@ -176,6 +179,15 @@ export function registerIpc(
     ),
     'actions/set-broadcast-domains': action('set-broadcast-domains', (args) =>
       actionSetBroadcastDomains(orchestrator, args),
+    ),
+    'actions/get-selection': action('get-selection', (args) =>
+      actionGetSelection(orchestrator, args),
+    ),
+    'actions/set-selection': action('set-selection', (args) =>
+      actionSetSelection(orchestrator, args),
+    ),
+    'actions/transaction': action('transaction', (args) =>
+      actionTransaction(orchestrator, args),
     ),
     'actions/raw-protobuf': action('raw-protobuf', (args) =>
       actionRawProtobuf(orchestrator, args),

@@ -385,3 +385,83 @@ export const RawProtobufForm = observer(function RawProtobufForm() {
     </div>
   );
 });
+
+export const GetSelectionForm = observer(function GetSelectionForm() {
+  const { console: c } = useStore();
+  const f = c.forms['get-selection'];
+  return (
+    <div className="grid gap-2" data-testid="form-get-selection">
+      <Field label="Session id">
+        <Input
+          value={f.sessionId}
+          onChange={(e) => c.updateForm('get-selection', { sessionId: e.target.value })}
+          placeholder="(empty = focused session)"
+          data-testid="get-selection-session"
+        />
+      </Field>
+      <p className="text-[10px] text-muted-foreground">
+        Returns the current selection for the session. Copy the <code>selectionJson</code> payload from the
+        activity log to paste into Set Selection.
+      </p>
+    </div>
+  );
+});
+
+export const SetSelectionForm = observer(function SetSelectionForm() {
+  const { console: c } = useStore();
+  const f = c.forms['set-selection'];
+  return (
+    <div className="grid gap-2" data-testid="form-set-selection">
+      <Field label="Session id">
+        <Input
+          value={f.sessionId}
+          onChange={(e) => c.updateForm('set-selection', { sessionId: e.target.value })}
+          placeholder="(empty = focused session)"
+          data-testid="set-selection-session"
+        />
+      </Field>
+      <Field label="Selection JSON">
+        <Textarea
+          value={f.selectionJson}
+          onChange={(e) => c.updateForm('set-selection', { selectionJson: e.target.value })}
+          rows={6}
+          placeholder={'{"subSelections": []}'}
+          className="font-mono text-xs"
+          data-testid="set-selection-json"
+        />
+      </Field>
+      <p className="text-[10px] text-muted-foreground">
+        JSON-encoded <code>iterm2.Selection</code> proto. Use <code>{'{}'}</code> or{' '}
+        <code>{'{"subSelections":[]}'}</code> to clear. Paste Get Selection output to restore a
+        captured selection.
+      </p>
+    </div>
+  );
+});
+
+export const TransactionForm = observer(function TransactionForm() {
+  const { console: c } = useStore();
+  const f = c.forms.transaction;
+  return (
+    <div className="grid gap-2" data-testid="form-transaction">
+      <Field label="Operation">
+        <Select
+          value={f.op}
+          onValueChange={(v) => c.updateForm('transaction', { op: v as typeof f.op })}
+        >
+          <SelectTrigger data-testid="transaction-op">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="begin">begin</SelectItem>
+            <SelectItem value="end">end</SelectItem>
+          </SelectContent>
+        </Select>
+      </Field>
+      <p className="text-[10px] text-muted-foreground">
+        Freezes iTerm2&apos;s main loop while in a transaction. Always end the transaction —
+        leaving it open locks the app until it times out.
+      </p>
+    </div>
+  );
+});
