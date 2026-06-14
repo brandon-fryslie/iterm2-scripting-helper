@@ -94,8 +94,6 @@ export class WorkbenchStore {
     error: string | null;
     registrationId: string | null;
   } | null = null;
-  // null until the first export — distinct from a cancelled dialog (a result whose error is null).
-  pythonExportResult: FileExportResult | null = null;
 
   customEscapeSnapshot: CustomEscapeSnapshot = {
     subscriptions: [],
@@ -466,16 +464,12 @@ export class WorkbenchStore {
   // [LAW:dataflow-not-control-flow] Total over its input: it always exports. The toolbelt arm — the one
   // registration with no Python stub — is excluded by the parameter type (RpcRegistrationBody), so the
   // caller narrows once and this method never silently skips. [LAW:types-are-the-program]
-  async exportPythonStub(body: RpcRegistrationBody): Promise<void> {
-    // [LAW:no-silent-failure] Clear the prior outcome before exporting so a stale success badge can
-    // never outlive a retry or a cancel — the badge reflects only this export.
-    runInAction(() => {
-      this.pythonExportResult = null;
-    });
-    const result = await window.ipc.invoke('registration/export-python', { body, path: null });
-    runInAction(() => {
-      this.pythonExportResult = result;
-    });
+  //
+  // The outcome is RETURNED, not stashed in a store field: the UI seam routes it through the one
+  // ErrorStore (success toast / error notice / cancel no-op) exactly as fixture capture does, so there
+  // is no parallel export-result state to keep in sync. [LAW:one-source-of-truth]
+  async exportPythonStub(body: RpcRegistrationBody): Promise<FileExportResult> {
+    return window.ipc.invoke('registration/export-python', { body, path: null });
   }
 
   async unregisterRpc(id: string): Promise<void> {

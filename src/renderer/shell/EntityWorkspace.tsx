@@ -8,6 +8,7 @@ import { AuthorPane } from '@/domains/workbench/AuthorPane';
 import { EntitySpineRail } from './EntitySpineRail';
 import { LiveStateFacet } from './facets/LiveStateFacet';
 import { SettingsOverlay } from './SettingsOverlay';
+import { ToastLayer } from './ToastLayer';
 import { FacetFrame } from './FacetFrame';
 import { usePersistedLayout } from './usePersistedLayout';
 
@@ -100,6 +101,7 @@ export const EntityWorkspace = observer(function EntityWorkspace() {
         </Panel>
       </Group>
       {settingsOpen && <SettingsOverlay onClose={() => setSettingsOpen(false)} />}
+      <ToastLayer />
     </div>
   );
 });

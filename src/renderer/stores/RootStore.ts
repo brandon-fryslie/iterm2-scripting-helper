@@ -7,6 +7,7 @@ import { ActivityStore } from './ActivityStore';
 import { EntityFocusStore } from './EntityFocusStore';
 import { TmuxStore } from './TmuxStore';
 import { ColorPresetStore } from './ColorPresetStore';
+import { ErrorStore } from './ErrorStore';
 import {
   APP_ENTITY,
   appEntityExistsInLayout,
@@ -23,10 +24,18 @@ export class RootStore {
   readonly activity: ActivityStore;
   readonly tmux: TmuxStore;
   readonly colorPresets: ColorPresetStore;
+  readonly errors: ErrorStore;
   private focusRequestSeq = 0;
 
   constructor() {
-    this.connection = new ConnectionStore();
+    this.errors = new ErrorStore();
+    // [LAW:single-enforcer] The composition root is where the driver-error edge is bound to the one
+    // notice sink. Every connection snapshot — pushed or returned from connect/disconnect/refresh —
+    // crosses that edge inside ConnectionStore.apply and records here, the same place fixture and
+    // export outcomes are routed from the UI seam.
+    this.connection = new ConnectionStore((message) =>
+      this.errors.record({ tone: 'error', source: 'driver', message }),
+    );
     this.entityFocus = new EntityFocusStore();
     this.monitor = new MonitorStore(() => this.reconcileEntityFocusWithLayout());
     this.console = new ConsoleStore(this.entityFocus);
@@ -43,6 +52,7 @@ export class RootStore {
       activity: false,
       tmux: false,
       colorPresets: false,
+      errors: false,
     });
   }
 

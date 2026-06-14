@@ -4,6 +4,7 @@ import { ConnectionPanel } from '@/domains/settings/ConnectionPanel';
 import { AuthorizationPanel } from '@/domains/settings/AuthorizationPanel';
 import { CapabilityPanel } from '@/domains/settings/CapabilityPanel';
 import { DocsIndexPanel } from '@/domains/settings/DocsIndexPanel';
+import { ErrorsPanel } from '@/domains/settings/ErrorsPanel';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { useStore } from '@/stores/context';
@@ -59,6 +60,7 @@ export const SettingsOverlay = observer(function SettingsOverlay({
           }}
         />
         <ConnectionPanel />
+        <ErrorsPanel />
         <AuthorizationPanel />
         <CapabilityPanel />
         <Card>
