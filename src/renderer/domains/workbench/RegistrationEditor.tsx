@@ -50,7 +50,7 @@ const DEFAULT_KNOB: KnobSpec = {
 };
 
 export const RegistrationEditor = observer(function RegistrationEditor() {
-  const { workbench } = useStore();
+  const { workbench, errors } = useStore();
 
   useEffect(() => {
     void workbench.refreshRegistrations();
@@ -346,9 +346,16 @@ export const RegistrationEditor = observer(function RegistrationEditor() {
                 variant="outline"
                 onClick={() => {
                   // The draft's role mirrors the form's; narrow off toolbelt so the store method only
-                  // ever receives an RpcRegistrationBody.
+                  // ever receives an RpcRegistrationBody. The outcome routes through the one ErrorStore
+                  // (success toast / failure notice / cancel no-op), the same seam fixture capture uses.
                   const draft = workbench.registrationDraft;
-                  if (draft.role !== 'toolbelt') void workbench.exportPythonStub(draft);
+                  if (draft.role !== 'toolbelt') {
+                    void workbench
+                      .exportPythonStub(draft)
+                      .then((res) =>
+                        errors.recordFileOutcome('export', res, res.ok ? `Exported ${res.path}` : ''),
+                      );
+                  }
                 }}
                 data-testid="registration-export-python"
                 title="Save a runnable iTerm2 Python stub for the Scripts folder"
@@ -368,20 +375,6 @@ export const RegistrationEditor = observer(function RegistrationEditor() {
                   : workbench.registrationLastResult.error ?? 'error'}
               </Badge>
             )}
-            {/* [LAW:no-silent-failure] A real failure speaks; a user-cancelled dialog (error null) is
-                a deliberate no-op with no badge. */}
-            {workbench.pythonExportResult &&
-              (workbench.pythonExportResult.ok ? (
-                <Badge variant="default" data-testid="registration-export-result">
-                  exported
-                </Badge>
-              ) : (
-                workbench.pythonExportResult.error !== null && (
-                  <Badge variant="destructive" data-testid="registration-export-result">
-                    {workbench.pythonExportResult.error}
-                  </Badge>
-                )
-              ))}
           </div>
         </CardContent>
       </Card>

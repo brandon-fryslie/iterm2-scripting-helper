@@ -5,22 +5,21 @@ import type { FixtureFileResult } from '@shared/rpc';
 
 // Save the whole retained spine as a replayable NDJSON fixture, and replay one back into the
 // disconnected timeline. The controls are part of the activity toolbar because a fixture *is* a span
-// of the activity spine — there is no separate place a wire-log lives. A user cancel leaves no status;
-// only a written/loaded file or a real failure speaks ([LAW:no-silent-failure]).
+// of the activity spine — there is no separate place a wire-log lives.
+//
+// [LAW:one-source-of-truth] The outcome (written file, real failure, or user-cancelled no-op) is
+// routed through the one ErrorStore — the same seam driver and export failures use — so a fixture
+// status surfaces as a toast and any failure lands in the durable Errors pane, never an inline span
+// that only this toolbar could show. The cancel convention (error === null) lives in recordFileOutcome.
 export function FixtureControls() {
-  const { activity } = useStore();
-  const [status, setStatus] = useState<{ tone: 'ok' | 'error'; text: string } | null>(null);
+  const { activity, errors } = useStore();
   const [busy, setBusy] = useState(false);
 
   async function save(): Promise<void> {
     setBusy(true);
     try {
       const res: FixtureFileResult = await window.ipc.invoke('fixture/capture', { span: null });
-      // [LAW:no-silent-failure] A real failure (error a string) is shown; only a user-cancelled dialog
-      // (error === null) clears the status as a deliberate no-op.
-      if (res.ok) setStatus({ tone: 'ok', text: `saved ${res.eventCount} events` });
-      else if (res.error !== null) setStatus({ tone: 'error', text: res.error });
-      else setStatus(null);
+      errors.recordFileOutcome('fixture', res, res.ok ? `Saved ${res.eventCount} events` : '');
     } finally {
       setBusy(false);
     }
@@ -30,16 +29,10 @@ export function FixtureControls() {
     setBusy(true);
     try {
       const res: FixtureFileResult = await window.ipc.invoke('fixture/replay', { path: null });
-      if (res.ok) {
-        // The spine was replaced in the main process; pull the restored snapshot so the timeline shows
-        // the recorded session immediately rather than on the next poll tick.
-        await activity.hydrate();
-        setStatus({ tone: 'ok', text: `replaying ${res.eventCount} events` });
-      } else if (res.error !== null) {
-        setStatus({ tone: 'error', text: res.error });
-      } else {
-        setStatus(null);
-      }
+      // The spine was replaced in the main process; pull the restored snapshot so the timeline shows
+      // the recorded session immediately rather than on the next poll tick.
+      if (res.ok) await activity.hydrate();
+      errors.recordFileOutcome('fixture', res, res.ok ? `Replaying ${res.eventCount} events` : '');
     } finally {
       setBusy(false);
     }
@@ -65,14 +58,6 @@ export function FixtureControls() {
       >
         Load fixture
       </Button>
-      {status && (
-        <span
-          className={status.tone === 'error' ? 'text-destructive' : 'text-muted-foreground'}
-          data-testid="fixture-status"
-        >
-          {status.text}
-        </span>
-      )}
     </>
   );
 }
