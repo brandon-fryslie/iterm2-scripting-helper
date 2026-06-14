@@ -277,7 +277,13 @@ export type AppActionKind =
   | 'set-selection'
   | 'transaction'
   | 'osascript'
-  | 'raw-protobuf';
+  | 'raw-protobuf'
+  // The mutating arms of the TmuxRequest oneof. listConnections is a read authority (the tmux store),
+  // not an action — the three kinds here mirror the wire's three command payloads, each a distinct
+  // shape, never one action with a mode flag ([LAW:dataflow-not-control-flow]).
+  | 'tmux-send-command'
+  | 'tmux-create-window'
+  | 'tmux-set-window-visible';
 
 // [LAW:one-source-of-truth] The canonical result of firing an action, used both as the value returned
 // to the renderer and as the `result` recorded on the action AppEvent. `requestId` is the protocol

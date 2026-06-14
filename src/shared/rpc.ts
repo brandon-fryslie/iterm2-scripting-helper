@@ -338,6 +338,22 @@ export interface CustomEscapeSnapshot {
   capacity: number;
 }
 
+// A tmux connection as iTerm2 reports it: the gateway session that owns it and the id used to address
+// commands and windows to it. [LAW:one-source-of-truth] iTerm2's TmuxRequest.listConnections is the
+// sole authority; the renderer's TmuxStore is an explicitly-refreshable derived cache, never a second
+// source of truth.
+export interface TmuxConnection {
+  connectionId: string;
+  owningSessionId: string;
+}
+
+// [LAW:no-silent-failure] The list read either succeeds with the connection set or carries the real
+// cause (not connected, refused status, wrong response case) — an empty list is "no connections", a
+// distinct fact from "the read failed".
+export type TmuxConnectionsResult =
+  | { ok: true; connections: TmuxConnection[] }
+  | { ok: false; error: string };
+
 export type RpcSchema = {
   'system/ping': {
     args: void;
@@ -468,6 +484,21 @@ export type RpcSchema = {
     args: { entity: AppEntityRef; envelopeJson: string };
     result: ActionResult;
   };
+  // The three mutating arms of TmuxRequest. Each addresses a connection by id (from the tmux store);
+  // create-window's affinity hints which existing tmux window the new one should be adjacent to (''
+  // = no hint). [LAW:dataflow-not-control-flow] each arm is its own action, mirroring the wire oneof.
+  'actions/tmux-send-command': {
+    args: { entity: AppEntityRef; connectionId: string; command: string };
+    result: ActionResult;
+  };
+  'actions/tmux-create-window': {
+    args: { entity: AppEntityRef; connectionId: string; affinity: string };
+    result: ActionResult;
+  };
+  'actions/tmux-set-window-visible': {
+    args: { entity: AppEntityRef; connectionId: string; windowId: string; visible: boolean };
+    result: ActionResult;
+  };
   'workbench/list-profiles': {
     args: void;
     result: ProfileListResult;
@@ -527,6 +558,13 @@ export type RpcSchema = {
   'workbench/sdef-text': {
     args: void;
     result: SdefTextResult;
+  };
+  // The tmux store's read authority: fires TmuxRequest.listConnections each call (no main-side cache —
+  // connections come and go, so a fresh wire read is the honest answer). The renderer TmuxStore holds
+  // the loaded snapshot and its lifecycle state. Console-consumed, like workbench/sdef-text.
+  'workbench/tmux-connections': {
+    args: void;
+    result: TmuxConnectionsResult;
   };
 };
 

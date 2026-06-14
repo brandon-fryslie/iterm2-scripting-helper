@@ -23,6 +23,9 @@ import {
   TransactionForm,
   OsascriptForm,
   RawProtobufForm,
+  TmuxSendCommandForm,
+  TmuxCreateWindowForm,
+  TmuxSetWindowVisibleForm,
 } from './ActionForms';
 
 const ACTIONS: Array<{ kind: ActionKind; label: string }> = [
@@ -39,6 +42,9 @@ const ACTIONS: Array<{ kind: ActionKind; label: string }> = [
   { kind: 'set-selection', label: 'Set selection' },
   { kind: 'transaction', label: 'Transaction' },
   { kind: 'osascript', label: 'AppleScript/JXA' },
+  { kind: 'tmux-send-command', label: 'tmux command' },
+  { kind: 'tmux-create-window', label: 'tmux window' },
+  { kind: 'tmux-set-window-visible', label: 'tmux visibility' },
   { kind: 'raw-protobuf', label: 'Raw protobuf' },
 ];
 
@@ -56,6 +62,9 @@ const FORM_COMPONENTS: Record<ActionKind, React.ComponentType> = {
   'set-selection': SetSelectionForm,
   transaction: TransactionForm,
   osascript: OsascriptForm,
+  'tmux-send-command': TmuxSendCommandForm,
+  'tmux-create-window': TmuxCreateWindowForm,
+  'tmux-set-window-visible': TmuxSetWindowVisibleForm,
   'raw-protobuf': RawProtobufForm,
 };
 
