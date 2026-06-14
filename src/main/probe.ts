@@ -90,5 +90,10 @@ export function describeVariableStatus(status: VariableResponse_Status): string 
       return 'Invalid variable name for this request.';
     case VariableResponse_Status.MULTI_GET_DISALLOWED:
       return 'Only a single path can be evaluated at a time.';
+    // [LAW:no-silent-failure] Status is a server-controlled (open) enum: an additive value decodes as a
+    // bare number outside this generated enum. Without this default the switch would return undefined to
+    // the UI on protocol drift; instead surface the raw value so the failure is legible, not blank.
+    default:
+      return `Unrecognized status (${status}) — this client may be older than iTerm2's protocol.`;
   }
 }

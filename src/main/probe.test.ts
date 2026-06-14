@@ -84,4 +84,13 @@ describe('describeVariableStatus', () => {
     expect(new Set(messages).size).toBe(messages.length);
     for (const m of messages) expect(m.length).toBeGreaterThan(0);
   });
+
+  // Status is an open enum: iTerm2 can send a value newer than this client's generated enum. The
+  // function must surface it legibly, not return undefined to the UI.
+  it('surfaces an additive (unrecognized) status instead of returning undefined', () => {
+    const drifted = 999 as VariableResponse_Status;
+    const message = describeVariableStatus(drifted);
+    expect(message).toContain('999');
+    expect(message.length).toBeGreaterThan(0);
+  });
 });
