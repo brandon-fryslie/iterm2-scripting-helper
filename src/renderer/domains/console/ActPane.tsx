@@ -26,6 +26,8 @@ import {
   TmuxSendCommandForm,
   TmuxCreateWindowForm,
   TmuxSetWindowVisibleForm,
+  GetPreferenceForm,
+  ApplyColorPresetForm,
 } from './ActionForms';
 
 const ACTIONS: Array<{ kind: ActionKind; label: string }> = [
@@ -45,6 +47,8 @@ const ACTIONS: Array<{ kind: ActionKind; label: string }> = [
   { kind: 'tmux-send-command', label: 'tmux command' },
   { kind: 'tmux-create-window', label: 'tmux window' },
   { kind: 'tmux-set-window-visible', label: 'tmux visibility' },
+  { kind: 'get-preference', label: 'Get preference' },
+  { kind: 'apply-color-preset', label: 'Color preset' },
   { kind: 'raw-protobuf', label: 'Raw protobuf' },
 ];
 
@@ -65,6 +69,8 @@ const FORM_COMPONENTS: Record<ActionKind, React.ComponentType> = {
   'tmux-send-command': TmuxSendCommandForm,
   'tmux-create-window': TmuxCreateWindowForm,
   'tmux-set-window-visible': TmuxSetWindowVisibleForm,
+  'get-preference': GetPreferenceForm,
+  'apply-color-preset': ApplyColorPresetForm,
   'raw-protobuf': RawProtobufForm,
 };
 

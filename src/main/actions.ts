@@ -30,10 +30,16 @@ import {
   TransactionResponse_Status,
   TmuxRequestSchema,
   TmuxResponse_Status,
+  PreferencesRequestSchema,
+  ColorPresetRequestSchema,
+  ColorPresetResponse_Status,
+  SetProfilePropertyRequestSchema,
+  SetProfilePropertyResponse_Status,
   type ServerOriginatedMessage,
   type ActivateRequest,
   type InvokeFunctionRequest,
   type CloseRequest,
+  type ColorPresetResponse_GetPreset_ColorSetting,
 } from '@shared/proto/gen/api_pb';
 import type {
   ActionResult,
@@ -670,4 +676,198 @@ export async function actionTransaction(
     };
   }
   return result;
+}
+
+// Raw preference-key inspection: the read arm of PreferencesRequest. iTerm2's Settings edits known
+// preferences through controls but never exposes a raw key's stored JSON — this does. The wire batches
+// requests; a single key is one request, and results[0] is its result. [LAW:no-silent-failure] an empty
+// jsonValue alongside a getPreferenceResult is the honest "no value set" for that key, not a failure;
+// a response that is not a preferencesResponse, or whose first result is the wrong arm (an unrecognized
+// request), is a failed read.
+export async function actionGetPreference(
+  orchestrator: ConnectionOrchestrator,
+  args: { key: string },
+): Promise<ActionResult> {
+  if (!args.key) {
+    return {
+      ok: false,
+      error: 'preference key required',
+      latencyMs: 0,
+      responseCase: null,
+      payload: null,
+      requestId: null,
+    };
+  }
+  const value = create(PreferencesRequestSchema, {
+    requests: [{ request: { case: 'getPreferenceRequest', value: { key: args.key } } }],
+  });
+  let resultCase: string | null = null;
+  const result = await fire(
+    orchestrator,
+    { submessage: { case: 'preferencesRequest', value } },
+    (msg) => {
+      if (msg.submessage.case !== 'preferencesResponse') return null;
+      const first = msg.submessage.value.results[0];
+      resultCase = first?.result.case ?? null;
+      if (first?.result.case === 'getPreferenceResult') {
+        return { key: args.key, jsonValue: first.result.value.jsonValue };
+      }
+      return { key: args.key, resultCase: resultCase ?? '<none>' };
+    },
+  );
+  if (!result.ok) return result;
+  if (result.responseCase !== 'preferencesResponse') {
+    return {
+      ...result,
+      ok: false,
+      error: `expected preferencesResponse, got ${result.responseCase ?? '<none>'}`,
+    };
+  }
+  if (resultCase !== 'getPreferenceResult') {
+    return {
+      ...result,
+      ok: false,
+      error: `iTerm2 returned ${resultCase ?? 'no results'} for a getPreference request`,
+    };
+  }
+  return result;
+}
+
+// [LAW:one-source-of-truth] iTerm2 encodes a profile color as this plist dict (NSColor components);
+// it is the same shape the RPC color-knob default uses. The apply round-trips exactly the components
+// getPreset returned, so the written color is the preset's color, not a re-derived one.
+function colorAssignmentJson(cs: ColorPresetResponse_GetPreset_ColorSetting): string {
+  return JSON.stringify({
+    'Red Component': cs.red,
+    'Green Component': cs.green,
+    'Blue Component': cs.blue,
+    'Alpha Component': cs.alpha,
+    'Color Space': cs.colorSpace || 'sRGB',
+  });
+}
+
+// Bulk color-preset application: the capability iTerm2 has no native UI for — applying one preset to
+// many profiles at once via the API. It is two wire arms in sequence, never fused into one: getPreset
+// (read the preset's colors) then SetProfilePropertyRequest (write them to a guid list as color
+// assignments). [LAW:no-silent-failure] each step's refusal stops the action — a refused or empty
+// preset read never proceeds to a half-applied write, and a refused write is a failed action. The
+// recorded requestId is the mutation's (the write is the action's effect on the wire); a failed read
+// reports the read's id so the spine still joins to the frame it produced.
+export async function actionApplyColorPreset(
+  orchestrator: ConnectionOrchestrator,
+  args: { presetName: string; guids: string[] },
+): Promise<ActionResult> {
+  const guids = args.guids.filter(Boolean);
+  const failNoWire = (error: string): ActionResult => ({
+    ok: false,
+    error,
+    latencyMs: 0,
+    responseCase: null,
+    payload: null,
+    requestId: null,
+  });
+  if (!args.presetName) return failNoWire('color preset name required');
+  if (guids.length === 0) return failNoWire('at least one profile guid required');
+
+  const started = Date.now();
+  const failWire = (error: string, responseCase: string | null, requestId: string | null): ActionResult => ({
+    ok: false,
+    error,
+    latencyMs: Date.now() - started,
+    responseCase,
+    payload: null,
+    requestId,
+  });
+  try {
+    const presetReq = create(ColorPresetRequestSchema, {
+      request: { case: 'getPreset', value: { name: args.presetName } },
+    });
+    const presetResp = await orchestrator.sendRequest({
+      submessage: { case: 'colorPresetRequest', value: presetReq },
+    });
+    if (presetResp.submessage.case === 'error') {
+      return failWire(presetResp.submessage.value, 'error', presetResp.id.toString());
+    }
+    if (presetResp.submessage.case !== 'colorPresetResponse') {
+      return failWire(
+        `expected colorPresetResponse, got ${presetResp.submessage.case ?? '<none>'}`,
+        presetResp.submessage.case ?? null,
+        presetResp.id.toString(),
+      );
+    }
+    const preset = presetResp.submessage.value;
+    if (preset.status !== ColorPresetResponse_Status.OK) {
+      return failWire(
+        `iTerm2 refused color preset read: ${ColorPresetResponse_Status[preset.status] ?? preset.status}`,
+        'colorPresetResponse',
+        presetResp.id.toString(),
+      );
+    }
+    if (preset.response.case !== 'getPreset') {
+      return failWire(
+        `expected getPreset payload, got ${preset.response.case ?? '<none>'}`,
+        'colorPresetResponse',
+        presetResp.id.toString(),
+      );
+    }
+    const colorSettings = preset.response.value.colorSettings;
+    if (colorSettings.length === 0) {
+      return failWire(
+        `color preset '${args.presetName}' has no color settings`,
+        'colorPresetResponse',
+        presetResp.id.toString(),
+      );
+    }
+
+    const setReq = create(SetProfilePropertyRequestSchema, {
+      target: { case: 'guidList', value: { guids } },
+      assignments: colorSettings.map((cs) => ({ key: cs.key, jsonValue: colorAssignmentJson(cs) })),
+    });
+    const setResp = await orchestrator.sendRequest({
+      submessage: { case: 'setProfilePropertyRequest', value: setReq },
+    });
+    const latencyMs = Date.now() - started;
+    const requestId = setResp.id.toString();
+    if (setResp.submessage.case === 'error') {
+      return { ok: false, error: setResp.submessage.value, latencyMs, responseCase: 'error', payload: null, requestId };
+    }
+    if (setResp.submessage.case !== 'setProfilePropertyResponse') {
+      return {
+        ok: false,
+        error: `expected setProfilePropertyResponse, got ${setResp.submessage.case ?? '<none>'}`,
+        latencyMs,
+        responseCase: setResp.submessage.case ?? null,
+        payload: null,
+        requestId,
+      };
+    }
+    const status = setResp.submessage.value.status;
+    if (status !== SetProfilePropertyResponse_Status.OK) {
+      return {
+        ok: false,
+        error: `iTerm2 refused: ${SetProfilePropertyResponse_Status[status] ?? status}`,
+        latencyMs,
+        responseCase: 'setProfilePropertyResponse',
+        payload: null,
+        requestId,
+      };
+    }
+    return {
+      ok: true,
+      error: null,
+      latencyMs,
+      responseCase: 'setProfilePropertyResponse',
+      payload: { presetName: args.presetName, profileCount: guids.length, colorCount: colorSettings.length },
+      requestId,
+    };
+  } catch (err) {
+    return {
+      ok: false,
+      error: err instanceof Error ? err.message : String(err),
+      latencyMs: Date.now() - started,
+      responseCase: null,
+      payload: null,
+      requestId: null,
+    };
+  }
 }

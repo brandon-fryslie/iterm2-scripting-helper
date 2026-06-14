@@ -283,7 +283,12 @@ export type AppActionKind =
   // shape, never one action with a mode flag ([LAW:dataflow-not-control-flow]).
   | 'tmux-send-command'
   | 'tmux-create-window'
-  | 'tmux-set-window-visible';
+  | 'tmux-set-window-visible'
+  // PreferencesRequest and ColorPresetRequest, scoped to what iTerm2 has no native UI for. get-preference
+  // is the raw pref-key read; apply-color-preset reads a preset (getPreset) and writes its colors to a
+  // guid list (SetProfilePropertyRequest) — a bulk apply, not a rebuild of the Settings editor.
+  | 'get-preference'
+  | 'apply-color-preset';
 
 // [LAW:one-source-of-truth] The canonical result of firing an action, used both as the value returned
 // to the renderer and as the `result` recorded on the action AppEvent. `requestId` is the protocol

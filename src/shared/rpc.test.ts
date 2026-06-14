@@ -42,6 +42,8 @@ describe('RpcSchema', () => {
       | 'actions/tmux-send-command'
       | 'actions/tmux-create-window'
       | 'actions/tmux-set-window-visible'
+      | 'actions/get-preference'
+      | 'actions/apply-color-preset'
       | 'workbench/list-profiles'
       | 'workbench/dynamic-profiles'
       | 'workbench/save-dynamic-profile'
@@ -57,6 +59,7 @@ describe('RpcSchema', () => {
       | 'workbench/key-bindings'
       | 'workbench/sdef-text'
       | 'workbench/tmux-connections'
+      | 'workbench/color-presets'
     >();
   });
 

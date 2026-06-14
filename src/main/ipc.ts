@@ -42,6 +42,8 @@ import {
   actionTmuxSendCommand,
   actionTmuxCreateWindow,
   actionTmuxSetWindowVisible,
+  actionGetPreference,
+  actionApplyColorPreset,
 } from './actions';
 import { actionOsascript, getSdefText } from './osascript';
 import { listProfiles } from './workbench';
@@ -49,6 +51,7 @@ import { arrangementSnapshot } from './arrangements';
 import { getBroadcastDomains } from './broadcastDomains';
 import { readKeyBindingsSnapshot } from './keyBindings';
 import { listTmuxConnections } from './tmux';
+import { listColorPresets } from './colorPresets';
 
 type Handlers = { [M in RpcMethod]: (args: RpcArgs<M>) => Promise<RpcResult<M>> };
 
@@ -207,6 +210,12 @@ export function registerIpc(
     'actions/tmux-set-window-visible': action('tmux-set-window-visible', (args) =>
       actionTmuxSetWindowVisible(orchestrator, args),
     ),
+    'actions/get-preference': action('get-preference', (args) =>
+      actionGetPreference(orchestrator, args),
+    ),
+    'actions/apply-color-preset': action('apply-color-preset', (args) =>
+      actionApplyColorPreset(orchestrator, args),
+    ),
     'workbench/list-profiles': () => listProfiles(orchestrator),
     'workbench/dynamic-profiles': async () => {
       await workbench.dynamicProfileWatcher.refresh().catch(() => void 0);
@@ -303,6 +312,7 @@ export function registerIpc(
     'workbench/key-bindings': async () => readKeyBindingsSnapshot(),
     'workbench/sdef-text': async () => getSdefText(),
     'workbench/tmux-connections': async () => listTmuxConnections(orchestrator),
+    'workbench/color-presets': async () => listColorPresets(orchestrator),
   };
 
   ipcMain.handle('rpc', async (_event, payload: { method: RpcMethod; args: unknown }) => {

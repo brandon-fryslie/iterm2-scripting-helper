@@ -938,3 +938,123 @@ export const TmuxSetWindowVisibleForm = observer(function TmuxSetWindowVisibleFo
     </div>
   );
 });
+
+export const GetPreferenceForm = observer(function GetPreferenceForm() {
+  const { console: c } = useStore();
+  const f = c.forms['get-preference'];
+  return (
+    <div className="grid gap-2" data-testid="form-get-preference">
+      <Field label="Preference key">
+        <Input
+          value={f.key}
+          onChange={(e) => c.updateForm('get-preference', { key: e.target.value })}
+          placeholder="e.g. PromptOnQuit"
+          className="font-mono text-xs"
+          data-testid="get-preference-key"
+        />
+      </Field>
+      <p className="text-[10px] text-muted-foreground">
+        Reads the raw stored JSON for an iTerm2 preference key. An empty <code>jsonValue</code> on the
+        result means the key has no value set. iTerm2 Settings edits known preferences but never
+        exposes a key&apos;s raw value.
+      </p>
+    </div>
+  );
+});
+
+// The color-preset picker for the apply form: one read of the color-preset store, surfaced as
+// clickable preset names plus a raw text fallback. [LAW:no-silent-failure] a failed load shows its
+// real cause and still leaves the text input usable. [LAW:one-source-of-truth] the form reads the
+// preset set from the one ColorPresetStore. Mirrors the tmux connection picker.
+const ColorPresetField = observer(function ColorPresetField({
+  value,
+  onPick,
+}: {
+  value: string;
+  onPick: (presetName: string) => void;
+}) {
+  const { colorPresets } = useStore();
+
+  // [LAW:no-ambient-temporal-coupling] selecting the apply action mounts this field — that selection
+  // is the explicit trigger to read presets. load() is idempotent, so re-mounts share one read.
+  useEffect(() => {
+    void colorPresets.load();
+  }, [colorPresets]);
+
+  const s = colorPresets.state;
+  return (
+    <Field label="Preset">
+      <div className="grid gap-1">
+        <div className="flex items-center gap-1">
+          <Input
+            value={value}
+            placeholder="preset name"
+            onChange={(e) => onPick(e.target.value)}
+            data-testid="color-preset-input"
+          />
+          <button
+            className="shrink-0 rounded border px-2 py-1 text-[10px] hover:bg-muted"
+            onClick={() => colorPresets.refresh()}
+            data-testid="color-preset-refresh"
+          >
+            Refresh
+          </button>
+        </div>
+        {s.status === 'loading' && (
+          <p className="text-[10px] text-muted-foreground">Loading presets…</p>
+        )}
+        {s.status === 'error' && (
+          <p className="text-[10px] text-destructive" data-testid="color-preset-error">
+            {s.message}
+          </p>
+        )}
+        {s.status === 'ok' && s.presets.length === 0 && (
+          <p className="text-[10px] text-muted-foreground">No color presets.</p>
+        )}
+        {s.status === 'ok' && s.presets.length > 0 && (
+          <div className="flex flex-wrap gap-1">
+            {s.presets.map((name) => (
+              <button
+                key={name}
+                className={`rounded border px-2 py-0.5 text-[10px] ${
+                  value === name ? 'bg-primary text-primary-foreground' : 'hover:bg-muted'
+                }`}
+                onClick={() => onPick(name)}
+                data-testid={`color-preset-${name}`}
+              >
+                {name}
+              </button>
+            ))}
+          </div>
+        )}
+      </div>
+    </Field>
+  );
+});
+
+export const ApplyColorPresetForm = observer(function ApplyColorPresetForm() {
+  const { console: c } = useStore();
+  const f = c.forms['apply-color-preset'];
+  return (
+    <div className="grid gap-2" data-testid="form-apply-color-preset">
+      <ColorPresetField
+        value={f.presetName}
+        onPick={(presetName) => c.updateForm('apply-color-preset', { presetName })}
+      />
+      <Field label="Profile GUIDs">
+        <Textarea
+          value={f.guidsCsv}
+          onChange={(e) => c.updateForm('apply-color-preset', { guidsCsv: e.target.value })}
+          rows={3}
+          placeholder="comma-separated profile GUIDs (from Workbench → Profiles)"
+          className="font-mono text-xs"
+          data-testid="apply-color-preset-guids"
+        />
+      </Field>
+      <p className="text-[10px] text-muted-foreground">
+        Reads the preset&apos;s colors and writes them to every listed profile at once — the bulk apply
+        iTerm2 Settings has no UI for. Settings can still set a preset on one profile at a time.
+      </p>
+    </div>
+  );
+});

@@ -6,6 +6,7 @@ import { WorkbenchStore } from './WorkbenchStore';
 import { ActivityStore } from './ActivityStore';
 import { EntityFocusStore } from './EntityFocusStore';
 import { TmuxStore } from './TmuxStore';
+import { ColorPresetStore } from './ColorPresetStore';
 import {
   APP_ENTITY,
   appEntityExistsInLayout,
@@ -20,6 +21,7 @@ export class RootStore {
   readonly workbench: WorkbenchStore;
   readonly activity: ActivityStore;
   readonly tmux: TmuxStore;
+  readonly colorPresets: ColorPresetStore;
   private focusRequestSeq = 0;
 
   constructor() {
@@ -30,6 +32,7 @@ export class RootStore {
     this.workbench = new WorkbenchStore();
     this.activity = new ActivityStore();
     this.tmux = new TmuxStore();
+    this.colorPresets = new ColorPresetStore();
     makeAutoObservable(this, {
       connection: false,
       entityFocus: false,
@@ -38,6 +41,7 @@ export class RootStore {
       workbench: false,
       activity: false,
       tmux: false,
+      colorPresets: false,
     });
   }
 
