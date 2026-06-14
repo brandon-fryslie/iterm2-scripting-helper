@@ -341,6 +341,16 @@ export const RegistrationEditor = observer(function RegistrationEditor() {
             >
               Install
             </Button>
+            {form.role !== 'toolbelt' && (
+              <Button
+                variant="outline"
+                onClick={() => void workbench.exportPythonStub()}
+                data-testid="registration-export-python"
+                title="Save a runnable iTerm2 Python stub for the Scripts folder"
+              >
+                Export .py
+              </Button>
+            )}
             {workbench.registrationLastResult && (
               <Badge
                 variant={
@@ -353,6 +363,20 @@ export const RegistrationEditor = observer(function RegistrationEditor() {
                   : workbench.registrationLastResult.error ?? 'error'}
               </Badge>
             )}
+            {/* [LAW:no-silent-failure] A real failure speaks; a user-cancelled dialog (error null) is
+                a deliberate no-op with no badge. */}
+            {workbench.pythonExportResult &&
+              (workbench.pythonExportResult.ok ? (
+                <Badge variant="default" data-testid="registration-export-result">
+                  exported
+                </Badge>
+              ) : (
+                workbench.pythonExportResult.error !== null && (
+                  <Badge variant="destructive" data-testid="registration-export-result">
+                    {workbench.pythonExportResult.error}
+                  </Badge>
+                )
+              ))}
           </div>
         </CardContent>
       </Card>

@@ -12,6 +12,7 @@ import type {
   RegistrationSnapshot,
   CustomEscapeSnapshot,
   KnobSpec,
+  FileExportResult,
 } from '@shared/rpc';
 import {
   analyzeDynamicProfile,
@@ -92,6 +93,8 @@ export class WorkbenchStore {
     error: string | null;
     registrationId: string | null;
   } | null = null;
+  // null until the first export — distinct from a cancelled dialog (a result whose error is null).
+  pythonExportResult: FileExportResult | null = null;
 
   customEscapeSnapshot: CustomEscapeSnapshot = {
     subscriptions: [],
@@ -457,6 +460,17 @@ export class WorkbenchStore {
     if (result.ok) {
       await this.refreshRegistrations();
     }
+  }
+
+  // [LAW:types-are-the-program] Narrowing off the toolbelt arm hands the IPC an RpcRegistrationBody —
+  // the only shape with a Python stub — so a toolbelt export is unrepresentable, not a runtime guard.
+  async exportPythonStub(): Promise<void> {
+    const body = this.registrationDraft;
+    if (body.role === 'toolbelt') return;
+    const result = await window.ipc.invoke('registration/export-python', { body, path: null });
+    runInAction(() => {
+      this.pythonExportResult = result;
+    });
   }
 
   async unregisterRpc(id: string): Promise<void> {
