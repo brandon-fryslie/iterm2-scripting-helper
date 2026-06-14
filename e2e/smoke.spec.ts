@@ -129,3 +129,55 @@ test('escape editor previews incomplete input as an error and copies a built seq
 
   await app.close();
 });
+
+test('docs index deep-links the OSC catalog to the matching escape template editor', async () => {
+  test.skip(
+    process.env.CI === 'true',
+    'GitHub macOS runners cannot reliably launch the Electron app; run locally.',
+  );
+
+  const app = await launchApp();
+  const win = await app.firstWindow();
+
+  // The Author pane opens on Profiles, so the escape editor is not even mounted yet — landing on it
+  // is the proof the deep-link switched the workbench artifact, not a coincidence of defaults.
+  await expect(win.getByTestId('workbench-escape-editor')).not.toBeVisible();
+
+  // CurrentDir is not the default template (SetMark is), so selecting it proves the link sets the
+  // template, not just the artifact.
+  await win.getByTestId('settings-gear').click();
+  await win.getByTestId('docs-search-input').fill('OSC 1337 CurrentDir');
+  await win.getByTestId('docs-result-osc-osc1337-current-dir').click();
+  await expect(win.getByTestId('settings-overlay')).not.toBeVisible();
+  await expect(win.getByTestId('workbench-escape-editor')).toBeVisible();
+  await expect(win.getByTestId('escape-template-select')).toContainText('CurrentDir');
+
+  // The literal epic acceptance: search "OSC 1337 SetMark", land on the SetMark template entry.
+  await win.getByTestId('settings-gear').click();
+  await win.getByTestId('docs-search-input').fill('OSC 1337 SetMark');
+  await win.getByTestId('docs-result-osc-osc1337-set-mark').click();
+  await expect(win.getByTestId('settings-overlay')).not.toBeVisible();
+  await expect(win.getByTestId('escape-template-select')).toContainText('SetMark');
+
+  await app.close();
+});
+
+test('docs index deep-links a protobuf message to its console action', async () => {
+  test.skip(
+    process.env.CI === 'true',
+    'GitHub macOS runners cannot reliably launch the Electron app; run locally.',
+  );
+
+  const app = await launchApp();
+  const win = await app.firstWindow();
+
+  // send-text is the default action, so route to a non-default one to prove the link selects it.
+  await win.getByTestId('settings-gear').click();
+  await win.getByTestId('docs-search-input').fill('InvokeFunctionRequest');
+  await win.getByTestId('docs-result-proto-invoke-function').click();
+  await expect(win.getByTestId('settings-overlay')).not.toBeVisible();
+  // The invoke-function form is mounted only when its action is selected.
+  await expect(win.getByTestId('form-invoke-function')).toBeVisible();
+
+  await app.close();
+});
