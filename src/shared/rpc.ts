@@ -362,15 +362,12 @@ export type ColorPresetsResult =
   | { ok: true; presets: string[] }
   | { ok: false; error: string };
 
-// [LAW:types-are-the-program] [LAW:no-silent-failure] Three outcomes, never blurred: a written file
-// (carrying its path and how many events it holds), a real failure (carrying the cause), or a
-// user-cancelled dialog (error null — a deliberate no-op, distinct from a failure). The renderer
-// narrows on `ok` and on `error === null`.
-export type FixtureCaptureResult =
-  | { ok: true; path: string; eventCount: number }
-  | { ok: false; error: string | null };
-
-export type FixtureReplayResult =
+// [LAW:one-type-per-behavior] Capture and replay describe the same outcome shape — a fixture file
+// operation either succeeded (this path, this many events) or it did not — so they share one type, not
+// two identical ones. [LAW:no-silent-failure] Three outcomes, never blurred: a written/loaded file, a
+// real failure (carrying the cause), or a user-cancelled dialog (`error` null — a deliberate no-op,
+// distinct from a failure). The renderer narrows on `ok` and on `error === null`.
+export type FixtureFileResult =
   | { ok: true; path: string; eventCount: number }
   | { ok: false; error: string | null };
 
@@ -413,14 +410,14 @@ export type RpcSchema = {
   // result distinguishes a written file, a user-cancelled dialog (error null), and a real failure.
   'fixture/capture': {
     args: { span?: SpanRange | null; path?: string | null };
-    result: FixtureCaptureResult;
+    result: FixtureFileResult;
   };
   // Replay a fixture into the disconnected spine. `path` null prompts a native open dialog. Refuses
   // loudly while connected (replay-only mode); after a successful replay the activity timeline projects
   // the recorded session with no live connection.
   'fixture/replay': {
     args: { path?: string | null };
-    result: FixtureReplayResult;
+    result: FixtureFileResult;
   };
   'monitor/focus-session': {
     args: { sessionId: string | null };

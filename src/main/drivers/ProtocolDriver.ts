@@ -114,21 +114,35 @@ export class ProtocolDriver extends EventEmitter {
     });
     this.ws = ws;
 
-    const info = await new Promise<ProtocolConnectedInfo>((resolve, reject) => {
-      let resolved = false;
-      ws.once('upgrade', (res) => {
-        const v = res.headers['x-iterm2-protocol-version'];
-        if (typeof v === 'string') this.protocolVersion = v;
-        else if (Array.isArray(v) && v[0]) this.protocolVersion = v[0];
+    let info: ProtocolConnectedInfo;
+    try {
+      info = await new Promise<ProtocolConnectedInfo>((resolve, reject) => {
+        let resolved = false;
+        ws.once('upgrade', (res) => {
+          const v = res.headers['x-iterm2-protocol-version'];
+          if (typeof v === 'string') this.protocolVersion = v;
+          else if (Array.isArray(v) && v[0]) this.protocolVersion = v[0];
+        });
+        ws.once('open', () => {
+          resolved = true;
+          resolve({ protocolVersion: this.protocolVersion });
+        });
+        ws.once('error', (err) => {
+          if (!resolved) reject(new ProtocolError('websocket error during open', err));
+        });
       });
-      ws.once('open', () => {
-        resolved = true;
-        resolve({ protocolVersion: this.protocolVersion });
-      });
-      ws.once('error', (err) => {
-        if (!resolved) reject(new ProtocolError('websocket error during open', err));
-      });
-    });
+    } catch (err) {
+      // [LAW:no-ambient-temporal-coupling] A failed open must not leave a dangling socket: with no
+      // persistent listeners yet attached, this.ws would otherwise survive as a live reference and a
+      // later disconnect() would route through finishClose and emit 'close' — wiping a replayed spine.
+      // Tear down here so the driver returns cleanly to 'disconnected'.
+      this.ws = null;
+      ws.removeAllListeners();
+      ws.close();
+      this.cleanupSymlink();
+      this.setState('disconnected');
+      throw err;
+    }
 
     ws.on('message', (data) => this.onMessage(data));
     ws.on('close', (code, reasonBuf) => this.onClose(code, reasonBuf.toString('utf8')));
@@ -168,12 +182,13 @@ export class ProtocolDriver extends EventEmitter {
     if (this.ws) {
       const ws = this.ws;
       this.ws = null;
-      // [LAW:no-ambient-temporal-coupling] An intentional disconnect owns its teardown timing: drop both
-      // listeners and run the close path synchronously, so by the time disconnect resolves the spine is
-      // already torn down — never on a later ws 'close' tick that would race whatever runs right after
-      // (e.g. a fixture replay restoring the spine).
-      ws.removeAllListeners('message');
-      ws.removeAllListeners('close');
+      // [LAW:no-ambient-temporal-coupling] An intentional disconnect owns its teardown timing: drop
+      // every socket listener and run the close path synchronously, so by the time disconnect resolves
+      // the connection has fully settled — no 'close' on a later ws tick, and no late 'error' (an
+      // abnormal-closure event the socket can still emit after close) flipping state back to 'error'
+      // after we reported 'disconnected'. A consumer that runs right after disconnect (e.g. a fixture
+      // replay restoring the spine) therefore cannot be raced by either event.
+      ws.removeAllListeners();
       ws.close();
       this.finishClose(1000, 'client disconnect');
       return;

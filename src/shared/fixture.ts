@@ -1,6 +1,6 @@
 import {
+  APP_EVENT_KINDS,
   type AppEvent,
-  type AppEventKind,
   type AppEventLogSnapshot,
 } from './domain';
 
@@ -46,15 +46,10 @@ export interface ParsedFixture {
   events: AppEvent[];
 }
 
-// The closed set of event kinds a fixture line may carry. A line whose `kind` is outside this set is a
-// corrupt or future-format fixture, rejected loudly rather than restored as an unprojectable event.
-const EVENT_KINDS: ReadonlySet<string> = new Set<AppEventKind>([
-  'wire-frame',
-  'notification',
-  'variable-change',
-  'action',
-  'invocation',
-]);
+// The closed set of event kinds a fixture line may carry, derived from the one canonical list so it
+// cannot drift from the domain. A line whose `kind` is outside this set is a corrupt or future-format
+// fixture, rejected loudly rather than restored as an unprojectable event.
+const EVENT_KINDS: ReadonlySet<string> = new Set<string>(APP_EVENT_KINDS);
 
 export class FixtureFormatError extends Error {
   constructor(message: string) {
@@ -145,11 +140,22 @@ function validateEvent(value: unknown, line: number): AppEvent {
     throw new FixtureFormatError(`event line ${line} is not an object`);
   }
   const e = value as Record<string, unknown>;
-  if (typeof e.seq !== 'number') {
-    throw new FixtureFormatError(`event line ${line} has no numeric seq`);
+  if (typeof e.seq !== 'number' || !Number.isInteger(e.seq) || e.seq < 1) {
+    throw new FixtureFormatError(`event line ${line} has no positive-integer seq`);
   }
   if (typeof e.kind !== 'string' || !EVENT_KINDS.has(e.kind)) {
     throw new FixtureFormatError(`event line ${line} has unknown kind ${JSON.stringify(e.kind)}`);
+  }
+  // [LAW:types-are-the-program] The domain makes frameSeq present on every kind EXCEPT action (an
+  // action is not decoded from a frame). Enforce that here so a malformed fixture cannot smuggle in a
+  // frame-derived event with no frameSeq — which would make eventFrameSeq() return undefined and
+  // corrupt the snapshot's oldestFrameSeq and the log's eviction watermark.
+  const hasFrameSeq = typeof e.frameSeq === 'number' && Number.isInteger(e.frameSeq);
+  if (e.kind === 'action' && 'frameSeq' in e) {
+    throw new FixtureFormatError(`event line ${line} is an action but carries a frameSeq`);
+  }
+  if (e.kind !== 'action' && !hasFrameSeq) {
+    throw new FixtureFormatError(`event line ${line} (${e.kind}) has no integer frameSeq`);
   }
   return e as unknown as AppEvent;
 }

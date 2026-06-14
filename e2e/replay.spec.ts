@@ -35,6 +35,11 @@ test('a recorded wire-log fixture replays against the disconnected timeline', as
   // The recorded SetProfilePropertyRequest frame is one of them — the round-trip the fixture captured.
   await expect(win.getByText('setProfilePropertyRequest').first()).toBeVisible();
 
+  // A redundant disconnect after replay must NOT wipe the restored spine: a failed connect leaves no
+  // dangling socket, so disconnect is a clean no-op and the replayed events survive.
+  await win.evaluate(() => window.ipc.invoke('connection/disconnect', undefined as never));
+  await expect(frameRows).toHaveCount(4);
+
   await app.close();
 });
 

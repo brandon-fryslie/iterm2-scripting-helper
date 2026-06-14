@@ -74,16 +74,28 @@ describe('fixture codec', () => {
     expect(() => parseFixture(truncated)).toThrow(/claims 2 events but body has 1/);
   });
 
-  it('rejects an event line with no numeric seq', () => {
+  it('rejects an event line with a non-positive-integer seq', () => {
     const header = JSON.stringify({ fixture: FIXTURE_SENTINEL, version: FIXTURE_VERSION, eventCount: 1 });
-    const text = header + '\n' + JSON.stringify({ kind: 'wire-frame' }) + '\n';
-    expect(() => parseFixture(text)).toThrow(/no numeric seq/);
+    const text = header + '\n' + JSON.stringify({ seq: 0, kind: 'action' }) + '\n';
+    expect(() => parseFixture(text)).toThrow(/no positive-integer seq/);
   });
 
   it('rejects an event line with an unknown kind', () => {
     const header = JSON.stringify({ fixture: FIXTURE_SENTINEL, version: FIXTURE_VERSION, eventCount: 1 });
     const text = header + '\n' + JSON.stringify({ seq: 1, kind: 'made-up' }) + '\n';
     expect(() => parseFixture(text)).toThrow(/unknown kind/);
+  });
+
+  it('rejects a frame-derived event with no frameSeq (the enumeration gap)', () => {
+    const header = JSON.stringify({ fixture: FIXTURE_SENTINEL, version: FIXTURE_VERSION, eventCount: 1 });
+    const text = header + '\n' + JSON.stringify({ seq: 1, kind: 'wire-frame', payload: {} }) + '\n';
+    expect(() => parseFixture(text)).toThrow(/has no integer frameSeq/);
+  });
+
+  it('rejects an action that carries a frameSeq (an action is not decoded from a frame)', () => {
+    const header = JSON.stringify({ fixture: FIXTURE_SENTINEL, version: FIXTURE_VERSION, eventCount: 1 });
+    const text = header + '\n' + JSON.stringify({ seq: 1, kind: 'action', frameSeq: 3 }) + '\n';
+    expect(() => parseFixture(text)).toThrow(/is an action but carries a frameSeq/);
   });
 
   it('rejects a non-JSON event line', () => {

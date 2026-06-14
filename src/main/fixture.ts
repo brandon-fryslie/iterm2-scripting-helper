@@ -69,7 +69,10 @@ function sliceSnapshot(snapshot: AppEventLogSnapshot, span: SpanRange): AppEvent
   const events = snapshot.events.filter((e) => e.seq >= span.fromSeq && e.seq <= span.toSeq);
   return {
     events,
-    totalSeen: events.length,
+    // [LAW:one-source-of-truth] totalSeen keeps its one meaning — events the source log ever saw — for
+    // a span exactly as for a whole-log capture, so the header field never means two different things.
+    // The slice size is `events.length` (the header's eventCount); totalSeen is not redefined to it.
+    totalSeen: snapshot.totalSeen,
     capacity: snapshot.capacity,
     oldestFrameSeq: events.map(eventFrameSeq).find((fs) => fs !== null) ?? null,
   };

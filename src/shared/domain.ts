@@ -251,12 +251,18 @@ export type AppProbeResult =
 // share one `frameSeq` and join on it like a foreign key — with zero timestamp
 // windowing ([LAW:no-ambient-temporal-coupling]).
 
-export type AppEventKind =
-  | 'wire-frame'
-  | 'notification'
-  | 'variable-change'
-  | 'action'
-  | 'invocation';
+// [LAW:one-source-of-truth] The closed set of event kinds, as one runtime list the type derives from
+// (mirroring ACTIVITY_FACETS). A consumer that must enumerate kinds at runtime — the fixture codec
+// validating event lines — reads this, so the validator can never drift from the union.
+export const APP_EVENT_KINDS = [
+  'wire-frame',
+  'notification',
+  'variable-change',
+  'action',
+  'invocation',
+] as const;
+
+export type AppEventKind = (typeof APP_EVENT_KINDS)[number];
 
 // The things a user can do to the focused entity. One closed set ([LAW:no-mode-explosion]):
 // every console affordance is one of these, distinguished by `kind` and the shape of its payload.

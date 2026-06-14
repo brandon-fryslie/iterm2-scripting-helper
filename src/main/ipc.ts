@@ -163,16 +163,8 @@ export function registerIpc(
     // error: null }`, distinct from a write/read failure (`error` a string).
     'fixture/capture': async ({ span, path: explicitPath }) => {
       const { ndjson, eventCount } = buildFixtureNdjson(monitor.appEvents, span ?? null, Date.now());
-      let target = explicitPath ?? null;
-      if (!target) {
-        const res = await dialog.showSaveDialog({
-          title: 'Save wire-log fixture',
-          defaultPath: 'wire-log.ndjson',
-          filters: [{ name: 'NDJSON', extensions: ['ndjson'] }],
-        });
-        if (res.canceled || !res.filePath) return { ok: false, error: null };
-        target = res.filePath;
-      }
+      const target = await resolveFixturePath(explicitPath, 'save');
+      if (!target) return { ok: false, error: null };
       try {
         await writeFile(target, ndjson, 'utf8');
         return { ok: true, path: target, eventCount };
@@ -181,16 +173,8 @@ export function registerIpc(
       }
     },
     'fixture/replay': async ({ path: explicitPath }) => {
-      let target = explicitPath ?? null;
-      if (!target) {
-        const res = await dialog.showOpenDialog({
-          title: 'Replay wire-log fixture',
-          properties: ['openFile'],
-          filters: [{ name: 'NDJSON', extensions: ['ndjson'] }],
-        });
-        if (res.canceled || res.filePaths.length === 0) return { ok: false, error: null };
-        target = res.filePaths[0];
-      }
+      const target = await resolveFixturePath(explicitPath, 'open');
+      if (!target) return { ok: false, error: null };
       let ndjson: string;
       try {
         ndjson = await readFile(target, 'utf8');
@@ -372,6 +356,31 @@ export function registerIpc(
       );
     }
   });
+}
+
+// [LAW:effects-at-boundaries] [LAW:single-enforcer] The one place the fixture file picker lives, so the
+// capture and replay handlers share one cancel convention: an explicit path skips the dialog (for
+// automation/e2e); absent, the native dialog runs and a user cancel returns null — the handler's
+// honest `{ ok: false, error: null }` no-op, never confused with a write/read failure.
+async function resolveFixturePath(
+  explicit: string | null | undefined,
+  kind: 'save' | 'open',
+): Promise<string | null> {
+  if (explicit) return explicit;
+  if (kind === 'save') {
+    const res = await dialog.showSaveDialog({
+      title: 'Save wire-log fixture',
+      defaultPath: 'wire-log.ndjson',
+      filters: [{ name: 'NDJSON', extensions: ['ndjson'] }],
+    });
+    return res.canceled || !res.filePath ? null : res.filePath;
+  }
+  const res = await dialog.showOpenDialog({
+    title: 'Replay wire-log fixture',
+    properties: ['openFile'],
+    filters: [{ name: 'NDJSON', extensions: ['ndjson'] }],
+  });
+  return res.canceled || res.filePaths.length === 0 ? null : res.filePaths[0];
 }
 
 export function broadcast<K extends EventKind>(kind: K, payload: EventPayload<K>): void {

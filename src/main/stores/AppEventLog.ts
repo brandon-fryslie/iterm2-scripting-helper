@@ -41,13 +41,20 @@ export class AppEventLog {
   // seq; the log owns append order so no two events can claim the same identity.
   append(event: AppEventInput): AppEvent {
     const full = { ...event, seq: this.nextSeq++ } as AppEvent;
-    this.ring[this.head] = full;
+    this.place(full);
+    return full;
+  }
+
+  // [LAW:single-enforcer] The one place an event is written into the ring and its bookkeeping (length,
+  // per-kind totals, eviction watermark) updated. Both append (which mints the seq) and restore (which
+  // preserves it) route through here, so the two paths can never diverge on how an event lands.
+  private place(event: AppEvent): void {
+    this.ring[this.head] = event;
     this.head = (this.head + 1) % this.capacity;
     if (this.length < this.capacity) this.length += 1;
-    this.totals.set(full.kind, (this.totals.get(full.kind) ?? 0) + 1);
-    const fs = eventFrameSeq(full);
+    this.totals.set(event.kind, (this.totals.get(event.kind) ?? 0) + 1);
+    const fs = eventFrameSeq(event);
     if (fs !== null && fs > this.maxFrameSeq) this.maxFrameSeq = fs;
-    return full;
   }
 
   clear(): void {
@@ -71,12 +78,9 @@ export class AppEventLog {
     const start = events.length > this.capacity ? events.length - this.capacity : 0;
     for (let i = start; i < events.length; i += 1) {
       const e = events[i];
-      this.ring[this.head] = e;
-      this.head = (this.head + 1) % this.capacity;
-      if (this.length < this.capacity) this.length += 1;
-      this.totals.set(e.kind, (this.totals.get(e.kind) ?? 0) + 1);
-      const fs = eventFrameSeq(e);
-      if (fs !== null && fs > this.maxFrameSeq) this.maxFrameSeq = fs;
+      this.place(e);
+      // A running max over the restored seqs (order-independent): the next live append continues past
+      // the highest restored seq, so it can never collide with a restored event's identity.
       if (e.seq >= this.nextSeq) this.nextSeq = e.seq + 1;
     }
   }

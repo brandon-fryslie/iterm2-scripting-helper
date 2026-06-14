@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { useStore } from '@/stores/context';
-import type { FixtureCaptureResult, FixtureReplayResult } from '@shared/rpc';
+import type { FixtureFileResult } from '@shared/rpc';
 
 // Save the whole retained spine as a replayable NDJSON fixture, and replay one back into the
 // disconnected timeline. The controls are part of the activity toolbar because a fixture *is* a span
@@ -15,9 +15,11 @@ export function FixtureControls() {
   async function save(): Promise<void> {
     setBusy(true);
     try {
-      const res: FixtureCaptureResult = await window.ipc.invoke('fixture/capture', { span: null });
+      const res: FixtureFileResult = await window.ipc.invoke('fixture/capture', { span: null });
+      // [LAW:no-silent-failure] A real failure (error a string) is shown; only a user-cancelled dialog
+      // (error === null) clears the status as a deliberate no-op.
       if (res.ok) setStatus({ tone: 'ok', text: `saved ${res.eventCount} events` });
-      else if (res.error) setStatus({ tone: 'error', text: res.error });
+      else if (res.error !== null) setStatus({ tone: 'error', text: res.error });
       else setStatus(null);
     } finally {
       setBusy(false);
@@ -27,13 +29,13 @@ export function FixtureControls() {
   async function load(): Promise<void> {
     setBusy(true);
     try {
-      const res: FixtureReplayResult = await window.ipc.invoke('fixture/replay', { path: null });
+      const res: FixtureFileResult = await window.ipc.invoke('fixture/replay', { path: null });
       if (res.ok) {
         // The spine was replaced in the main process; pull the restored snapshot so the timeline shows
         // the recorded session immediately rather than on the next poll tick.
         await activity.hydrate();
         setStatus({ tone: 'ok', text: `replaying ${res.eventCount} events` });
-      } else if (res.error) {
+      } else if (res.error !== null) {
         setStatus({ tone: 'error', text: res.error });
       } else {
         setStatus(null);
