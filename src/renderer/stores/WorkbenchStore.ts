@@ -467,6 +467,11 @@ export class WorkbenchStore {
   // registration with no Python stub — is excluded by the parameter type (RpcRegistrationBody), so the
   // caller narrows once and this method never silently skips. [LAW:types-are-the-program]
   async exportPythonStub(body: RpcRegistrationBody): Promise<void> {
+    // [LAW:no-silent-failure] Clear the prior outcome before exporting so a stale success badge can
+    // never outlive a retry or a cancel — the badge reflects only this export.
+    runInAction(() => {
+      this.pythonExportResult = null;
+    });
     const result = await window.ipc.invoke('registration/export-python', { body, path: null });
     runInAction(() => {
       this.pythonExportResult = result;
