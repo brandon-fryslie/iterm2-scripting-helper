@@ -3,8 +3,10 @@ import { observer } from 'mobx-react-lite';
 import { ConnectionPanel } from '@/domains/settings/ConnectionPanel';
 import { AuthorizationPanel } from '@/domains/settings/AuthorizationPanel';
 import { CapabilityPanel } from '@/domains/settings/CapabilityPanel';
+import { DocsIndexPanel } from '@/domains/settings/DocsIndexPanel';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
+import { useStore } from '@/stores/context';
 import type { RpcResult } from '@shared/rpc';
 
 // Settings/Connection are not about an entity, so they are not a workspace facet — they demote to a
@@ -16,6 +18,7 @@ export const SettingsOverlay = observer(function SettingsOverlay({
 }: {
   onClose: () => void;
 }) {
+  const store = useStore();
   const [ping, setPing] = useState<RpcResult<'system/ping'> | null>(null);
   const [pingError, setPingError] = useState<string | null>(null);
 
@@ -47,6 +50,14 @@ export const SettingsOverlay = observer(function SettingsOverlay({
             Close
           </Button>
         </header>
+        <DocsIndexPanel
+          onSelect={(link) => {
+            // Deep-link: navigate the workspace, then dismiss the utility overlay so the user lands
+            // on the editor/action the entry points at, not back on the gear.
+            store.navigateToDoc(link);
+            onClose();
+          }}
+        />
         <ConnectionPanel />
         <AuthorizationPanel />
         <CapabilityPanel />

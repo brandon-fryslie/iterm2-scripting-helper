@@ -12,6 +12,7 @@ import {
   appEntityExistsInLayout,
   type AppEntityRef,
 } from '@shared/domain';
+import type { DocLink } from '@shared/docs';
 
 export class RootStore {
   readonly connection: ConnectionStore;
@@ -43,6 +44,21 @@ export class RootStore {
       tmux: false,
       colorPresets: false,
     });
+  }
+
+  // [LAW:single-enforcer] The one place a docs deep-link becomes navigation. The DocLink is data;
+  // this exhaustive match is the only translation from "where the index points" to store state, so
+  // the destination cannot be opened two inconsistent ways from two callsites.
+  navigateToDoc(link: DocLink): void {
+    switch (link.kind) {
+      case 'escape':
+        this.workbench.setArtifact('escape-sequence');
+        this.workbench.setEscapeTemplate(link.templateId);
+        return;
+      case 'console':
+        this.console.setAction(link.action);
+        return;
+    }
   }
 
   async selectEntityFocus(entity: AppEntityRef): Promise<void> {
