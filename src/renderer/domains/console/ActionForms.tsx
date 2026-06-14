@@ -783,3 +783,158 @@ export const OsascriptForm = observer(function OsascriptForm() {
     </div>
   );
 });
+
+// The shared connection picker for every tmux form: one read of the tmux store, surfaced as clickable
+// connections plus a raw text fallback. [LAW:no-silent-failure] a failed load shows its real cause and
+// still leaves the text input usable, so a missing connection list never silently blocks the action.
+// [LAW:one-source-of-truth] all three forms read the connection set from the one TmuxStore.
+const TmuxConnectionField = observer(function TmuxConnectionField({
+  value,
+  onPick,
+}: {
+  value: string;
+  onPick: (connectionId: string) => void;
+}) {
+  const { tmux } = useStore();
+
+  // [LAW:no-ambient-temporal-coupling] selecting a tmux action mounts this field — that selection is
+  // the explicit trigger to read connections. load() is idempotent, so re-mounts share one read.
+  useEffect(() => {
+    void tmux.load();
+  }, [tmux]);
+
+  const s = tmux.state;
+  return (
+    <Field label="Connection">
+      <div className="grid gap-1">
+        <div className="flex items-center gap-1">
+          <Input
+            value={value}
+            placeholder="connection id"
+            onChange={(e) => onPick(e.target.value)}
+            data-testid="tmux-connection-input"
+          />
+          <button
+            className="shrink-0 rounded border px-2 py-1 text-[10px] hover:bg-muted"
+            onClick={() => tmux.refresh()}
+            data-testid="tmux-connection-refresh"
+          >
+            Refresh
+          </button>
+        </div>
+        {s.status === 'loading' && (
+          <p className="text-[10px] text-muted-foreground">Loading connections…</p>
+        )}
+        {s.status === 'error' && (
+          <p className="text-[10px] text-destructive" data-testid="tmux-connection-error">
+            {s.message}
+          </p>
+        )}
+        {s.status === 'ok' && s.connections.length === 0 && (
+          <p className="text-[10px] text-muted-foreground">No tmux connections.</p>
+        )}
+        {s.status === 'ok' && s.connections.length > 0 && (
+          <div className="flex flex-wrap gap-1">
+            {s.connections.map((conn) => (
+              <button
+                key={conn.connectionId}
+                className={`rounded border px-2 py-0.5 text-[10px] ${
+                  value === conn.connectionId ? 'bg-primary text-primary-foreground' : 'hover:bg-muted'
+                }`}
+                onClick={() => onPick(conn.connectionId)}
+                data-testid={`tmux-connection-${conn.connectionId}`}
+                title={`owned by session ${conn.owningSessionId}`}
+              >
+                {conn.connectionId}
+                <span className="ml-1 opacity-60">· {conn.owningSessionId}</span>
+              </button>
+            ))}
+          </div>
+        )}
+      </div>
+    </Field>
+  );
+});
+
+export const TmuxSendCommandForm = observer(function TmuxSendCommandForm() {
+  const { console: c } = useStore();
+  const f = c.forms['tmux-send-command'];
+  return (
+    <div className="grid gap-2" data-testid="form-tmux-send-command">
+      <TmuxConnectionField
+        value={f.connectionId}
+        onPick={(connectionId) => c.updateForm('tmux-send-command', { connectionId })}
+      />
+      <Field label="Command">
+        <Textarea
+          value={f.command}
+          onChange={(e) => c.updateForm('tmux-send-command', { command: e.target.value })}
+          rows={2}
+          placeholder="list-windows"
+          className="font-mono text-xs"
+          data-testid="tmux-send-command-input"
+        />
+      </Field>
+      <p className="text-[10px] text-muted-foreground">
+        Sends a raw tmux command over the control connection. The command output (if any) appears on
+        the action result in Activity.
+      </p>
+    </div>
+  );
+});
+
+export const TmuxCreateWindowForm = observer(function TmuxCreateWindowForm() {
+  const { console: c } = useStore();
+  const f = c.forms['tmux-create-window'];
+  return (
+    <div className="grid gap-2" data-testid="form-tmux-create-window">
+      <TmuxConnectionField
+        value={f.connectionId}
+        onPick={(connectionId) => c.updateForm('tmux-create-window', { connectionId })}
+      />
+      <Field label="Affinity">
+        <Input
+          value={f.affinity}
+          placeholder="(optional) adjacent tmux window id"
+          onChange={(e) => c.updateForm('tmux-create-window', { affinity: e.target.value })}
+          data-testid="tmux-create-window-affinity"
+        />
+      </Field>
+      <p className="text-[10px] text-muted-foreground">
+        Creates a native iTerm2 tab backed by a new tmux window. Affinity hints which existing tmux
+        window the new one should sit beside; leave blank for none.
+      </p>
+    </div>
+  );
+});
+
+export const TmuxSetWindowVisibleForm = observer(function TmuxSetWindowVisibleForm() {
+  const { console: c } = useStore();
+  const f = c.forms['tmux-set-window-visible'];
+  return (
+    <div className="grid gap-2" data-testid="form-tmux-set-window-visible">
+      <TmuxConnectionField
+        value={f.connectionId}
+        onPick={(connectionId) => c.updateForm('tmux-set-window-visible', { connectionId })}
+      />
+      <Field label="Window id">
+        <Input
+          value={f.windowId}
+          placeholder="tmux window id"
+          onChange={(e) => c.updateForm('tmux-set-window-visible', { windowId: e.target.value })}
+          data-testid="tmux-set-window-visible-window"
+        />
+      </Field>
+      <Field label="Visible">
+        <Checkbox
+          checked={f.visible}
+          onChange={(v) => c.updateForm('tmux-set-window-visible', { visible: v })}
+          testId="tmux-set-window-visible-visible"
+        />
+      </Field>
+      <p className="text-[10px] text-muted-foreground">
+        Opens (visible) or hides a tmux window as an iTerm2 tab without killing it in tmux.
+      </p>
+    </div>
+  );
+});

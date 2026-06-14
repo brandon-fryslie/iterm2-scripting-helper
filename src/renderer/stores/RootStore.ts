@@ -5,6 +5,7 @@ import { ConsoleStore } from './ConsoleStore';
 import { WorkbenchStore } from './WorkbenchStore';
 import { ActivityStore } from './ActivityStore';
 import { EntityFocusStore } from './EntityFocusStore';
+import { TmuxStore } from './TmuxStore';
 import {
   APP_ENTITY,
   appEntityExistsInLayout,
@@ -18,6 +19,7 @@ export class RootStore {
   readonly console: ConsoleStore;
   readonly workbench: WorkbenchStore;
   readonly activity: ActivityStore;
+  readonly tmux: TmuxStore;
   private focusRequestSeq = 0;
 
   constructor() {
@@ -27,6 +29,7 @@ export class RootStore {
     this.console = new ConsoleStore(this.entityFocus);
     this.workbench = new WorkbenchStore();
     this.activity = new ActivityStore();
+    this.tmux = new TmuxStore();
     makeAutoObservable(this, {
       connection: false,
       entityFocus: false,
@@ -34,6 +37,7 @@ export class RootStore {
       console: false,
       workbench: false,
       activity: false,
+      tmux: false,
     });
   }
 

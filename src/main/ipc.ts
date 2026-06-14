@@ -39,12 +39,16 @@ import {
   actionSetSelection,
   actionTransaction,
   actionRawProtobuf,
+  actionTmuxSendCommand,
+  actionTmuxCreateWindow,
+  actionTmuxSetWindowVisible,
 } from './actions';
 import { actionOsascript, getSdefText } from './osascript';
 import { listProfiles } from './workbench';
 import { arrangementSnapshot } from './arrangements';
 import { getBroadcastDomains } from './broadcastDomains';
 import { readKeyBindingsSnapshot } from './keyBindings';
+import { listTmuxConnections } from './tmux';
 
 type Handlers = { [M in RpcMethod]: (args: RpcArgs<M>) => Promise<RpcResult<M>> };
 
@@ -194,6 +198,15 @@ export function registerIpc(
     'actions/raw-protobuf': action('raw-protobuf', (args) =>
       actionRawProtobuf(orchestrator, args),
     ),
+    'actions/tmux-send-command': action('tmux-send-command', (args) =>
+      actionTmuxSendCommand(orchestrator, args),
+    ),
+    'actions/tmux-create-window': action('tmux-create-window', (args) =>
+      actionTmuxCreateWindow(orchestrator, args),
+    ),
+    'actions/tmux-set-window-visible': action('tmux-set-window-visible', (args) =>
+      actionTmuxSetWindowVisible(orchestrator, args),
+    ),
     'workbench/list-profiles': () => listProfiles(orchestrator),
     'workbench/dynamic-profiles': async () => {
       await workbench.dynamicProfileWatcher.refresh().catch(() => void 0);
@@ -289,6 +302,7 @@ export function registerIpc(
     'workbench/broadcast-domains': async () => getBroadcastDomains(orchestrator),
     'workbench/key-bindings': async () => readKeyBindingsSnapshot(),
     'workbench/sdef-text': async () => getSdefText(),
+    'workbench/tmux-connections': async () => listTmuxConnections(orchestrator),
   };
 
   ipcMain.handle('rpc', async (_event, payload: { method: RpcMethod; args: unknown }) => {

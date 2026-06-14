@@ -39,6 +39,9 @@ describe('RpcSchema', () => {
       | 'actions/transaction'
       | 'actions/osascript'
       | 'actions/raw-protobuf'
+      | 'actions/tmux-send-command'
+      | 'actions/tmux-create-window'
+      | 'actions/tmux-set-window-visible'
       | 'workbench/list-profiles'
       | 'workbench/dynamic-profiles'
       | 'workbench/save-dynamic-profile'
@@ -53,6 +56,7 @@ describe('RpcSchema', () => {
       | 'workbench/broadcast-domains'
       | 'workbench/key-bindings'
       | 'workbench/sdef-text'
+      | 'workbench/tmux-connections'
     >();
   });
 

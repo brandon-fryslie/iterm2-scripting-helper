@@ -100,6 +100,70 @@ describe('ConsoleStore act-in-context', () => {
   });
 });
 
+describe('ConsoleStore tmux forms', () => {
+  let focus: EntityFocusStore;
+  let store: ConsoleStore;
+  let ipc: ReturnType<typeof fakeIpc>;
+
+  beforeEach(() => {
+    ipc = fakeIpc();
+    (globalThis as unknown as { window: unknown }).window = { ipc };
+    focus = new EntityFocusStore();
+    store = new ConsoleStore(focus);
+  });
+
+  it('fires tmux-send-command with the picked connection id and command', async () => {
+    store.setAction('tmux-send-command');
+    store.updateForm('tmux-send-command', { connectionId: 'c1', command: 'list-windows' });
+
+    await store.fire('tmux-send-command');
+
+    const fired = ipc.appended[0];
+    expect(fired.method).toBe('actions/tmux-send-command');
+    expect(fired.args.connectionId).toBe('c1');
+    expect(fired.args.command).toBe('list-windows');
+  });
+
+  it('fires tmux-create-window carrying the affinity hint', async () => {
+    store.setAction('tmux-create-window');
+    store.updateForm('tmux-create-window', { connectionId: 'c1', affinity: 'w7' });
+
+    await store.fire('tmux-create-window');
+
+    const fired = ipc.appended[0];
+    expect(fired.method).toBe('actions/tmux-create-window');
+    expect(fired.args).toMatchObject({ connectionId: 'c1', affinity: 'w7' });
+  });
+
+  it('fires tmux-set-window-visible with visible as a boolean value, not a mode', async () => {
+    store.setAction('tmux-set-window-visible');
+    store.updateForm('tmux-set-window-visible', {
+      connectionId: 'c1',
+      windowId: 'w3',
+      visible: false,
+    });
+
+    await store.fire('tmux-set-window-visible');
+
+    const fired = ipc.appended[0];
+    expect(fired.method).toBe('actions/tmux-set-window-visible');
+    expect(fired.args).toMatchObject({ connectionId: 'c1', windowId: 'w3', visible: false });
+  });
+
+  it('re-fires a tmux snippet with args that survive the IPC structured clone', async () => {
+    store.setAction('tmux-send-command');
+    store.updateForm('tmux-send-command', { connectionId: 'c1', command: 'kill-window' });
+    const snippet = store.saveSnippet('kill the window');
+
+    const result = await store.fireSnippet(snippet.id);
+
+    expect(result).not.toBeNull();
+    const fired = ipc.appended[0];
+    expect(fired.method).toBe('actions/tmux-send-command');
+    expect(fired.args).toMatchObject({ connectionId: 'c1', command: 'kill-window' });
+  });
+});
+
 describe('ConsoleStore set-broadcast-domains form', () => {
   let store: ConsoleStore;
   let ipc: ReturnType<typeof fakeIpc>;

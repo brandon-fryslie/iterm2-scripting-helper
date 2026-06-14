@@ -35,6 +35,9 @@ const ACTION_METHODS: Record<ActionKind, ActionMethod> = {
   transaction: 'actions/transaction',
   osascript: 'actions/osascript',
   'raw-protobuf': 'actions/raw-protobuf',
+  'tmux-send-command': 'actions/tmux-send-command',
+  'tmux-create-window': 'actions/tmux-create-window',
+  'tmux-set-window-visible': 'actions/tmux-set-window-visible',
 };
 
 export interface Snippet {
@@ -77,6 +80,11 @@ export interface ActionForms {
   // script: AppleScript or JXA source. language maps directly to osascript's -l flag value.
   osascript: { script: string; language: OsascriptLanguage };
   'raw-protobuf': { envelopeJson: string };
+  // connectionId is picked from the tmux store (or typed raw). affinity hints adjacency for the new
+  // window ('' = no hint); windowId/visible address an existing tmux window's iTerm2 visibility.
+  'tmux-send-command': { connectionId: string; command: string };
+  'tmux-create-window': { connectionId: string; affinity: string };
+  'tmux-set-window-visible': { connectionId: string; windowId: string; visible: boolean };
 }
 
 const DEFAULT_FORMS: ActionForms = {
@@ -108,6 +116,9 @@ const DEFAULT_FORMS: ActionForms = {
   'raw-protobuf': {
     envelopeJson: `{\n  "submessage": {\n    "listSessionsRequest": {}\n  }\n}`,
   },
+  'tmux-send-command': { connectionId: '', command: '' },
+  'tmux-create-window': { connectionId: '', affinity: '' },
+  'tmux-set-window-visible': { connectionId: '', windowId: '', visible: true },
 };
 
 export class ConsoleStore {
@@ -228,6 +239,18 @@ export class ConsoleStore {
       }
       case 'raw-protobuf':
         return { envelopeJson: this.forms['raw-protobuf'].envelopeJson };
+      case 'tmux-send-command': {
+        const f = this.forms['tmux-send-command'];
+        return { connectionId: f.connectionId, command: f.command };
+      }
+      case 'tmux-create-window': {
+        const f = this.forms['tmux-create-window'];
+        return { connectionId: f.connectionId, affinity: f.affinity };
+      }
+      case 'tmux-set-window-visible': {
+        const f = this.forms['tmux-set-window-visible'];
+        return { connectionId: f.connectionId, windowId: f.windowId, visible: f.visible };
+      }
     }
   }
 

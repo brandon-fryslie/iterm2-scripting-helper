@@ -28,6 +28,8 @@ import {
   SelectionResponse_Status,
   TransactionRequestSchema,
   TransactionResponse_Status,
+  TmuxRequestSchema,
+  TmuxResponse_Status,
   type ServerOriginatedMessage,
   type ActivateRequest,
   type InvokeFunctionRequest,
@@ -533,6 +535,108 @@ export async function actionSetSelection(
     };
   }
   return result;
+}
+
+// [LAW:single-enforcer] One place that decides whether a tmux round-trip succeeded: a response that
+// never carried a tmuxResponse has no status to trust, and any non-OK status (invalid request,
+// connection, or window) is a failed action, not a success with fine print ([LAW:no-silent-failure]).
+// Returns the error string, or null when the action genuinely succeeded.
+function tmuxStatusError(
+  wireStatus: TmuxResponse_Status | null,
+  responseCase: string | null,
+): string | null {
+  if (wireStatus === null) return `expected tmuxResponse, got ${responseCase ?? '<none>'}`;
+  if (wireStatus !== TmuxResponse_Status.OK) {
+    return `iTerm2 refused: ${TmuxResponse_Status[wireStatus] ?? wireStatus}`;
+  }
+  return null;
+}
+
+export async function actionTmuxSendCommand(
+  orchestrator: ConnectionOrchestrator,
+  args: { connectionId: string; command: string },
+): Promise<ActionResult> {
+  const value = create(TmuxRequestSchema, {
+    payload: {
+      case: 'sendCommand',
+      value: { connectionId: args.connectionId, command: args.command },
+    },
+  });
+  let wireStatus: TmuxResponse_Status | null = null;
+  const result = await fire(
+    orchestrator,
+    { submessage: { case: 'tmuxRequest', value } },
+    (msg) => {
+      if (msg.submessage.case !== 'tmuxResponse') return null;
+      wireStatus = msg.submessage.value.status;
+      const p = msg.submessage.value.payload;
+      return {
+        status: TmuxResponse_Status[wireStatus] ?? String(wireStatus),
+        ...(p.case === 'sendCommand' ? { output: p.value.output } : {}),
+      };
+    },
+  );
+  if (!result.ok) return result;
+  const error = tmuxStatusError(wireStatus, result.responseCase);
+  return error === null ? result : { ...result, ok: false, error };
+}
+
+export async function actionTmuxCreateWindow(
+  orchestrator: ConnectionOrchestrator,
+  args: { connectionId: string; affinity: string },
+): Promise<ActionResult> {
+  const value = create(TmuxRequestSchema, {
+    payload: {
+      case: 'createWindow',
+      value: { connectionId: args.connectionId, affinity: args.affinity },
+    },
+  });
+  let wireStatus: TmuxResponse_Status | null = null;
+  const result = await fire(
+    orchestrator,
+    { submessage: { case: 'tmuxRequest', value } },
+    (msg) => {
+      if (msg.submessage.case !== 'tmuxResponse') return null;
+      wireStatus = msg.submessage.value.status;
+      const p = msg.submessage.value.payload;
+      return {
+        status: TmuxResponse_Status[wireStatus] ?? String(wireStatus),
+        ...(p.case === 'createWindow' ? { tabId: p.value.tabId } : {}),
+      };
+    },
+  );
+  if (!result.ok) return result;
+  const error = tmuxStatusError(wireStatus, result.responseCase);
+  return error === null ? result : { ...result, ok: false, error };
+}
+
+export async function actionTmuxSetWindowVisible(
+  orchestrator: ConnectionOrchestrator,
+  args: { connectionId: string; windowId: string; visible: boolean },
+): Promise<ActionResult> {
+  const value = create(TmuxRequestSchema, {
+    payload: {
+      case: 'setWindowVisible',
+      value: {
+        connectionId: args.connectionId,
+        windowId: args.windowId,
+        visible: args.visible,
+      },
+    },
+  });
+  let wireStatus: TmuxResponse_Status | null = null;
+  const result = await fire(
+    orchestrator,
+    { submessage: { case: 'tmuxRequest', value } },
+    (msg) => {
+      if (msg.submessage.case !== 'tmuxResponse') return null;
+      wireStatus = msg.submessage.value.status;
+      return { status: TmuxResponse_Status[wireStatus] ?? String(wireStatus) };
+    },
+  );
+  if (!result.ok) return result;
+  const error = tmuxStatusError(wireStatus, result.responseCase);
+  return error === null ? result : { ...result, ok: false, error };
 }
 
 export async function actionTransaction(
