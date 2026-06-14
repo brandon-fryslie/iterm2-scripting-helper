@@ -52,6 +52,7 @@ import { AppEventLog } from '../stores/AppEventLog';
 import type { ScreenStreamStore } from '../stores/ScreenStreamStore';
 import type { RegistrationStore } from '../stores/RegistrationStore';
 import type {
+  RegistrationSpec,
   RpcRegistrationSpec,
   ToolbeltRegistrationSpec,
 } from '@shared/rpc';
@@ -182,7 +183,10 @@ export class ConnectionOrchestrator extends EventEmitter {
       this.monitor.variables.clearAll();
       this.monitor.appEvents.clear();
       this.monitor.screen.clear();
-      this.monitor.registrations.clearAll();
+      // Unlike the other monitor stores, registrations are not blanket-cleared: a close ends the
+      // current connection era (so every registration reads dead) and forgets only the
+      // connection-scoped specs. Persistent specs survive so connect() can re-register them.
+      this.monitor.registrations.onConnectionClosed();
       this.monitor.customEscape.clearAll();
       this.probeRegistration = null;
       this.activeGlobalSubscriptions = [];
@@ -226,6 +230,7 @@ export class ConnectionOrchestrator extends EventEmitter {
 
       await this.refreshLayout();
       await this.subscribeGlobalNotifications();
+      await this.reregisterPersistent();
     } catch (err) {
       this.store.setError(errString(err));
       throw err;
@@ -458,10 +463,34 @@ export class ConnectionOrchestrator extends EventEmitter {
     return this.options.socketPath;
   }
 
+  // [LAW:single-enforcer] The one dispatch on the registration union. Both callers that turn a spec
+  // into a wire registration — the IPC boundary (a renderer Install) and the reconnect path
+  // (re-establishing persistent specs) — route through here, so the role→wire-family mapping lives
+  // in exactly one place. The narrowed methods below stay closed; this is the only narrowing site.
+  async register(spec: RegistrationSpec): Promise<void> {
+    if (spec.role === 'toolbelt') await this.registerTool(spec);
+    else await this.registerRpc(spec);
+  }
+
+  // [LAW:dataflow-not-control-flow] Re-establish every persistent registration unconditionally on a
+  // reconnect; each one's outcome becomes a value in its live/dead status rather than a branch that
+  // skips work. [LAW:no-silent-failure] A registration that fails to come back stays dead AND carries
+  // its error in the snapshot — the failure is represented, never swallowed — and one bad
+  // registration neither blocks the others nor sinks the connection.
+  private async reregisterPersistent(): Promise<void> {
+    for (const spec of this.monitor.registrations.persistentSpecs()) {
+      try {
+        await this.register(spec);
+      } catch (err) {
+        this.monitor.registrations.noteReregisterError(spec.id, errString(err));
+      }
+    }
+  }
+
   // [LAW:decomposition] RPC registrations and toolbelt tools are different wire protocols, so each
-  // gets its own closed method; the one dispatch on the spec union lives at the IPC boundary where
-  // the value enters. The narrowed parameter types make cross-routing (a toolbelt spec into the
-  // RPC subscription, or vice versa) a compile error.
+  // gets its own closed method; the one dispatch on the spec union lives in register() above. The
+  // narrowed parameter types make cross-routing (a toolbelt spec into the RPC subscription, or vice
+  // versa) a compile error.
   async registerRpc(spec: RpcRegistrationSpec): Promise<void> {
     const req = buildRegistrationRequest(spec);
     await this.sendNotificationRequestRaw(

@@ -10,6 +10,7 @@ import { buildRegistrationRequest, buildToolRequest } from './registrationWire';
 
 const rpcCommon = {
   id: 'reg-1',
+  persistent: true,
   name: 'wb_fn',
   arguments: ['session_id', 'knobs'],
   defaults: [{ name: 'sid', path: 'session.id' }],

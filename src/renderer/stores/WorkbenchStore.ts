@@ -451,6 +451,10 @@ export class WorkbenchStore {
     const spec: RegistrationSpec = {
       ...body,
       id: `reg-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+      // [LAW:dataflow-not-control-flow] Persistence is assigned here, alongside the id, so the
+      // authored body (preview + Python stub) stays pure wire shape and the lifecycle policy rides
+      // the installed spec as a value.
+      persistent: this.registrationForm.persistent,
     };
     const result = await window.ipc.invoke('workbench/register-rpc', spec);
     runInAction(() => {
@@ -626,6 +630,7 @@ interface RegistrationFormState {
   toolbeltIdentifier: string;
   toolbeltUrl: string;
   toolbeltReveal: boolean;
+  persistent: boolean;
 }
 
 function initialRegistrationForm(): RegistrationFormState {
@@ -647,6 +652,9 @@ function initialRegistrationForm(): RegistrationFormState {
     toolbeltIdentifier: 'com.example.workbench-tool',
     toolbeltUrl: 'https://iterm2.com',
     toolbeltReveal: true,
+    // Persist by default: a user who installs a registration generally wants it to come back after a
+    // reconnect rather than vanish on the first connection blip.
+    persistent: true,
   };
 }
 

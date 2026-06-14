@@ -324,15 +324,11 @@ export function registerIpc(
         };
       }
     },
-    // [LAW:decomposition] The one dispatch on the registration union, at the boundary where the
-    // renderer's value enters: each role family routes to its own closed orchestrator method.
+    // The registration union is dispatched to its wire family in orchestrator.register(), the single
+    // enforcer shared with the reconnect path; this boundary just carries the renderer's value in.
     'workbench/register-rpc': async (spec) => {
       try {
-        if (spec.role === 'toolbelt') {
-          await orchestrator.registerTool(spec);
-        } else {
-          await orchestrator.registerRpc(spec);
-        }
+        await orchestrator.register(spec);
         return { ok: true, error: null, registrationId: spec.id };
       } catch (err) {
         return {

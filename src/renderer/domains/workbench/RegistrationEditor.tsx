@@ -68,7 +68,7 @@ export const RegistrationEditor = observer(function RegistrationEditor() {
         <CardHeader className="pb-2 flex flex-row items-center justify-between">
           <CardTitle className="text-base">New registration</CardTitle>
           <Badge variant="outline">
-            {workbench.registrationsSnapshot.registrations.length} active
+            {workbench.registrationsSnapshot.registrations.length} registered
           </Badge>
         </CardHeader>
         <CardContent className="grid gap-3 text-sm">
@@ -326,6 +326,19 @@ export const RegistrationEditor = observer(function RegistrationEditor() {
           )}
 
           <Separator />
+          <Field label="Persistent">
+            <label className="flex items-center gap-2 text-muted-foreground">
+              <input
+                type="checkbox"
+                checked={form.persistent}
+                onChange={(e) =>
+                  workbench.updateRegistrationForm({ persistent: e.target.checked })
+                }
+                data-testid="registration-persistent"
+              />
+              <span>Re-register automatically after a reconnect</span>
+            </label>
+          </Field>
           <Field label="Preview">
             <pre
               className="max-h-48 overflow-auto rounded bg-muted p-2 font-mono text-[10px]"
@@ -392,46 +405,68 @@ export const RegistrationEditor = observer(function RegistrationEditor() {
             <p className="text-xs text-muted-foreground">None registered yet.</p>
           ) : (
             <ul className="grid gap-2 text-xs">
-              {workbench.registrationsSnapshot.registrations.map((r) => (
+              {workbench.registrationsSnapshot.registrations.map(({ spec, live, lastError }) => (
                 <li
-                  key={r.id}
+                  key={spec.id}
                   className="rounded border p-2"
-                  data-testid={`registration-${r.id}`}
+                  data-testid={`registration-${spec.id}`}
                 >
                   <div className="flex items-center gap-2">
-                    <Badge variant="outline">{ROLE_CAPABILITIES[r.role].label}</Badge>
-                    <span className="font-mono">{registrationDisplayName(r)}</span>
+                    <Badge variant="outline">{ROLE_CAPABILITIES[spec.role].label}</Badge>
+                    <span className="font-mono">{registrationDisplayName(spec)}</span>
+                    <Badge
+                      variant={live ? 'default' : 'secondary'}
+                      data-testid={`registration-status-${spec.id}`}
+                      title={
+                        live
+                          ? 'Registered on the current connection'
+                          : spec.persistent
+                            ? 'Not registered on the current connection; will re-register on reconnect'
+                            : 'Not registered on the current connection'
+                      }
+                    >
+                      {live ? 'live' : 'dead'}
+                    </Badge>
+                    {spec.persistent && <Badge variant="outline">persistent</Badge>}
                     <Button
                       size="sm"
                       variant="ghost"
                       className="ml-auto"
-                      onClick={() => void workbench.unregisterRpc(r.id)}
-                      data-testid={`registration-unregister-${r.id}`}
+                      onClick={() => void workbench.unregisterRpc(spec.id)}
+                      data-testid={`registration-unregister-${spec.id}`}
                       title={
-                        ROLE_CAPABILITIES[r.role].wireUnregister
+                        ROLE_CAPABILITIES[spec.role].wireUnregister
                           ? undefined
                           : 'iTerm2 has no unregister for tools; this forgets it locally and iTerm2 keeps it until restart'
                       }
                     >
-                      {ROLE_CAPABILITIES[r.role].wireUnregister ? 'Unregister' : 'Forget'}
+                      {ROLE_CAPABILITIES[spec.role].wireUnregister ? 'Unregister' : 'Forget'}
                     </Button>
                   </div>
-                  {r.role === 'status-bar' && (
+                  {spec.role === 'status-bar' && (
                     <div className="mt-1 text-muted-foreground">
-                      id=<code>{r.attrs.uniqueIdentifier}</code> ·{' '}
-                      {r.attrs.knobs.length} knob(s) · cadence{' '}
-                      {r.attrs.updateCadence}s
+                      id=<code>{spec.attrs.uniqueIdentifier}</code> ·{' '}
+                      {spec.attrs.knobs.length} knob(s) · cadence{' '}
+                      {spec.attrs.updateCadence}s
                     </div>
                   )}
-                  {(r.role === 'session-title' || r.role === 'context-menu') && (
+                  {(spec.role === 'session-title' || spec.role === 'context-menu') && (
                     <div className="mt-1 text-muted-foreground">
-                      id=<code>{r.attrs.uniqueIdentifier}</code>
+                      id=<code>{spec.attrs.uniqueIdentifier}</code>
                     </div>
                   )}
-                  {r.role === 'toolbelt' && (
+                  {spec.role === 'toolbelt' && (
                     <div className="mt-1 text-muted-foreground">
-                      id=<code>{r.attrs.identifier}</code> · {r.attrs.url} · persists in
+                      id=<code>{spec.attrs.identifier}</code> · {spec.attrs.url} · persists in
                       iTerm2 until restart
+                    </div>
+                  )}
+                  {lastError && (
+                    <div
+                      className="mt-1 text-destructive"
+                      data-testid={`registration-error-${spec.id}`}
+                    >
+                      re-register failed: {lastError}
                     </div>
                   )}
                 </li>
