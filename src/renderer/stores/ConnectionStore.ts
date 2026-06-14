@@ -7,14 +7,22 @@ import type { ConnectionSnapshot, ListSessionsSummary } from '@shared/rpc';
 // This is the pure edge: a failure is new iff we are entering 'error' for the first time or its message
 // changed. Re-entering 'error' after recovery, or a different cause, fires again — the same edge the
 // main-process driver crosses when it calls setError. Pure over its inputs, so it is unit-testable
-// without a running app. [LAW:effects-at-boundaries]
+// without a running app. [LAW:effects-at-boundaries] The dedup is by message (the user-facing text the
+// Errors surface records); the structured failure rides every level snapshot as a fresh object, so
+// value comparison is what holds across pushes, not reference identity.
 export function driverErrorEdge(
   prev: ConnectionSnapshot | null,
   next: ConnectionSnapshot,
 ): string | null {
   if (next.state !== 'error' || next.lastError === null) return null;
-  if (prev !== null && prev.state === 'error' && prev.lastError === next.lastError) return null;
-  return next.lastError;
+  if (
+    prev !== null &&
+    prev.state === 'error' &&
+    prev.lastError?.message === next.lastError.message
+  ) {
+    return null;
+  }
+  return next.lastError.message;
 }
 
 export class ConnectionStore {
@@ -58,6 +66,19 @@ export class ConnectionStore {
   async disconnect(): Promise<void> {
     const snap = await window.ipc.invoke('connection/disconnect', undefined as never);
     runInAction(() => this.apply(snap));
+  }
+
+  // The recovery action for an automation-denied failure: jump to the macOS Automation settings pane.
+  // [LAW:no-silent-failure] If the deep link cannot open, that failure is routed to the same notice sink
+  // every driver failure uses, so the user is told rather than left clicking a dead button.
+  async openAutomationSettings(): Promise<void> {
+    const result = await window.ipc.invoke(
+      'system/open-automation-settings',
+      undefined as never,
+    );
+    if (!result.ok) {
+      this.onDriverError(result.error ?? 'Could not open System Settings.');
+    }
   }
 
   async listSessions(): Promise<void> {

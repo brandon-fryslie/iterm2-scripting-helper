@@ -1,6 +1,7 @@
 import { observer } from 'mobx-react-lite';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
 import { useStore } from '@/stores/context';
 
 function formatAge(ms: number): string {
@@ -16,6 +17,10 @@ export const AuthorizationPanel = observer(function AuthorizationPanel() {
   const { connection } = useStore();
   const requestedAt = connection.snapshot?.cookieRequestedAt ?? null;
   const age = requestedAt ? Date.now() - requestedAt : null;
+  // [LAW:dataflow-not-control-flow] The recovery block is driven by the classified failure value on the
+  // snapshot, not by a separate "did it fail" flag — the Authorization UI reacts to the one source of
+  // truth the driver already publishes.
+  const denied = connection.snapshot?.lastError?.kind === 'automation-denied';
 
   return (
     <Card data-testid="settings-authorization-panel">
@@ -23,6 +28,28 @@ export const AuthorizationPanel = observer(function AuthorizationPanel() {
         <CardTitle>Authorization</CardTitle>
       </CardHeader>
       <CardContent className="space-y-3 text-sm">
+        {denied && (
+          <div
+            className="space-y-2 rounded border border-destructive/40 bg-destructive/5 p-3"
+            data-testid="automation-denied-recovery"
+          >
+            <p className="font-medium text-destructive">
+              macOS Automation permission denied
+            </p>
+            <p className="text-muted-foreground">
+              This app cannot control iTerm2 until Automation permission is granted. Open the
+              Automation settings pane, enable iTerm2 for this app, then click Connect again.
+            </p>
+            <Button
+              size="sm"
+              variant="destructive"
+              onClick={() => void connection.openAutomationSettings()}
+              data-testid="open-automation-settings-button"
+            >
+              Open Automation Settings
+            </Button>
+          </div>
+        )}
         <p className="text-muted-foreground">
           The first time the Connect button fires, macOS will prompt for
           Automation permission so this app can talk to iTerm2 via AppleScript.

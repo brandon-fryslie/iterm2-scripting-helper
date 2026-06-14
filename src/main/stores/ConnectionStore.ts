@@ -1,25 +1,9 @@
 import { makeAutoObservable } from 'mobx';
 import type { ProtocolState } from '../drivers/ProtocolDriver';
-
-export interface ConnectionSnapshot {
-  state: ConnectionState;
-  socketPath: string;
-  socketExists: boolean;
-  protocolVersion: string;
-  advisoryName: string;
-  cookieRequestedAt: number | null;
-  lastError: string | null;
-  wireFramesSeen: number;
-  lastLatencyMs: number | null;
-}
-
-export type ConnectionState =
-  | 'idle'
-  | 'detecting'
-  | 'requesting-cookie'
-  | 'connecting'
-  | 'ready'
-  | 'error';
+// [LAW:one-source-of-truth] The snapshot shape is defined once in the shared layer (it crosses the IPC
+// boundary); the store reads and writes that one type instead of a structural twin that could drift.
+import type { ConnectionSnapshot, ConnectionState, ConnectionFailure } from '@shared/rpc';
+import { classifyConnectionFailure } from '../connectionFailure';
 
 export class ConnectionStore {
   state: ConnectionState = 'idle';
@@ -28,7 +12,7 @@ export class ConnectionStore {
   protocolVersion = '';
   advisoryName = '';
   cookieRequestedAt: number | null = null;
-  lastError: string | null = null;
+  lastError: ConnectionFailure | null = null;
   wireFramesSeen = 0;
   lastLatencyMs: number | null = null;
 
@@ -46,9 +30,12 @@ export class ConnectionStore {
     if (next !== 'error') this.lastError = null;
   }
 
+  // [LAW:single-enforcer] Every connection-error path funnels here, so the rule "a failure is
+  // classified into a typed ConnectionFailure (recoverable Automation denial vs. opaque other)" is
+  // applied exactly once. Callers pass the raw cause; classification is the pure boundary logic.
   setError(message: string): void {
     this.state = 'error';
-    this.lastError = message;
+    this.lastError = classifyConnectionFailure(message);
   }
 
   syncFromProtocol(protoState: ProtocolState, protocolVersion: string): void {

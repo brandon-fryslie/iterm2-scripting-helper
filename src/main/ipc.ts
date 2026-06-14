@@ -1,4 +1,4 @@
-import { ipcMain, dialog, webContents, type WebContents } from 'electron';
+import { ipcMain, dialog, shell, webContents, type WebContents } from 'electron';
 import { readFile, writeFile } from 'node:fs/promises';
 import { create } from '@bufbuild/protobuf';
 import {
@@ -49,6 +49,7 @@ import {
   actionApplyColorPreset,
 } from './actions';
 import { actionOsascript, getSdefText } from './osascript';
+import { AUTOMATION_SETTINGS_URL } from './connectionFailure';
 import { listProfiles } from './workbench';
 import { arrangementSnapshot } from './arrangements';
 import { getBroadcastDomains } from './broadcastDomains';
@@ -122,6 +123,18 @@ export function registerIpc(
     'connection/disconnect': async () => {
       await orchestrator.disconnect();
       return store.snapshot();
+    },
+
+    // [LAW:effects-at-boundaries] [LAW:no-silent-failure] The one place the Automation settings deep
+    // link is opened. The recovery path for a TCC denial: the renderer offers this after classifying a
+    // connection failure as automation-denied. A failed open is reported, never silently dropped.
+    'system/open-automation-settings': async () => {
+      try {
+        await shell.openExternal(AUTOMATION_SETTINGS_URL);
+        return { ok: true, error: null };
+      } catch (err) {
+        return { ok: false, error: err instanceof Error ? err.message : String(err) };
+      }
     },
 
     'connection/list-sessions': async (): Promise<ListSessionsSummary> => {

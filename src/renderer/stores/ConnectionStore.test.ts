@@ -1,6 +1,12 @@
 import { describe, it, expect } from 'vitest';
 import { ConnectionStore, driverErrorEdge } from './ConnectionStore';
-import type { ConnectionSnapshot } from '@shared/rpc';
+import type { ConnectionFailure, ConnectionSnapshot } from '@shared/rpc';
+
+// The edge dedups by the failure's user-facing message, so the kind is irrelevant here — every fixture
+// is a plain `other` failure carrying the test's message.
+function fail(message: string): ConnectionFailure {
+  return { kind: 'other', message };
+}
 
 function snap(over: Partial<ConnectionSnapshot>): ConnectionSnapshot {
   return {
@@ -22,29 +28,29 @@ function snap(over: Partial<ConnectionSnapshot>): ConnectionSnapshot {
 // message, or on re-entry after recovery — never on a repeat of the same error snapshot.
 describe('driverErrorEdge', () => {
   it('fires on first entry into error', () => {
-    expect(driverErrorEdge(null, snap({ state: 'error', lastError: 'no socket' }))).toBe('no socket');
+    expect(driverErrorEdge(null, snap({ state: 'error', lastError: fail('no socket') }))).toBe('no socket');
     expect(
-      driverErrorEdge(snap({ state: 'connecting' }), snap({ state: 'error', lastError: 'refused' })),
+      driverErrorEdge(snap({ state: 'connecting' }), snap({ state: 'error', lastError: fail('refused') })),
     ).toBe('refused');
   });
 
   it('does not fire on a non-error transition or an error with no message', () => {
-    expect(driverErrorEdge(snap({ state: 'error', lastError: 'x' }), snap({ state: 'ready' }))).toBeNull();
+    expect(driverErrorEdge(snap({ state: 'error', lastError: fail('x') }), snap({ state: 'ready' }))).toBeNull();
     expect(driverErrorEdge(null, snap({ state: 'error', lastError: null }))).toBeNull();
   });
 
   it('dedups a repeated identical error level', () => {
-    const a = snap({ state: 'error', lastError: 'refused' });
-    const b = snap({ state: 'error', lastError: 'refused', wireFramesSeen: 9 });
+    const a = snap({ state: 'error', lastError: fail('refused') });
+    const b = snap({ state: 'error', lastError: fail('refused'), wireFramesSeen: 9 });
     expect(driverErrorEdge(a, b)).toBeNull();
   });
 
   it('re-fires when the cause changes or error is re-entered after recovery', () => {
     expect(
-      driverErrorEdge(snap({ state: 'error', lastError: 'a' }), snap({ state: 'error', lastError: 'b' })),
+      driverErrorEdge(snap({ state: 'error', lastError: fail('a') }), snap({ state: 'error', lastError: fail('b') })),
     ).toBe('b');
     expect(
-      driverErrorEdge(snap({ state: 'ready' }), snap({ state: 'error', lastError: 'a' })),
+      driverErrorEdge(snap({ state: 'ready' }), snap({ state: 'error', lastError: fail('a') })),
     ).toBe('a');
   });
 });
@@ -56,12 +62,12 @@ describe('ConnectionStore.apply records driver failures once', () => {
     const store = new ConnectionStore((m) => recorded.push(m));
 
     store.apply(snap({ state: 'connecting' }));
-    store.apply(snap({ state: 'error', lastError: 'refused' }));
-    store.apply(snap({ state: 'error', lastError: 'refused', wireFramesSeen: 1 }));
+    store.apply(snap({ state: 'error', lastError: fail('refused') }));
+    store.apply(snap({ state: 'error', lastError: fail('refused'), wireFramesSeen: 1 }));
     expect(recorded).toEqual(['refused']);
 
     store.apply(snap({ state: 'ready' }));
-    store.apply(snap({ state: 'error', lastError: 'refused' }));
+    store.apply(snap({ state: 'error', lastError: fail('refused') }));
     expect(recorded).toEqual(['refused', 'refused']);
   });
 });
