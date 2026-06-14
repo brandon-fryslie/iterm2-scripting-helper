@@ -44,20 +44,33 @@ export interface LayoutSnapshot {
   lastUpdatedAt: number;
 }
 
+export type ConnectionState =
+  | 'idle'
+  | 'detecting'
+  | 'requesting-cookie'
+  | 'connecting'
+  | 'ready'
+  | 'error';
+
+// [LAW:types-are-the-program] A connection failure is classified at the boundary where it is raised
+// (ConnectionStore.setError, the single enforcer) into one of these kinds, so the renderer switches on
+// `kind` instead of substring-matching a raw stderr blob. `automation-denied` is the macOS Automation
+// (TCC) denial the Authorization UI can recover from by opening the Automation settings pane; every
+// other failure is `other`, carried opaquely. `message` is always present — it is what the Errors
+// surface records and the Connection panel shows. Folding kind and message into one value makes
+// "a recovery hint without an error" unrepresentable. [FRAMING:representation]
+export type ConnectionFailure =
+  | { kind: 'automation-denied'; message: string }
+  | { kind: 'other'; message: string };
+
 export interface ConnectionSnapshot {
-  state:
-    | 'idle'
-    | 'detecting'
-    | 'requesting-cookie'
-    | 'connecting'
-    | 'ready'
-    | 'error';
+  state: ConnectionState;
   socketPath: string;
   socketExists: boolean;
   protocolVersion: string;
   advisoryName: string;
   cookieRequestedAt: number | null;
-  lastError: string | null;
+  lastError: ConnectionFailure | null;
   wireFramesSeen: number;
   lastLatencyMs: number | null;
 }
@@ -400,6 +413,13 @@ export type RpcSchema = {
   'connection/disconnect': {
     args: void;
     result: ConnectionSnapshot;
+  };
+  // Open macOS System Settings → Privacy & Security → Automation so the user can grant the Automation
+  // permission a TCC denial blocked. The effect (shell.openExternal) lives at the main boundary; the
+  // result reports whether the deep link opened so a failure surfaces rather than silently no-op'ing.
+  'system/open-automation-settings': {
+    args: void;
+    result: { ok: boolean; error: string | null };
   };
   'connection/list-sessions': {
     args: void;

@@ -1,6 +1,6 @@
 import { eventFrameSeq, type AppEvent, type AppEventLogSnapshot } from '@shared/domain';
 import { parseFixture, serializeFixture, type SpanRange } from '@shared/fixture';
-import type { ConnectionState } from './stores/ConnectionStore';
+import type { ConnectionState } from '@shared/rpc';
 import type { AppEventLog } from './stores/AppEventLog';
 
 // The capture/replay core, kept free of fs and dialogs so the determinism that the acceptance rests on

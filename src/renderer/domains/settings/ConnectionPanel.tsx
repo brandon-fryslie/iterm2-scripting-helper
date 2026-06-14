@@ -77,7 +77,7 @@ export const ConnectionPanel = observer(function ConnectionPanel() {
               className="rounded bg-destructive/10 p-2 font-mono text-xs text-destructive"
               data-testid="connection-error"
             >
-              {snap.lastError}
+              {snap.lastError.message}
             </div>
           </>
         )}

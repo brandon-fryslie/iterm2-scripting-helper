@@ -15,6 +15,7 @@ describe('RpcSchema', () => {
       | 'connection/snapshot'
       | 'connection/connect'
       | 'connection/disconnect'
+      | 'system/open-automation-settings'
       | 'connection/list-sessions'
       | 'monitor/layout'
       | 'monitor/variables'
