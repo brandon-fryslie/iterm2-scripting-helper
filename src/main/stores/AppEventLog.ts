@@ -41,13 +41,20 @@ export class AppEventLog {
   // seq; the log owns append order so no two events can claim the same identity.
   append(event: AppEventInput): AppEvent {
     const full = { ...event, seq: this.nextSeq++ } as AppEvent;
-    this.ring[this.head] = full;
+    this.place(full);
+    return full;
+  }
+
+  // [LAW:single-enforcer] The one place an event is written into the ring and its bookkeeping (length,
+  // per-kind totals, eviction watermark) updated. Both append (which mints the seq) and restore (which
+  // preserves it) route through here, so the two paths can never diverge on how an event lands.
+  private place(event: AppEvent): void {
+    this.ring[this.head] = event;
     this.head = (this.head + 1) % this.capacity;
     if (this.length < this.capacity) this.length += 1;
-    this.totals.set(full.kind, (this.totals.get(full.kind) ?? 0) + 1);
-    const fs = eventFrameSeq(full);
+    this.totals.set(event.kind, (this.totals.get(event.kind) ?? 0) + 1);
+    const fs = eventFrameSeq(event);
     if (fs !== null && fs > this.maxFrameSeq) this.maxFrameSeq = fs;
-    return full;
   }
 
   clear(): void {
@@ -57,6 +64,25 @@ export class AppEventLog {
     this.nextSeq = 1;
     this.totals.clear();
     this.maxFrameSeq = 0;
+  }
+
+  // [LAW:one-source-of-truth] The exact inverse of `snapshot()`: load full events back into the ring
+  // verbatim — seq, frameSeq and causedBy preserved — so a replayed fixture projects identically to the
+  // live session that produced it, and the same provenance joins still resolve. Internal bookkeeping
+  // (totals, the eviction watermark, the next seq) is derived from the loaded events alone, never from
+  // the caller, so the restored log cannot disagree with its own contents. Events beyond `capacity`
+  // keep the newest, mirroring how the ring evicts live. `restore` replaces the whole ring, so it owns
+  // the spine completely — a replay never interleaves with stale state.
+  restore(events: AppEvent[]): void {
+    this.clear();
+    const start = events.length > this.capacity ? events.length - this.capacity : 0;
+    for (let i = start; i < events.length; i += 1) {
+      const e = events[i];
+      this.place(e);
+      // A running max over the restored seqs (order-independent): the next live append continues past
+      // the highest restored seq, so it can never collide with a restored event's identity.
+      if (e.seq >= this.nextSeq) this.nextSeq = e.seq + 1;
+    }
   }
 
   totalSeen(kind: AppEventKind): number {

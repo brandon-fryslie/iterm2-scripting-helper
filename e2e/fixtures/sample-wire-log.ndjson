@@ -1,0 +1,6 @@
+{"fixture":"iterm2-wire-log","version":1,"capturedAt":1700000000000,"totalSeen":5,"capacity":5000,"oldestFrameSeq":1,"span":null,"eventCount":5}
+{"kind":"wire-frame","seq":1,"at":1700000000001,"frameSeq":1,"entity":{"kind":"app"},"causedBy":null,"payload":{"direction":"out","size":34,"messageKind":"colorPresetRequest","requestId":"1"}}
+{"kind":"wire-frame","seq":2,"at":1700000000040,"frameSeq":2,"entity":{"kind":"app"},"causedBy":null,"payload":{"direction":"in","size":212,"messageKind":"colorPresetResponse","requestId":"1"}}
+{"kind":"wire-frame","seq":3,"at":1700000000050,"frameSeq":3,"entity":{"kind":"app"},"causedBy":null,"payload":{"direction":"out","size":188,"messageKind":"setProfilePropertyRequest","requestId":"2"}}
+{"kind":"wire-frame","seq":4,"at":1700000000071,"frameSeq":4,"entity":{"kind":"app"},"causedBy":null,"payload":{"direction":"in","size":18,"messageKind":"setProfilePropertyResponse","requestId":"2"}}
+{"kind":"notification","seq":5,"at":1700000000072,"frameSeq":5,"entity":{"kind":"session","windowId":"","tabId":"","sessionId":"demo-session"},"causedBy":null,"payload":{"kind":"variable-changed","sessionId":"demo-session","summary":"applied color preset to demo-session","detail":null}}

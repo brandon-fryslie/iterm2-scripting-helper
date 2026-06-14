@@ -1,4 +1,5 @@
 import type { PlistJson } from './plist';
+import type { SpanRange } from './fixture';
 import type {
   AppEntityRef,
   AppLayout,
@@ -361,6 +362,15 @@ export type ColorPresetsResult =
   | { ok: true; presets: string[] }
   | { ok: false; error: string };
 
+// [LAW:one-type-per-behavior] Capture and replay describe the same outcome shape — a fixture file
+// operation either succeeded (this path, this many events) or it did not — so they share one type, not
+// two identical ones. [LAW:no-silent-failure] Three outcomes, never blurred: a written/loaded file, a
+// real failure (carrying the cause), or a user-cancelled dialog (`error` null — a deliberate no-op,
+// distinct from a failure). The renderer narrows on `ok` and on `error === null`.
+export type FixtureFileResult =
+  | { ok: true; path: string; eventCount: number }
+  | { ok: false; error: string | null };
+
 export type RpcSchema = {
   'system/ping': {
     args: void;
@@ -394,6 +404,20 @@ export type RpcSchema = {
   'monitor/events': {
     args: void;
     result: AppEventLogSnapshot;
+  };
+  // Save a wire-log span as replayable NDJSON. `span` null captures the whole retained spine; `path`
+  // null prompts the user with a native save dialog (an explicit path is for automation/tests). The
+  // result distinguishes a written file, a user-cancelled dialog (error null), and a real failure.
+  'fixture/capture': {
+    args: { span?: SpanRange | null; path?: string | null };
+    result: FixtureFileResult;
+  };
+  // Replay a fixture into the disconnected spine. `path` null prompts a native open dialog. Refuses
+  // loudly while connected (replay-only mode); after a successful replay the activity timeline projects
+  // the recorded session with no live connection.
+  'fixture/replay': {
+    args: { path?: string | null };
+    result: FixtureFileResult;
   };
   'monitor/focus-session': {
     args: { sessionId: string | null };

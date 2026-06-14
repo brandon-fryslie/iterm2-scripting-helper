@@ -197,4 +197,57 @@ describe('AppEventLog', () => {
     expect(structuredClone(snap)).toEqual(snap);
     expect(snap.oldestFrameSeq).toBe(1);
   });
+
+  describe('restore', () => {
+    it('is the inverse of snapshot: a restored log projects the exact same events', () => {
+      const src = new AppEventLog();
+      src.append(wireFrame(1, 'out'));
+      src.append(notification(2));
+      src.append(invocation(2, 2));
+      src.append(action(false));
+      const original = src.snapshot();
+
+      const dst = new AppEventLog();
+      dst.restore(original.events);
+
+      // seq, frameSeq and causedBy are preserved verbatim — the provenance joins still resolve.
+      expect(dst.snapshot().events).toEqual(original.events);
+      expect(dst.resolveFrame(2)).toEqual(src.resolveFrame(2));
+      expect(invocationProjection(dst)).toEqual(invocationProjection(src));
+    });
+
+    it('continues minting seq after the highest restored seq', () => {
+      const src = new AppEventLog();
+      src.append(wireFrame(1));
+      src.append(notification(1));
+      const dst = new AppEventLog();
+      dst.restore(src.snapshot().events);
+
+      const next = dst.append(action(true));
+      expect(next.seq).toBe(3);
+    });
+
+    it('replaces the whole spine — a prior load leaves no residue', () => {
+      const log = new AppEventLog();
+      log.append(action(true));
+      log.append(action(false));
+
+      const replacement = new AppEventLog();
+      replacement.append(wireFrame(7, 'in'));
+      log.restore(replacement.snapshot().events);
+
+      expect(log.events().map((e) => e.kind)).toEqual(['wire-frame']);
+      expect(log.totalSeen('action')).toBe(0);
+      expect(log.snapshot().oldestFrameSeq).toBe(7);
+    });
+
+    it('keeps the newest events when the fixture exceeds capacity', () => {
+      const src = new AppEventLog();
+      for (let i = 1; i <= 5; i += 1) src.append(wireFrame(i));
+      const dst = new AppEventLog(3);
+      dst.restore(src.snapshot().events);
+
+      expect(dst.events().map((e) => e.seq)).toEqual([3, 4, 5]);
+    });
+  });
 });
