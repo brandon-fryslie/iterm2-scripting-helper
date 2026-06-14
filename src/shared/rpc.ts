@@ -354,6 +354,13 @@ export type TmuxConnectionsResult =
   | { ok: true; connections: TmuxConnection[] }
   | { ok: false; error: string };
 
+// The color-preset names iTerm2 knows, from ColorPresetRequest.listPresets. [LAW:one-source-of-truth]
+// iTerm2 is the sole authority; the renderer's ColorPresetStore is an explicitly-refreshable derived
+// cache. [LAW:no-silent-failure] an empty list is "no presets", distinct from a failed read.
+export type ColorPresetsResult =
+  | { ok: true; presets: string[] }
+  | { ok: false; error: string };
+
 export type RpcSchema = {
   'system/ping': {
     args: void;
@@ -499,6 +506,19 @@ export type RpcSchema = {
     args: { entity: AppEntityRef; connectionId: string; windowId: string; visible: boolean };
     result: ActionResult;
   };
+  // Raw preference-key inspection (the read arm of PreferencesRequest). iTerm2 has no native UI for a
+  // key's raw stored JSON; an empty jsonValue payload is the honest "no value set" for that key.
+  'actions/get-preference': {
+    args: { entity: AppEntityRef; key: string };
+    result: ActionResult;
+  };
+  // Bulk color-preset application — apply one preset to many profiles at once via the API, which the
+  // native Settings has no UI for. presetName picks the preset; guids are the target profiles. The
+  // action reads the preset (getPreset) then writes its colors as profile-property assignments.
+  'actions/apply-color-preset': {
+    args: { entity: AppEntityRef; presetName: string; guids: string[] };
+    result: ActionResult;
+  };
   'workbench/list-profiles': {
     args: void;
     result: ProfileListResult;
@@ -565,6 +585,13 @@ export type RpcSchema = {
   'workbench/tmux-connections': {
     args: void;
     result: TmuxConnectionsResult;
+  };
+  // The color-preset store's read authority: fires ColorPresetRequest.listPresets each call (no
+  // main-side cache — presets are user-editable, so a fresh wire read is the honest answer). The
+  // renderer ColorPresetStore holds the loaded snapshot and its lifecycle state. Console-consumed.
+  'workbench/color-presets': {
+    args: void;
+    result: ColorPresetsResult;
   };
 };
 

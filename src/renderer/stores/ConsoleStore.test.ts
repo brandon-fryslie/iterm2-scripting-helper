@@ -191,3 +191,52 @@ describe('ConsoleStore set-broadcast-domains form', () => {
     expect(ipc.appended[0].args.domains).toEqual([]);
   });
 });
+
+describe('ConsoleStore preferences and color preset forms', () => {
+  let store: ConsoleStore;
+  let ipc: ReturnType<typeof fakeIpc>;
+
+  beforeEach(() => {
+    ipc = fakeIpc();
+    (globalThis as unknown as { window: unknown }).window = { ipc };
+    store = new ConsoleStore(new EntityFocusStore());
+  });
+
+  it('fires get-preference with the raw key and attaches the entity', async () => {
+    store.setAction('get-preference');
+    store.updateForm('get-preference', { key: 'PromptOnQuit' });
+
+    await store.fire('get-preference');
+
+    const fired = ipc.appended[0];
+    expect(fired.method).toBe('actions/get-preference');
+    expect(fired.args.key).toBe('PromptOnQuit');
+    expect(fired.args.entity).toEqual({ kind: 'app' });
+  });
+
+  it('parses the comma-separated guids into the wire array for apply-color-preset', async () => {
+    store.setAction('apply-color-preset');
+    store.updateForm('apply-color-preset', { presetName: 'Solarized', guidsCsv: 'g1, g2 ,, g3' });
+
+    await store.fire('apply-color-preset');
+
+    const fired = ipc.appended[0];
+    expect(fired.method).toBe('actions/apply-color-preset');
+    expect(fired.args.presetName).toBe('Solarized');
+    // Whitespace trimmed and empty entries dropped — the bulk target list, never blank guids.
+    expect(fired.args.guids).toEqual(['g1', 'g2', 'g3']);
+  });
+
+  it('re-fires a color-preset snippet with args that survive the IPC structured clone', async () => {
+    store.setAction('apply-color-preset');
+    store.updateForm('apply-color-preset', { presetName: 'Tango', guidsCsv: 'g1,g2' });
+    const snippet = store.saveSnippet('tango to two');
+
+    const result = await store.fireSnippet(snippet.id);
+
+    expect(result).not.toBeNull();
+    const fired = ipc.appended[0];
+    expect(fired.method).toBe('actions/apply-color-preset');
+    expect(fired.args).toMatchObject({ presetName: 'Tango', guids: ['g1', 'g2'] });
+  });
+});

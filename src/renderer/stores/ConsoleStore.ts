@@ -38,6 +38,8 @@ const ACTION_METHODS: Record<ActionKind, ActionMethod> = {
   'tmux-send-command': 'actions/tmux-send-command',
   'tmux-create-window': 'actions/tmux-create-window',
   'tmux-set-window-visible': 'actions/tmux-set-window-visible',
+  'get-preference': 'actions/get-preference',
+  'apply-color-preset': 'actions/apply-color-preset',
 };
 
 export interface Snippet {
@@ -85,6 +87,11 @@ export interface ActionForms {
   'tmux-send-command': { connectionId: string; command: string };
   'tmux-create-window': { connectionId: string; affinity: string };
   'tmux-set-window-visible': { connectionId: string; windowId: string; visible: boolean };
+  // key: the raw iTerm2 preference key to read its stored JSON value.
+  'get-preference': { key: string };
+  // presetName is picked from the color-preset store (or typed raw); guidsCsv is the target profile
+  // GUIDs, comma-separated — the bulk in "apply to many profiles at once".
+  'apply-color-preset': { presetName: string; guidsCsv: string };
 }
 
 const DEFAULT_FORMS: ActionForms = {
@@ -119,6 +126,8 @@ const DEFAULT_FORMS: ActionForms = {
   'tmux-send-command': { connectionId: '', command: '' },
   'tmux-create-window': { connectionId: '', affinity: '' },
   'tmux-set-window-visible': { connectionId: '', windowId: '', visible: true },
+  'get-preference': { key: '' },
+  'apply-color-preset': { presetName: '', guidsCsv: '' },
 };
 
 export class ConsoleStore {
@@ -250,6 +259,15 @@ export class ConsoleStore {
       case 'tmux-set-window-visible': {
         const f = this.forms['tmux-set-window-visible'];
         return { connectionId: f.connectionId, windowId: f.windowId, visible: f.visible };
+      }
+      case 'get-preference':
+        return { key: this.forms['get-preference'].key };
+      case 'apply-color-preset': {
+        const f = this.forms['apply-color-preset'];
+        return {
+          presetName: f.presetName,
+          guids: f.guidsCsv.split(',').map((s) => s.trim()).filter(Boolean),
+        };
       }
     }
   }
