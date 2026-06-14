@@ -1,7 +1,7 @@
 import { useEffect } from 'react';
 import { observer } from 'mobx-react-lite';
 import { useStore } from '@/stores/context';
-import type { Notice } from '@/stores/ErrorStore';
+import type { ErrorStore, Notice } from '@/stores/ErrorStore';
 
 // How long a toast stays on screen before it auto-dismisses. One TTL for every tone — an error that
 // needs longer attention is preserved in the durable Errors pane, so the toast never has to be sticky.
@@ -19,20 +19,24 @@ export const ToastLayer = observer(function ToastLayer() {
       data-testid="toast-layer"
     >
       {errors.activeToasts.map((notice) => (
-        <Toast key={notice.id} notice={notice} onDismiss={() => errors.dismissToast(notice.id)} />
+        <Toast key={notice.id} notice={notice} errors={errors} />
       ))}
     </div>
   );
 });
 
 // [LAW:no-ambient-temporal-coupling] One toast is the single owner of its own dismissal clock: it arms
-// a timer on mount and disarms it on unmount. The store mutation it calls (dismissToast) is pure; the
-// effect that schedules it is here, the only place time enters the feature.
-function Toast({ notice, onDismiss }: { notice: Notice; onDismiss: () => void }) {
+// a timer on mount and disarms it on unmount. The effect depends only on stable identities — the
+// notice id and the (app-lifetime) store — so the timer is armed exactly once per notice; an unrelated
+// rerender of the layer (a sibling toast arriving or leaving) can never restart this toast's clock.
+// The store mutation it calls (dismissToast) is pure; the effect that schedules it is here, the only
+// place time enters the feature. [LAW:effects-at-boundaries]
+function Toast({ notice, errors }: { notice: Notice; errors: ErrorStore }) {
+  const id = notice.id;
   useEffect(() => {
-    const handle = setTimeout(onDismiss, TOAST_TTL_MS);
+    const handle = setTimeout(() => errors.dismissToast(id), TOAST_TTL_MS);
     return () => clearTimeout(handle);
-  }, [onDismiss]);
+  }, [id, errors]);
 
   const tone =
     notice.tone === 'error'
@@ -49,9 +53,9 @@ function Toast({ notice, onDismiss }: { notice: Notice; onDismiss: () => void })
       <span className="flex-1 break-words">{notice.message}</span>
       <button
         className="shrink-0 opacity-70 hover:opacity-100"
-        onClick={onDismiss}
+        onClick={() => errors.dismissToast(id)}
         aria-label="Dismiss notice"
-        data-testid={`toast-dismiss-${notice.id}`}
+        data-testid={`toast-dismiss-${id}`}
       >
         ×
       </button>
