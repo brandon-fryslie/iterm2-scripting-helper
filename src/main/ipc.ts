@@ -1,4 +1,5 @@
-import { ipcMain, webContents, type WebContents } from 'electron';
+import { ipcMain, dialog, webContents, type WebContents } from 'electron';
+import { readFile, writeFile } from 'node:fs/promises';
 import { create } from '@bufbuild/protobuf';
 import {
   ListSessionsRequestSchema,
@@ -24,6 +25,7 @@ import type { DynamicProfileStore } from './stores/DynamicProfileStore';
 import { registrationSnapshot, type RegistrationStore } from './stores/RegistrationStore';
 import type { CustomEscapeStore } from './stores/CustomEscapeStore';
 import { ConnectionOrchestrator } from './drivers/ConnectionOrchestrator';
+import { applyFixtureNdjson, buildFixtureNdjson } from './fixture';
 import type { DynamicProfileWatcher } from './drivers/DynamicProfileWatcher';
 import {
   actionSendText,
@@ -155,6 +157,51 @@ export function registerIpc(
     // wire/notification/action panes that used to be separate projections are gone; the timeline
     // reads this one snapshot and filters it.
     'monitor/events': async () => monitor.appEvents.snapshot(),
+    // [LAW:effects-at-boundaries] The capture/replay logic is pure (src/main/fixture.ts); this handler
+    // is the one place the file picker and disk IO live. An explicit path skips the dialog (automation
+    // and e2e); absent, the native dialog runs and a user cancel is the honest no-op `{ ok: false,
+    // error: null }`, distinct from a write/read failure (`error` a string).
+    'fixture/capture': async ({ span, path: explicitPath }) => {
+      const { ndjson, eventCount } = buildFixtureNdjson(monitor.appEvents, span ?? null, Date.now());
+      let target = explicitPath ?? null;
+      if (!target) {
+        const res = await dialog.showSaveDialog({
+          title: 'Save wire-log fixture',
+          defaultPath: 'wire-log.ndjson',
+          filters: [{ name: 'NDJSON', extensions: ['ndjson'] }],
+        });
+        if (res.canceled || !res.filePath) return { ok: false, error: null };
+        target = res.filePath;
+      }
+      try {
+        await writeFile(target, ndjson, 'utf8');
+        return { ok: true, path: target, eventCount };
+      } catch (err) {
+        return { ok: false, error: err instanceof Error ? err.message : String(err) };
+      }
+    },
+    'fixture/replay': async ({ path: explicitPath }) => {
+      let target = explicitPath ?? null;
+      if (!target) {
+        const res = await dialog.showOpenDialog({
+          title: 'Replay wire-log fixture',
+          properties: ['openFile'],
+          filters: [{ name: 'NDJSON', extensions: ['ndjson'] }],
+        });
+        if (res.canceled || res.filePaths.length === 0) return { ok: false, error: null };
+        target = res.filePaths[0];
+      }
+      let ndjson: string;
+      try {
+        ndjson = await readFile(target, 'utf8');
+      } catch (err) {
+        return { ok: false, error: err instanceof Error ? err.message : String(err) };
+      }
+      // The connection state is the single authority on whether replay is allowed; the guard lives in
+      // the pure core so its rule is unit-tested, not re-implemented at the boundary.
+      const result = applyFixtureNdjson(monitor.appEvents, ndjson, store.state);
+      return result.ok ? { ok: true, path: target, eventCount: result.eventCount } : result;
+    },
     'monitor/focus-session': async ({ sessionId }) => {
       await orchestrator.setFocusedSession(sessionId);
       return { focusedSessionId: monitor.variables.focusedSessionId };

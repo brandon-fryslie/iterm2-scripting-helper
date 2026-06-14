@@ -59,6 +59,28 @@ export class AppEventLog {
     this.maxFrameSeq = 0;
   }
 
+  // [LAW:one-source-of-truth] The exact inverse of `snapshot()`: load full events back into the ring
+  // verbatim — seq, frameSeq and causedBy preserved — so a replayed fixture projects identically to the
+  // live session that produced it, and the same provenance joins still resolve. Internal bookkeeping
+  // (totals, the eviction watermark, the next seq) is derived from the loaded events alone, never from
+  // the caller, so the restored log cannot disagree with its own contents. Events beyond `capacity`
+  // keep the newest, mirroring how the ring evicts live. `restore` replaces the whole ring, so it owns
+  // the spine completely — a replay never interleaves with stale state.
+  restore(events: AppEvent[]): void {
+    this.clear();
+    const start = events.length > this.capacity ? events.length - this.capacity : 0;
+    for (let i = start; i < events.length; i += 1) {
+      const e = events[i];
+      this.ring[this.head] = e;
+      this.head = (this.head + 1) % this.capacity;
+      if (this.length < this.capacity) this.length += 1;
+      this.totals.set(e.kind, (this.totals.get(e.kind) ?? 0) + 1);
+      const fs = eventFrameSeq(e);
+      if (fs !== null && fs > this.maxFrameSeq) this.maxFrameSeq = fs;
+      if (e.seq >= this.nextSeq) this.nextSeq = e.seq + 1;
+    }
+  }
+
   totalSeen(kind: AppEventKind): number {
     return this.totals.get(kind) ?? 0;
   }

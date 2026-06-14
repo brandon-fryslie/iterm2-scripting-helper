@@ -8,6 +8,7 @@ import { ACTIVITY_FACETS } from '@shared/activity';
 import { FACET_LABEL } from './facetMeta';
 import { ActivityRow } from './ActivityRow';
 import { EventDetail } from './EventDetail';
+import { FixtureControls } from './FixtureControls';
 
 const REFRESH_INTERVAL_MS = 250;
 // The spine retains up to 5000 events; rendering every one is needless DOM. Show the most-recent
@@ -54,7 +55,7 @@ export const ActivityTimeline = observer(function ActivityTimeline() {
           className="ml-2 h-7 max-w-[220px]"
           data-testid="activity-text-filter"
         />
-        <span className="ml-auto text-muted-foreground">
+        <span className="ml-auto flex items-center gap-1 text-muted-foreground">
           {sessionId ? (
             <>
               scope <Badge variant="outline">session {sessionId.slice(0, 8)}…</Badge>
@@ -65,6 +66,7 @@ export const ActivityTimeline = observer(function ActivityTimeline() {
             </>
           )}
         </span>
+        <FixtureControls />
       </div>
 
       <div className="flex flex-1 overflow-hidden">

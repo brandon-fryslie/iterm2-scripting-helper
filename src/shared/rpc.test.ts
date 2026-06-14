@@ -25,6 +25,8 @@ describe('RpcSchema', () => {
       | 'monitor/watchlist'
       | 'monitor/set-watched'
       | 'monitor/screen'
+      | 'fixture/capture'
+      | 'fixture/replay'
       | 'actions/send-text'
       | 'actions/inject'
       | 'actions/activate'

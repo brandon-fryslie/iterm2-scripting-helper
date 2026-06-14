@@ -168,8 +168,15 @@ export class ProtocolDriver extends EventEmitter {
     if (this.ws) {
       const ws = this.ws;
       this.ws = null;
+      // [LAW:no-ambient-temporal-coupling] An intentional disconnect owns its teardown timing: drop both
+      // listeners and run the close path synchronously, so by the time disconnect resolves the spine is
+      // already torn down — never on a later ws 'close' tick that would race whatever runs right after
+      // (e.g. a fixture replay restoring the spine).
       ws.removeAllListeners('message');
+      ws.removeAllListeners('close');
       ws.close();
+      this.finishClose(1000, 'client disconnect');
+      return;
     }
     this.cleanupSymlink();
     this.pending.clear();
@@ -206,6 +213,13 @@ export class ProtocolDriver extends EventEmitter {
   }
 
   private onClose(code: number, reason: string): void {
+    this.finishClose(code, reason);
+  }
+
+  // The single teardown both an unexpected drop (ws 'close') and an intentional disconnect route
+  // through, so the spine and connection state always settle the same way regardless of which path
+  // closed the socket.
+  private finishClose(code: number, reason: string): void {
     this.ws = null;
     this.cleanupSymlink();
     this.pending.clear();
