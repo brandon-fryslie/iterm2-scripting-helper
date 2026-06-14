@@ -276,6 +276,11 @@ export type RegistrationSpec = RegistrationBody & { id: string };
 export type RpcRegistrationSpec = Exclude<RegistrationSpec, { role: 'toolbelt' }>;
 export type ToolbeltRegistrationSpec = Extract<RegistrationSpec, { role: 'toolbelt' }>;
 
+// [LAW:types-are-the-program] The body the Python-stub builder accepts: every RPC role, never toolbelt
+// (a webview tool is not a server-originated RPC and has no Python stub form). Code generation needs
+// nothing from the install-time id, so the builder takes the body — a toolbelt stub is unrepresentable.
+export type RpcRegistrationBody = Exclude<RegistrationBody, { role: 'toolbelt' }>;
+
 export interface RoleCapabilities {
   label: string;
   // iTerm2 has a wire message to remove it. The API has no unregister-tool message: a toolbelt tool
@@ -371,6 +376,14 @@ export type FixtureFileResult =
   | { ok: true; path: string; eventCount: number }
   | { ok: false; error: string | null };
 
+// [LAW:one-type-per-behavior] The outcome of writing a user-named file through a cancellable native
+// dialog: a written file (its path), a real failure (the cause), or a user-cancelled dialog (error
+// null — a deliberate no-op, never a failure). FixtureFileResult is this same shape plus a domain
+// event count; both share the one cancel convention enforced at the IPC boundary (resolveFilePath).
+export type FileExportResult =
+  | { ok: true; path: string }
+  | { ok: false; error: string | null };
+
 export type RpcSchema = {
   'system/ping': {
     args: void;
@@ -418,6 +431,14 @@ export type RpcSchema = {
   'fixture/replay': {
     args: { path?: string | null };
     result: FixtureFileResult;
+  };
+  // Export an RPC registration as a runnable iTerm2 Python stub. Pure code generation
+  // (shared/pythonStub.ts); only the file write lives at the boundary. `path` null prompts a native
+  // save dialog (an explicit path is for automation/tests); the result distinguishes a written file,
+  // a user-cancelled dialog (error null), and a real failure — the same convention as fixture/capture.
+  'registration/export-python': {
+    args: { body: RpcRegistrationBody; path?: string | null };
+    result: FileExportResult;
   };
   'monitor/focus-session': {
     args: { sessionId: string | null };

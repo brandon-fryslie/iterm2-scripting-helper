@@ -27,6 +27,7 @@ describe('RpcSchema', () => {
       | 'monitor/screen'
       | 'fixture/capture'
       | 'fixture/replay'
+      | 'registration/export-python'
       | 'actions/send-text'
       | 'actions/inject'
       | 'actions/activate'

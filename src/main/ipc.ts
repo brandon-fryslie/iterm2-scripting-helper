@@ -26,6 +26,7 @@ import { registrationSnapshot, type RegistrationStore } from './stores/Registrat
 import type { CustomEscapeStore } from './stores/CustomEscapeStore';
 import { ConnectionOrchestrator } from './drivers/ConnectionOrchestrator';
 import { applyFixtureNdjson, buildFixtureNdjson } from './fixture';
+import { buildPythonStub, pythonStubFileName } from '@shared/pythonStub';
 import type { DynamicProfileWatcher } from './drivers/DynamicProfileWatcher';
 import {
   actionSendText,
@@ -163,7 +164,11 @@ export function registerIpc(
     // error: null }`, distinct from a write/read failure (`error` a string).
     'fixture/capture': async ({ span, path: explicitPath }) => {
       const { ndjson, eventCount } = buildFixtureNdjson(monitor.appEvents, span ?? null, Date.now());
-      const target = await resolveFixturePath(explicitPath, 'save');
+      const target = await resolveFilePath(explicitPath, {
+        mode: 'save',
+        title: 'Save wire-log fixture',
+        ...FIXTURE_FILE,
+      });
       if (!target) return { ok: false, error: null };
       try {
         await writeFile(target, ndjson, 'utf8');
@@ -173,7 +178,11 @@ export function registerIpc(
       }
     },
     'fixture/replay': async ({ path: explicitPath }) => {
-      const target = await resolveFixturePath(explicitPath, 'open');
+      const target = await resolveFilePath(explicitPath, {
+        mode: 'open',
+        title: 'Replay wire-log fixture',
+        ...FIXTURE_FILE,
+      });
       if (!target) return { ok: false, error: null };
       let ndjson: string;
       try {
@@ -185,6 +194,33 @@ export function registerIpc(
       // the pure core so its rule is unit-tested, not re-implemented at the boundary.
       const result = applyFixtureNdjson(monitor.appEvents, ndjson, store.state);
       return result.ok ? { ok: true, path: target, eventCount: result.eventCount } : result;
+    },
+    // [LAW:effects-at-boundaries] Code generation is pure (shared/pythonStub.ts); this handler only
+    // resolves the destination and writes. The save dialog shares the one file-picker seam below,
+    // defaulting to a .py named after the function so the file lands runnable in the Scripts folder.
+    'registration/export-python': async ({ body, path: explicitPath }) => {
+      // [LAW:no-silent-failure] Code generation can reject malformed authoring (e.g. an invalid
+      // response template) by throwing; that becomes a returned error, never a silently-degraded stub.
+      let source: string;
+      try {
+        source = buildPythonStub(body);
+      } catch (err) {
+        return { ok: false, error: err instanceof Error ? err.message : String(err) };
+      }
+      const target = await resolveFilePath(explicitPath, {
+        mode: 'save',
+        title: 'Export Python stub',
+        defaultName: pythonStubFileName(body),
+        filterName: 'Python',
+        extensions: ['py'],
+      });
+      if (!target) return { ok: false, error: null };
+      try {
+        await writeFile(target, source, 'utf8');
+        return { ok: true, path: target };
+      } catch (err) {
+        return { ok: false, error: err instanceof Error ? err.message : String(err) };
+      }
     },
     'monitor/focus-session': async ({ sessionId }) => {
       await orchestrator.setFocusedSession(sessionId);
@@ -358,27 +394,45 @@ export function registerIpc(
   });
 }
 
-// [LAW:effects-at-boundaries] [LAW:single-enforcer] The one place the fixture file picker lives, so the
-// capture and replay handlers share one cancel convention: an explicit path skips the dialog (for
-// automation/e2e); absent, the native dialog runs and a user cancel returns null — the handler's
-// honest `{ ok: false, error: null }` no-op, never confused with a write/read failure.
-async function resolveFixturePath(
+// The NDJSON specifics for the capture/replay dialogs — one spec reused by both so the file kind lives
+// in a single place.
+const FIXTURE_FILE = {
+  defaultName: 'wire-log.ndjson',
+  filterName: 'NDJSON',
+  extensions: ['ndjson'],
+} as const;
+
+interface FileDialogSpec {
+  mode: 'save' | 'open';
+  title: string;
+  defaultName: string;
+  filterName: string;
+  extensions: readonly string[];
+}
+
+// [LAW:effects-at-boundaries] [LAW:single-enforcer] The one place a native file picker lives, so every
+// file export/import shares one cancel convention: an explicit path skips the dialog (for automation/
+// e2e); absent, the native dialog runs and a user cancel returns null — the handler's honest
+// `{ ok: false, error: null }` no-op, never confused with a write/read failure. The file kind (title,
+// default name, extension filter) is a value the caller supplies, not baked into this seam.
+async function resolveFilePath(
   explicit: string | null | undefined,
-  kind: 'save' | 'open',
+  spec: FileDialogSpec,
 ): Promise<string | null> {
   if (explicit) return explicit;
-  if (kind === 'save') {
+  const filters = [{ name: spec.filterName, extensions: [...spec.extensions] }];
+  if (spec.mode === 'save') {
     const res = await dialog.showSaveDialog({
-      title: 'Save wire-log fixture',
-      defaultPath: 'wire-log.ndjson',
-      filters: [{ name: 'NDJSON', extensions: ['ndjson'] }],
+      title: spec.title,
+      defaultPath: spec.defaultName,
+      filters,
     });
     return res.canceled || !res.filePath ? null : res.filePath;
   }
   const res = await dialog.showOpenDialog({
-    title: 'Replay wire-log fixture',
+    title: spec.title,
     properties: ['openFile'],
-    filters: [{ name: 'NDJSON', extensions: ['ndjson'] }],
+    filters,
   });
   return res.canceled || res.filePaths.length === 0 ? null : res.filePaths[0];
 }
