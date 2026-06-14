@@ -71,4 +71,42 @@ describe('TmuxStore', () => {
 
     expect(ipc.invoke).toHaveBeenCalledTimes(2);
   });
+
+  it('discards a superseded in-flight load even when its response arrives last', async () => {
+    // The race the generation counter exists to kill: a refresh starts a second read while the first
+    // is still in flight; the post-refresh read resolves first, then the stale pre-refresh read
+    // resolves last and must NOT overwrite the fresher result. [LAW:no-ambient-temporal-coupling]
+    const deferreds: Array<{ resolve: (v: TmuxConnectionsResult) => void }> = [];
+    let call = 0;
+    const ipc = {
+      invoke: vi.fn((method: string) => {
+        expect(method).toBe('workbench/tmux-connections');
+        call += 1;
+        return new Promise<TmuxConnectionsResult>((resolve) => {
+          deferreds.push({ resolve });
+        });
+      }),
+    };
+    installIpc(ipc);
+    const store = new TmuxStore();
+
+    // (A) first load starts — request A in flight, unresolved.
+    void store.load();
+    // refresh supersedes it — (B) request B in flight, unresolved.
+    store.refresh();
+    await Promise.resolve();
+    expect(call).toBe(2);
+
+    // B (the post-refresh read) resolves first with the fresh list.
+    deferreds[1].resolve({ ok: true, connections: [{ connectionId: 'fresh', owningSessionId: 's2' }] });
+    await Promise.resolve();
+    // A (the superseded read) resolves last with the stale list — it must discard itself.
+    deferreds[0].resolve({ ok: true, connections: [{ connectionId: 'stale', owningSessionId: 's1' }] });
+    await Promise.resolve();
+
+    expect(store.state).toEqual({
+      status: 'ok',
+      connections: [{ connectionId: 'fresh', owningSessionId: 's2' }],
+    });
+  });
 });
