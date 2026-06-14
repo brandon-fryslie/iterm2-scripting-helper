@@ -175,6 +175,32 @@ describe('buildPythonStub', () => {
     ).toThrow(/knob "rate" default value is not valid JSON/);
   });
 
+  it('throws on a valid-JSON knob default of the wrong type rather than coercing it', () => {
+    const withKnob = (knob: KnobSpec) =>
+      buildPythonStub({
+        ...rpcCommon,
+        role: 'status-bar',
+        attrs: {
+          shortDescription: '',
+          detailedDescription: '',
+          knobs: [knob],
+          exemplar: '',
+          updateCadence: 0,
+          uniqueIdentifier: 'com.example.x',
+          format: 'PLAIN_TEXT',
+        },
+      });
+    expect(() =>
+      withKnob({ name: 'rate', type: 'PositiveFloatingPoint', placeholder: '', jsonDefaultValue: '"hi"', key: 'rate' }),
+    ).toThrow(/knob "rate" default value must be a number/);
+    expect(() =>
+      withKnob({ name: 'on', type: 'Checkbox', placeholder: '', jsonDefaultValue: '1', key: 'on' }),
+    ).toThrow(/knob "on" default value must be a boolean/);
+    expect(() =>
+      withKnob({ name: 'tint', type: 'Color', placeholder: '', jsonDefaultValue: '"red"', key: 'tint' }),
+    ).toThrow(/knob "tint" default value must be a color component object/);
+  });
+
   it('sanitizes a non-identifier function name', () => {
     const src = buildPythonStub({ ...rpcCommon, role: 'generic', name: '2 bad-name' });
     expect(src).toContain('async def _2_bad_name(');

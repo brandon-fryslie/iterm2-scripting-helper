@@ -150,19 +150,38 @@ function knobsLines(knobs: readonly KnobSpec[]): string[] {
 // order. A new knob type is a compile error here, never an omitted or mistyped knob. The default value
 // is parsed once; a malformed default throws rather than coercing to a silent fallback.
 function buildKnob(k: KnobSpec): string {
-  const def = parseJson(k.jsonDefaultValue, `knob "${k.name}" default value`);
+  // [LAW:no-silent-failure] The default is parsed once and then checked against the knob's type; a
+  // value of the wrong type is an authoring error that throws, never a fallback that silently changes
+  // the exported knob.
+  const label = `knob "${k.name}" default value`;
+  const def = parseJson(k.jsonDefaultValue, label);
   switch (k.type) {
     case 'Checkbox':
-      return `iterm2.CheckboxKnob(${pyStr(k.name)}, ${def === true ? 'True' : 'False'}, ${pyStr(k.key)})`;
+      return `iterm2.CheckboxKnob(${pyStr(k.name)}, ${expectBoolean(def, label) ? 'True' : 'False'}, ${pyStr(k.key)})`;
     case 'String':
-      return `iterm2.StringKnob(${pyStr(k.name)}, ${pyStr(k.placeholder)}, ${pyStr(typeof def === 'string' ? def : k.jsonDefaultValue)}, ${pyStr(k.key)})`;
+      return `iterm2.StringKnob(${pyStr(k.name)}, ${pyStr(k.placeholder)}, ${pyStr(expectString(def, label))}, ${pyStr(k.key)})`;
     case 'PositiveFloatingPoint':
-      return `iterm2.PositiveFloatingPointKnob(${pyStr(k.name)}, ${typeof def === 'number' && Number.isFinite(def) ? String(def) : '0.0'}, ${pyStr(k.key)})`;
+      return `iterm2.PositiveFloatingPointKnob(${pyStr(k.name)}, ${String(expectNumber(def, label))}, ${pyStr(k.key)})`;
     case 'Color':
-      return `iterm2.ColorKnob(${pyStr(k.name)}, ${colorLiteral(def)}, ${pyStr(k.key)})`;
+      return `iterm2.ColorKnob(${pyStr(k.name)}, ${colorLiteral(def, label)}, ${pyStr(k.key)})`;
   }
   // KnobSpec is a flat interface, so the discriminant — not the object — is what the cases exhaust.
   return assertExhaustedKnob(k.type);
+}
+
+function expectBoolean(v: unknown, label: string): boolean {
+  if (typeof v !== 'boolean') throw new Error(`${label} must be a boolean`);
+  return v;
+}
+
+function expectString(v: unknown, label: string): string {
+  if (typeof v !== 'string') throw new Error(`${label} must be a string`);
+  return v;
+}
+
+function expectNumber(v: unknown, label: string): number {
+  if (typeof v !== 'number' || !Number.isFinite(v)) throw new Error(`${label} must be a number`);
+  return v;
 }
 
 // A JSON-encoded string of double-quoted ASCII/unicode is a valid Python string literal verbatim, so
@@ -209,18 +228,21 @@ function literalToPython(v: unknown): string {
 }
 
 // The color knob default is iTerm2's component dictionary (0-1 floats keyed "Red Component" etc.);
-// iterm2.Color takes 0-255 int components, so each is scaled and clamped. Missing components fall to
-// opaque black, matching iterm2.Color's own defaults. The value is already JSON (parse failures threw
-// upstream); a non-object here is a wrong-shaped default the user fills in, not a parse failure.
-function colorLiteral(def: unknown): string {
-  const obj: Record<string, unknown> =
-    def && typeof def === 'object' && !Array.isArray(def) ? (def as Record<string, unknown>) : {};
-  const comp = (key: string, dflt: number): number => {
+// iterm2.Color takes 0-255 int components, so each present component is scaled and clamped. A non-object
+// default, or a present component that is not a number, throws ([LAW:no-silent-failure]); a genuinely
+// absent component falls to iterm2.Color's own default (opaque black) rather than being invented.
+function colorLiteral(def: unknown, label: string): string {
+  if (!def || typeof def !== 'object' || Array.isArray(def)) {
+    throw new Error(`${label} must be a color component object`);
+  }
+  const obj = def as Record<string, unknown>;
+  const comp = (key: string, fallback: number): number => {
     const v = obj[key];
-    const n = typeof v === 'number' ? v : dflt;
-    return Math.max(0, Math.min(255, Math.round(n * 255)));
+    if (v === undefined) return fallback;
+    if (typeof v !== 'number') throw new Error(`${label} "${key}" must be a number`);
+    return Math.max(0, Math.min(255, Math.round(v * 255)));
   };
-  return `iterm2.Color(${comp('Red Component', 0)}, ${comp('Green Component', 0)}, ${comp('Blue Component', 0)}, ${comp('Alpha Component', 1)})`;
+  return `iterm2.Color(${comp('Red Component', 0)}, ${comp('Green Component', 0)}, ${comp('Blue Component', 0)}, ${comp('Alpha Component', 255)})`;
 }
 
 function assertExhaustedRole(body: never): never {
