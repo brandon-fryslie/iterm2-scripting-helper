@@ -74,7 +74,8 @@ function buildRoleBlock(body: RpcRegistrationBody): string[] {
     case 'context-menu':
       return displayIdentityBlock('ContextMenuProviderRPC', name, buildParams(body), ret, body.attrs, body.timeout);
     case 'status-bar': {
-      const params = buildParams(body);
+      // `knobs` is the injected first parameter, so it is reserved against the user's arguments.
+      const params = buildParams(body, ['knobs']);
       const signature = params ? `knobs, ${params}` : 'knobs';
       return [
         'component = iterm2.StatusBarComponent(',
@@ -129,16 +130,33 @@ function displayIdentityBlock(
 // The function signature's parameters. An argument bound to a variable (a default) is expressed as the
 // iterm2.Reference default the API expects; an unbound argument is a plain parameter. Python requires
 // defaulted parameters last, so the unbound ones lead — safe because iTerm2 invokes RPCs by name.
-function buildParams(body: { arguments: string[]; defaults: Array<{ name: string; path: string }> }): string {
+//
+// [LAW:types-are-the-program] Sanitizing names independently can collapse two distinct arguments (or an
+// argument and an injected parameter like `knobs`) onto one identifier, which Python rejects as a
+// duplicate parameter. `reserved` seeds the taken-name set and each parameter is made unique against it,
+// so the emitted signature is always legal.
+function buildParams(
+  body: { arguments: string[]; defaults: Array<{ name: string; path: string }> },
+  reserved: readonly string[] = [],
+): string {
+  const taken = new Set(reserved);
   const referencePath = new Map(body.defaults.map((d) => [d.name, d.path]));
   const plain: string[] = [];
   const referenced: string[] = [];
   for (const arg of body.arguments) {
+    const id = uniqueIdentifier(pyIdentifier(arg), taken);
     const path = referencePath.get(arg);
-    if (path === undefined) plain.push(pyIdentifier(arg));
-    else referenced.push(`${pyIdentifier(arg)}=iterm2.Reference(${pyStr(path)})`);
+    if (path === undefined) plain.push(id);
+    else referenced.push(`${id}=iterm2.Reference(${pyStr(path)})`);
   }
   return [...plain, ...referenced].join(', ');
+}
+
+function uniqueIdentifier(base: string, taken: Set<string>): string {
+  let candidate = base;
+  for (let n = 2; taken.has(candidate); n++) candidate = `${base}_${n}`;
+  taken.add(candidate);
+  return candidate;
 }
 
 function knobsLines(knobs: readonly KnobSpec[]): string[] {

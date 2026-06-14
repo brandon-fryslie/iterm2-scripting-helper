@@ -203,6 +203,35 @@ describe('buildPythonStub', () => {
     ).toThrow(/knob "tint" default value must be a color component object/);
   });
 
+  it('uniquifies arguments that sanitize to the same identifier', () => {
+    const src = buildPythonStub({
+      ...rpcCommon,
+      role: 'generic',
+      arguments: ['a-b', 'a.b', 'a b'],
+      defaults: [],
+    });
+    expect(src).toContain('async def my_rpc(a_b, a_b_2, a_b_3):');
+  });
+
+  it('reserves the injected knobs parameter against a colliding status-bar argument', () => {
+    const src = buildPythonStub({
+      ...rpcCommon,
+      role: 'status-bar',
+      arguments: ['knobs'],
+      defaults: [],
+      attrs: {
+        shortDescription: '',
+        detailedDescription: '',
+        knobs: [],
+        exemplar: '',
+        updateCadence: 0,
+        uniqueIdentifier: 'com.example.x',
+        format: 'PLAIN_TEXT',
+      },
+    });
+    expect(src).toContain('async def my_rpc(knobs, knobs_2):');
+  });
+
   it('sanitizes a non-identifier function name', () => {
     const src = buildPythonStub({ ...rpcCommon, role: 'generic', name: '2 bad-name' });
     expect(src).toContain('async def _2_bad_name(');
