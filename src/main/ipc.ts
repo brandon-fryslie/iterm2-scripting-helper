@@ -26,7 +26,7 @@ import { registrationSnapshot, type RegistrationStore } from './stores/Registrat
 import type { CustomEscapeStore } from './stores/CustomEscapeStore';
 import { ConnectionOrchestrator } from './drivers/ConnectionOrchestrator';
 import { applyFixtureNdjson, buildFixtureNdjson } from './fixture';
-import { buildPythonStub } from '@shared/pythonStub';
+import { buildPythonStub, pythonStubFileName } from '@shared/pythonStub';
 import type { DynamicProfileWatcher } from './drivers/DynamicProfileWatcher';
 import {
   actionSendText,
@@ -199,11 +199,18 @@ export function registerIpc(
     // resolves the destination and writes. The save dialog shares the one file-picker seam below,
     // defaulting to a .py named after the function so the file lands runnable in the Scripts folder.
     'registration/export-python': async ({ body, path: explicitPath }) => {
-      const source = buildPythonStub(body);
+      // [LAW:no-silent-failure] Code generation can reject malformed authoring (e.g. an invalid
+      // response template) by throwing; that becomes a returned error, never a silently-degraded stub.
+      let source: string;
+      try {
+        source = buildPythonStub(body);
+      } catch (err) {
+        return { ok: false, error: err instanceof Error ? err.message : String(err) };
+      }
       const target = await resolveFilePath(explicitPath, {
         mode: 'save',
         title: 'Export Python stub',
-        defaultName: `${body.name || 'rpc_stub'}.py`,
+        defaultName: pythonStubFileName(body),
         filterName: 'Python',
         extensions: ['py'],
       });

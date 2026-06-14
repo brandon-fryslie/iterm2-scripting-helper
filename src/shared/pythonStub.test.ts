@@ -3,7 +3,7 @@ import { execFileSync } from 'node:child_process';
 import { mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { buildPythonStub } from './pythonStub';
+import { buildPythonStub, pythonStubFileName } from './pythonStub';
 import type { RpcRegistrationBody, KnobSpec } from './rpc';
 
 const rpcCommon = {
@@ -151,14 +151,38 @@ describe('buildPythonStub', () => {
     expect(src).toContain('async def bare(knobs):');
   });
 
-  it('falls back to None for an invalid response template rather than throwing', () => {
-    const src = buildPythonStub({ ...rpcCommon, role: 'generic', responseTemplate: 'not json' });
-    expect(src).toContain('return None');
+  it('throws on an invalid response template rather than silently emitting None', () => {
+    expect(() =>
+      buildPythonStub({ ...rpcCommon, role: 'generic', responseTemplate: 'not json' }),
+    ).toThrow(/response template is not valid JSON/);
+  });
+
+  it('throws on a malformed knob default rather than coercing it', () => {
+    expect(() =>
+      buildPythonStub({
+        ...rpcCommon,
+        role: 'status-bar',
+        attrs: {
+          shortDescription: '',
+          detailedDescription: '',
+          knobs: [{ name: 'rate', type: 'PositiveFloatingPoint', placeholder: '', jsonDefaultValue: 'oops', key: 'rate' }],
+          exemplar: '',
+          updateCadence: 0,
+          uniqueIdentifier: 'com.example.x',
+          format: 'PLAIN_TEXT',
+        },
+      }),
+    ).toThrow(/knob "rate" default value is not valid JSON/);
   });
 
   it('sanitizes a non-identifier function name', () => {
     const src = buildPythonStub({ ...rpcCommon, role: 'generic', name: '2 bad-name' });
     expect(src).toContain('async def _2_bad_name(');
+  });
+
+  it('derives the default filename from the sanitized identifier, never the raw name', () => {
+    expect(pythonStubFileName({ ...rpcCommon, role: 'generic', name: 'a/b name' })).toBe('a_b_name.py');
+    expect(pythonStubFileName({ ...rpcCommon, role: 'generic', name: '   ' })).toBe('rpc_stub.py');
   });
 });
 

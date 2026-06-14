@@ -45,11 +45,19 @@ export function buildPythonStub(body: RpcRegistrationBody): string {
   );
 }
 
+// [LAW:one-source-of-truth] The default export filename derives from the same sanitized identifier the
+// stub's function uses, so a name with slashes or spaces can never yield a bad save path. An empty name
+// (the editor degenerate case) falls back to a friendly default rather than the bare "_".
+export function pythonStubFileName(body: RpcRegistrationBody): string {
+  const base = body.name.trim() ? pyIdentifier(body.name) : 'rpc_stub';
+  return `${base}.py`;
+}
+
 // Exhaustive over the RPC roles: each role emits its own decorator, signature, and registration call.
 // There is no fall-through arm — a new RPC role makes this a compile error, never a silent empty stub.
 function buildRoleBlock(body: RpcRegistrationBody): string[] {
   const name = pyIdentifier(body.name);
-  const ret = jsonToPython(body.responseTemplate);
+  const ret = jsonToPython(body.responseTemplate, 'response template');
   switch (body.role) {
     case 'generic': {
       const timeout = body.timeout > 0 ? `, timeout=${body.timeout}` : '';
@@ -139,17 +147,19 @@ function knobsLines(knobs: readonly KnobSpec[]): string[] {
 }
 
 // Exhaustive over knob types: each maps to its iterm2 knob class with that class's verified argument
-// order. A new knob type is a compile error here, never an omitted or mistyped knob.
+// order. A new knob type is a compile error here, never an omitted or mistyped knob. The default value
+// is parsed once; a malformed default throws rather than coercing to a silent fallback.
 function buildKnob(k: KnobSpec): string {
+  const def = parseJson(k.jsonDefaultValue, `knob "${k.name}" default value`);
   switch (k.type) {
     case 'Checkbox':
-      return `iterm2.CheckboxKnob(${pyStr(k.name)}, ${pyBool(k.jsonDefaultValue)}, ${pyStr(k.key)})`;
+      return `iterm2.CheckboxKnob(${pyStr(k.name)}, ${def === true ? 'True' : 'False'}, ${pyStr(k.key)})`;
     case 'String':
-      return `iterm2.StringKnob(${pyStr(k.name)}, ${pyStr(k.placeholder)}, ${pyStringDefault(k.jsonDefaultValue)}, ${pyStr(k.key)})`;
+      return `iterm2.StringKnob(${pyStr(k.name)}, ${pyStr(k.placeholder)}, ${pyStr(typeof def === 'string' ? def : k.jsonDefaultValue)}, ${pyStr(k.key)})`;
     case 'PositiveFloatingPoint':
-      return `iterm2.PositiveFloatingPointKnob(${pyStr(k.name)}, ${pyFloat(k.jsonDefaultValue)}, ${pyStr(k.key)})`;
+      return `iterm2.PositiveFloatingPointKnob(${pyStr(k.name)}, ${typeof def === 'number' && Number.isFinite(def) ? String(def) : '0.0'}, ${pyStr(k.key)})`;
     case 'Color':
-      return `iterm2.ColorKnob(${pyStr(k.name)}, ${pyColor(k.jsonDefaultValue)}, ${pyStr(k.key)})`;
+      return `iterm2.ColorKnob(${pyStr(k.name)}, ${colorLiteral(def)}, ${pyStr(k.key)})`;
   }
   // KnobSpec is a flat interface, so the discriminant — not the object — is what the cases exhaust.
   return assertExhaustedKnob(k.type);
@@ -166,16 +176,21 @@ function pyIdentifier(raw: string): string {
   return /^[A-Za-z_]/.test(cleaned) ? cleaned : `_${cleaned}`;
 }
 
-// A JSON value rendered as the equivalent Python literal. Invalid or absent JSON becomes None — the
-// honest "no value", never a thrown error mid-build.
-function jsonToPython(jsonText: string): string {
-  let value: unknown;
+// [LAW:no-silent-failure] The single fallible step: a value that does not parse as JSON is a real
+// authoring error (an invalid response template, a malformed knob default), surfaced as a loud throw
+// the IPC boundary turns into a returned error — never coerced into a stub whose meaning silently
+// differs from what the user wrote.
+function parseJson(jsonText: string, label: string): unknown {
   try {
-    value = JSON.parse(jsonText);
-  } catch {
-    return 'None';
+    return JSON.parse(jsonText);
+  } catch (err) {
+    throw new Error(`${label} is not valid JSON: ${err instanceof Error ? err.message : String(err)}`);
   }
-  return literalToPython(value);
+}
+
+// A JSON value rendered as the equivalent Python literal.
+function jsonToPython(jsonText: string, label: string): string {
+  return literalToPython(parseJson(jsonText, label));
 }
 
 function literalToPython(v: unknown): string {
@@ -193,45 +208,13 @@ function literalToPython(v: unknown): string {
   return 'None';
 }
 
-function pyBool(jsonText: string): string {
-  try {
-    return JSON.parse(jsonText) === true ? 'True' : 'False';
-  } catch {
-    return 'False';
-  }
-}
-
-function pyStringDefault(jsonText: string): string {
-  try {
-    const v = JSON.parse(jsonText);
-    return pyStr(typeof v === 'string' ? v : jsonText);
-  } catch {
-    return pyStr(jsonText);
-  }
-}
-
-function pyFloat(jsonText: string): string {
-  try {
-    const v = JSON.parse(jsonText);
-    return typeof v === 'number' && Number.isFinite(v) ? String(v) : '0.0';
-  } catch {
-    return '0.0';
-  }
-}
-
 // The color knob default is iTerm2's component dictionary (0-1 floats keyed "Red Component" etc.);
 // iterm2.Color takes 0-255 int components, so each is scaled and clamped. Missing components fall to
-// opaque black, matching iterm2.Color's own defaults.
-function pyColor(jsonText: string): string {
-  let obj: Record<string, unknown> = {};
-  try {
-    const parsed = JSON.parse(jsonText);
-    if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
-      obj = parsed as Record<string, unknown>;
-    }
-  } catch {
-    obj = {};
-  }
+// opaque black, matching iterm2.Color's own defaults. The value is already JSON (parse failures threw
+// upstream); a non-object here is a wrong-shaped default the user fills in, not a parse failure.
+function colorLiteral(def: unknown): string {
+  const obj: Record<string, unknown> =
+    def && typeof def === 'object' && !Array.isArray(def) ? (def as Record<string, unknown>) : {};
   const comp = (key: string, dflt: number): number => {
     const v = obj[key];
     const n = typeof v === 'number' ? v : dflt;
