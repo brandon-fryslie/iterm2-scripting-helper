@@ -89,7 +89,12 @@ export class VariableStore {
     scope: AppVariableScope,
     frameSeq: number,
   ): void {
-    const focusKey = variableScopeFocusKey(scope, sessionId);
+    // [LAW:one-source-of-truth] Storage key and spine entity are the same fact — where this variable
+    // lives — so both derive from the one entity `entityForScope` resolves. Computing the focus key
+    // independently from the raw scope let `unknown` (coalesced to the app entity) be stored under
+    // `unknown:<id>`, a key no `variableFocusKey` ever reads, silently dropping the variable.
+    const entity = entityForScope(scope, sessionId);
+    const focusKey = variableFocusKey(entity);
     // [LAW:no-ambient-temporal-coupling] Replace the inner map by reference so the shallow-observable
     // outer map fires its reaction; in-place mutation would silently skip the renderer broadcast.
     const map = new Map(this.byFocus.get(focusKey) ?? []);
@@ -98,7 +103,7 @@ export class VariableStore {
     const { history, changed } = recordChange(priorHistory, jsonValue, Date.now());
     if (changed) {
       this.appendChange(
-        entityForScope(scope, sessionId),
+        entity,
         name,
         jsonValue,
         priorHistory[0]?.value ?? null,

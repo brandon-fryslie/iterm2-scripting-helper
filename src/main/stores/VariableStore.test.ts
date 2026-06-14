@@ -101,6 +101,23 @@ describe('VariableStore', () => {
     ]);
   });
 
+  // [LAW:one-source-of-truth] An unrecognized (drifted) protocol scope coalesces to the app entity for
+  // both its spine event and its storage key, so it surfaces in the app snapshot instead of being
+  // written under an `unknown:<id>` key no reader ever queries.
+  it('surfaces an unknown-scope change in the app snapshot, not a dropped key', () => {
+    vi.setSystemTime(7_000);
+    const { store, log } = makeStore();
+    const appEntity = { kind: 'app' } as const;
+    store.setFocusedEntity(appEntity);
+
+    store.applyChange('drifted-id', 'mystery.value', '"x"', 'unknown', 11);
+
+    const variables = store.snapshot().variables;
+    expect(variables).toHaveLength(1);
+    expect(variables[0]).toMatchObject({ name: 'mystery.value', value: '"x"', scope: 'unknown' });
+    expect(variableChanges(log)[0].entity).toEqual(appEntity);
+  });
+
   it('ignores re-observations that do not change the value', () => {
     vi.setSystemTime(5_000);
     const { store, log } = makeStore();
