@@ -190,9 +190,18 @@ function pyStr(s: string): string {
   return JSON.stringify(s);
 }
 
+// Python's reserved words (keyword.kwlist) — a def or parameter named after one of these is a syntax
+// error, so a sanitized name colliding with a keyword is suffixed, the PEP 8 convention (e.g. class_).
+const PYTHON_KEYWORDS: ReadonlySet<string> = new Set([
+  'False', 'None', 'True', 'and', 'as', 'assert', 'async', 'await', 'break', 'class', 'continue',
+  'def', 'del', 'elif', 'else', 'except', 'finally', 'for', 'from', 'global', 'if', 'import', 'in',
+  'is', 'lambda', 'nonlocal', 'not', 'or', 'pass', 'raise', 'return', 'try', 'while', 'with', 'yield',
+]);
+
 function pyIdentifier(raw: string): string {
   const cleaned = raw.replace(/[^A-Za-z0-9_]/g, '_');
-  return /^[A-Za-z_]/.test(cleaned) ? cleaned : `_${cleaned}`;
+  const valid = /^[A-Za-z_]/.test(cleaned) ? cleaned : `_${cleaned}`;
+  return PYTHON_KEYWORDS.has(valid) ? `${valid}_` : valid;
 }
 
 // [LAW:no-silent-failure] The single fallible step: a value that does not parse as JSON is a real

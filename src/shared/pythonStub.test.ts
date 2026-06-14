@@ -206,6 +206,18 @@ describe('buildPythonStub', () => {
     expect(src).toContain('async def _2_bad_name(');
   });
 
+  it('suffixes Python keywords used as a function name or argument', () => {
+    const src = buildPythonStub({
+      ...rpcCommon,
+      role: 'generic',
+      name: 'class',
+      arguments: ['return', 'ok'],
+      defaults: [],
+    });
+    expect(src).toContain('async def class_(return_, ok):');
+    expect(src).toContain('await class_.async_register(');
+  });
+
   it('derives the default filename from the sanitized identifier, never the raw name', () => {
     expect(pythonStubFileName({ ...rpcCommon, role: 'generic', name: 'a/b name' })).toBe('a_b_name.py');
     expect(pythonStubFileName({ ...rpcCommon, role: 'generic', name: '   ' })).toBe('rpc_stub.py');
