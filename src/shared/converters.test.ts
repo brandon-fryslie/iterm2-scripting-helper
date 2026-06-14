@@ -5,8 +5,9 @@ import {
   KeystrokeNotification_Action,
   Modifiers,
   FocusChangedNotification_Window_WindowStatus,
+  VariableScope,
 } from '@shared/proto/gen/api_pb';
-import { classifyNotification } from './converters';
+import { classifyNotification, variableScopeName } from './converters';
 
 // [LAW:verifiable-goals] 449.7.10 STEP 1: the spine notification payload must be information-complete —
 // it carries the same keystroke/prompt/focus detail the now-deleted side-stores held, so no detail is
@@ -131,5 +132,43 @@ describe('classifyNotification — information-complete payloads', () => {
       kind: 'session',
       sessionId: 's9',
     });
+  });
+});
+
+// [LAW:no-silent-failure] Protocol enums are open: iTerm2 can send an additive value this client's
+// generated enum does not list. Drift must surface as 'unknown', never as a valid-but-wrong name.
+describe('classifyNotification — tolerates additive enum drift', () => {
+  it('maps an unrecognized keystroke action and modifier to unknown, not control/key-down', () => {
+    const n = create(NotificationSchema, {
+      keystrokeNotification: {
+        session: 's1',
+        characters: 'x',
+        charactersIgnoringModifiers: 'x',
+        modifiers: [999 as Modifiers],
+        keyCode: 7,
+        action: 998 as KeystrokeNotification_Action,
+      },
+    });
+
+    expect(classifyNotification(n).payload).toEqual({
+      characters: 'x',
+      charactersIgnoringModifiers: 'x',
+      modifiers: ['unknown'],
+      keyCode: 7,
+      action: 'unknown',
+    });
+  });
+});
+
+describe('variableScopeName', () => {
+  it('names each known scope', () => {
+    expect(variableScopeName(VariableScope.SESSION)).toBe('session');
+    expect(variableScopeName(VariableScope.TAB)).toBe('tab');
+    expect(variableScopeName(VariableScope.WINDOW)).toBe('window');
+    expect(variableScopeName(VariableScope.APP)).toBe('app');
+  });
+
+  it('maps an additive (unrecognized) scope to unknown rather than session', () => {
+    expect(variableScopeName(999 as VariableScope)).toBe('unknown');
   });
 });

@@ -214,8 +214,11 @@ function entityForScope(scope: AppVariableScope, identifier: string): AppEntityR
       return { kind: 'window', windowId: identifier };
     case 'tab':
       return { kind: 'tab', windowId: '', tabId: identifier };
+    // [LAW:no-silent-failure] 'user' is app-global; an unrecognized (drifted) protocol scope has no
+    // entity we can attribute it to, so it also surfaces under the app entity to stay visible.
     case 'app':
     case 'user':
+    case 'unknown':
       return APP_ENTITY;
   }
 }

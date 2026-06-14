@@ -2,11 +2,17 @@ import { observer } from 'mobx-react-lite';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { useStore } from '@/stores/context';
-import { CAPABILITIES, protocolAtLeast } from './capabilities';
+import {
+  CAPABILITIES,
+  TESTED_PROTOCOL_VERSION,
+  protocolAtLeast,
+  protocolDrift,
+} from './capabilities';
 
 export const CapabilityPanel = observer(function CapabilityPanel() {
   const { connection } = useStore();
   const protocolVersion = connection.snapshot?.protocolVersion ?? '';
+  const drift = protocolDrift(protocolVersion, TESTED_PROTOCOL_VERSION);
 
   return (
     <Card data-testid="settings-capability-panel">
@@ -14,6 +20,17 @@ export const CapabilityPanel = observer(function CapabilityPanel() {
         <CardTitle>Capability Report</CardTitle>
       </CardHeader>
       <CardContent className="space-y-2 text-sm">
+        {drift.kind === 'server-newer' && (
+          <p
+            className="rounded border border-yellow-500/50 bg-yellow-500/10 px-3 py-2 text-yellow-700 dark:text-yellow-400"
+            role="status"
+            data-testid="protocol-drift-banner"
+          >
+            iTerm2 reports protocol {drift.server}, newer than the {drift.tested} this
+            build was tested against. Capabilities below reflect {drift.tested}; newer
+            features may be unavailable or behave unexpectedly.
+          </p>
+        )}
         {!protocolVersion && (
           <p className="text-muted-foreground" data-testid="capability-empty">
             Connect first to populate the capability matrix.

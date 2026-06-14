@@ -175,14 +175,18 @@ export interface AppLine {
   continuation: AppLineContinuation;
 }
 
-export type AppKeystrokeAction = 'key-down' | 'key-up' | 'flags-changed';
+// [LAW:no-silent-failure] 'unknown' is the explicit landing spot for an additive protocol enum value
+// this release does not recognize — the converters map drift here rather than coercing it into a
+// valid-but-wrong name (a future modifier silently reported as Control).
+export type AppKeystrokeAction = 'key-down' | 'key-up' | 'flags-changed' | 'unknown';
 export type AppKeystrokeModifier =
   | 'control'
   | 'option'
   | 'command'
   | 'shift'
   | 'function'
-  | 'numpad';
+  | 'numpad'
+  | 'unknown';
 
 // [LAW:one-source-of-truth] The canonical-string targets for the keystroke/focus protocol enums. The
 // converters' lookup tables map raw protocol values to these names when building a notification's
@@ -205,7 +209,9 @@ export type AppNotificationKind =
   | 'location-changed'
   | 'unknown';
 
-export type AppVariableScope = 'app' | 'window' | 'tab' | 'session' | 'user';
+// [LAW:no-silent-failure] 'unknown' carries an additive protocol VariableScope this release does not
+// recognize, instead of mislabeling it 'session'. See AppKeystrokeAction for the same rationale.
+export type AppVariableScope = 'app' | 'window' | 'tab' | 'session' | 'user' | 'unknown';
 
 export interface AppVariableChange {
   value: string;

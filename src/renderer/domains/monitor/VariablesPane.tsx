@@ -14,12 +14,15 @@ import {
   type AppVariableScope,
 } from '@shared/domain';
 
+// [LAW:no-silent-failure] 'unknown' is listed so variables carrying a drifted protocol scope still get
+// a rendered section instead of being silently dropped from the grouped view.
 const VARIABLE_SCOPES: readonly AppVariableScope[] = [
   'app',
   'window',
   'tab',
   'session',
   'user',
+  'unknown',
 ];
 
 export const VariablesPane = observer(function VariablesPane() {
