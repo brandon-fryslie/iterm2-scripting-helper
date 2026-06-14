@@ -712,7 +712,11 @@ export async function actionGetPreference(
       if (first?.result.case === 'getPreferenceResult') {
         return { key: args.key, jsonValue: first.result.value.jsonValue };
       }
-      return { key: args.key, resultCase: resultCase ?? '<none>' };
+      // No success payload for a wrong arm — extractPayload returns the payload-or-null, and the
+      // post-fire guard owns the failure decision via the resultCase closure variable. Returning a
+      // value here would leak a non-null payload onto an error result, the one invariant every other
+      // failure path in this file keeps (payload: null). [LAW:dataflow-not-control-flow]
+      return null;
     },
   );
   if (!result.ok) return result;

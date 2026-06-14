@@ -74,6 +74,8 @@ describe('actionGetPreference', () => {
 
     expect(result.ok).toBe(false);
     expect(result.error).toContain('unrecognizedRequest');
+    // An error result carries no payload — the same invariant every failure path in actions.ts keeps.
+    expect(result.payload).toBeNull();
   });
 
   it('requires a key before touching the wire', async () => {
