@@ -283,7 +283,12 @@ export type RegistrationBody =
   | (RpcRegistrationCommon & { role: 'context-menu'; attrs: DisplayIdentityAttrs })
   | { role: 'toolbelt'; attrs: ToolbeltAttrs };
 
-export type RegistrationSpec = RegistrationBody & { id: string };
+// [LAW:dataflow-not-control-flow] `persistent` is a lifecycle policy that travels as a value on the
+// spec the renderer authors: persistent registrations are re-sent after a reconnect, non-persistent
+// ones are connection-scoped and forgotten when the connection drops. It is not a wire field (the
+// builder ignores it) and not part of the authored body — it is assigned at install time alongside
+// the id, so the draft/preview and the Python stub stay pure wire shape.
+export type RegistrationSpec = RegistrationBody & { id: string; persistent: boolean };
 
 // Registrations the server can call back into over NOTIFY_ON_SERVER_ORIGINATED_RPC.
 export type RpcRegistrationSpec = Exclude<RegistrationSpec, { role: 'toolbelt' }>;
@@ -328,8 +333,20 @@ export interface Invocation {
   error: string | null;
 }
 
+// [LAW:one-source-of-truth] A registration's desired spec and its live-ness on the current
+// connection are two different facts: the spec is durable intent (survives a reconnect), `live` is
+// derived from whether that spec is currently registered on iTerm2's side. They are joined here, in
+// the one projection the renderer reads, so the UI never reconstructs live-ness from connection
+// state on its own. `lastError` carries why a persistent registration failed to come back, so a dead
+// row states its reason instead of being a silent gap. [LAW:no-silent-failure]
+export interface RegistrationStatus {
+  spec: RegistrationSpec;
+  live: boolean;
+  lastError: string | null;
+}
+
 export interface RegistrationSnapshot {
-  registrations: RegistrationSpec[];
+  registrations: RegistrationStatus[];
   invocations: Invocation[];
   totalInvocations: number;
 }

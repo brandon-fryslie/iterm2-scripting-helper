@@ -146,6 +146,7 @@ test.describe('live iTerm2', () => {
     const regResult = await win.evaluate(async (args) => {
       return window.ipc.invoke('workbench/register-rpc', {
         id: `reg-test-${args.t}`,
+        persistent: true,
         role: 'status-bar',
         name: `wb_test_${args.t}`,
         arguments: ['knobs'],
@@ -184,13 +185,13 @@ test.describe('live iTerm2', () => {
       return window.ipc.invoke('workbench/registrations', undefined as never);
     });
     const found = activeRegs.registrations.find(
-      (r) => r.role === 'status-bar' && r.attrs.uniqueIdentifier === uniqueId,
+      (r) => r.spec.role === 'status-bar' && r.spec.attrs.uniqueIdentifier === uniqueId,
     );
     expect(found).toBeTruthy();
-    expect(found?.role).toBe('status-bar');
-    expect(found && found.role === 'status-bar' ? found.attrs.knobs[0].type : null).toBe(
-      'Color',
-    );
+    expect(found?.spec.role).toBe('status-bar');
+    expect(
+      found && found.spec.role === 'status-bar' ? found.spec.attrs.knobs[0].type : null,
+    ).toBe('Color');
 
     // Custom escape round-trip through the paired UI (449.2.3 acceptance): construct a
     // Custom= sequence, subscribe to its identity, emit it, and watch the payload arrive in
@@ -262,6 +263,7 @@ test.describe('live iTerm2', () => {
       arguments: [] as string[],
       defaults: [] as Array<{ name: string; path: string }>,
       timeout: 5,
+      persistent: true,
     };
     const specs = [
       {
@@ -313,6 +315,7 @@ test.describe('live iTerm2', () => {
       },
       {
         id: `reg-e2e-tool-${t}`,
+        persistent: true,
         role: 'toolbelt' as const,
         attrs: {
           displayName: 'E2E tool',
@@ -337,12 +340,12 @@ test.describe('live iTerm2', () => {
       window.ipc.invoke('workbench/registrations', undefined as never),
     );
     for (const spec of specs) {
-      const found = snap.registrations.find((r) => r.id === spec.id);
+      const found = snap.registrations.find((r) => r.spec.id === spec.id);
       expect(found, `snapshot has ${spec.role}`).toBeTruthy();
-      expect(found?.role).toBe(spec.role);
+      expect(found?.spec.role).toBe(spec.role);
     }
-    const tool = snap.registrations.find((r) => r.id === `reg-e2e-tool-${t}`);
-    expect(tool && tool.role === 'toolbelt' ? tool.attrs.url : null).toBe(
+    const tool = snap.registrations.find((r) => r.spec.id === `reg-e2e-tool-${t}`);
+    expect(tool && tool.spec.role === 'toolbelt' ? tool.spec.attrs.url : null).toBe(
       'https://iterm2.com',
     );
 
@@ -385,7 +388,7 @@ test.describe('live iTerm2', () => {
       window.ipc.invoke('workbench/registrations', undefined as never),
     );
     for (const spec of specs) {
-      expect(afterCleanup.registrations.find((r) => r.id === spec.id)).toBeFalsy();
+      expect(afterCleanup.registrations.find((r) => r.spec.id === spec.id)).toBeFalsy();
     }
 
     await app.close();
