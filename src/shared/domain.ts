@@ -276,6 +276,7 @@ export type AppActionKind =
   | 'get-selection'
   | 'set-selection'
   | 'transaction'
+  | 'osascript'
   | 'raw-protobuf';
 
 // [LAW:one-source-of-truth] The canonical result of firing an action, used both as the value returned

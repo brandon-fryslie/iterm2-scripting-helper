@@ -3,6 +3,7 @@ import type {
   ActionResult,
   AppActionKind,
   ArrangementOp,
+  OsascriptLanguage,
   TransactionOp,
   RpcMethod,
   RpcArgs,
@@ -32,6 +33,7 @@ const ACTION_METHODS: Record<ActionKind, ActionMethod> = {
   'get-selection': 'actions/get-selection',
   'set-selection': 'actions/set-selection',
   transaction: 'actions/transaction',
+  osascript: 'actions/osascript',
   'raw-protobuf': 'actions/raw-protobuf',
 };
 
@@ -72,6 +74,8 @@ export interface ActionForms {
   // selectionJson: JSON-encoded iterm2.Selection proto; paste get-selection output to set it back.
   'set-selection': { sessionId: string; selectionJson: string };
   transaction: { op: TransactionOp };
+  // script: AppleScript or JXA source. language maps directly to osascript's -l flag value.
+  osascript: { script: string; language: OsascriptLanguage };
   'raw-protobuf': { envelopeJson: string };
 }
 
@@ -100,6 +104,7 @@ const DEFAULT_FORMS: ActionForms = {
   'get-selection': { sessionId: '' },
   'set-selection': { sessionId: '', selectionJson: '{}' },
   transaction: { op: 'begin' as TransactionOp },
+  osascript: { script: '', language: 'AppleScript' as OsascriptLanguage },
   'raw-protobuf': {
     envelopeJson: `{\n  "submessage": {\n    "listSessionsRequest": {}\n  }\n}`,
   },
@@ -217,6 +222,10 @@ export class ConsoleStore {
       }
       case 'transaction':
         return { op: this.forms.transaction.op };
+      case 'osascript': {
+        const f = this.forms.osascript;
+        return { script: f.script, language: f.language };
+      }
       case 'raw-protobuf':
         return { envelopeJson: this.forms['raw-protobuf'].envelopeJson };
     }

@@ -1,9 +1,6 @@
-import { execFile } from 'child_process';
-import { promisify } from 'util';
+import { execFileAsync } from './execFileAsync';
 import { parsePlist, plistToJson, isPlistDict, type PlistJson } from '@shared/plist';
 import type { KeyBindingsSnapshot, SnippetEntry, KeyBindingEntry } from '@shared/rpc';
-
-const execFileAsync = promisify(execFile);
 
 const ITERM2_DOMAIN = 'com.googlecode.iterm2';
 const DEFAULTS_MAX_BUFFER = 32 * 1024 * 1024;
