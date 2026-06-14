@@ -113,6 +113,7 @@ iterm2.run_forever(main)
     expect(src).toContain('@iterm2.TitleProviderRPC');
     expect(src).toContain('display_name="Upper Case",');
     expect(src).toContain('unique_identifier="com.example.title",');
+    expect(src).toContain('timeout=5,');
     expect(src).toContain('await my_rpc.async_register(');
   },
   'context-menu': () => {
@@ -120,6 +121,7 @@ iterm2.run_forever(main)
     expect(src).toContain('@iterm2.ContextMenuProviderRPC');
     expect(src).toContain('display_name="My Action",');
     expect(src).toContain('unique_identifier="com.example.context",');
+    expect(src).toContain('timeout=5,');
   },
 };
 

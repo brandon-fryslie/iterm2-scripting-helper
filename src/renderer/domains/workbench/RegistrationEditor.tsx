@@ -344,7 +344,12 @@ export const RegistrationEditor = observer(function RegistrationEditor() {
             {form.role !== 'toolbelt' && (
               <Button
                 variant="outline"
-                onClick={() => void workbench.exportPythonStub()}
+                onClick={() => {
+                  // The draft's role mirrors the form's; narrow off toolbelt so the store method only
+                  // ever receives an RpcRegistrationBody.
+                  const draft = workbench.registrationDraft;
+                  if (draft.role !== 'toolbelt') void workbench.exportPythonStub(draft);
+                }}
                 data-testid="registration-export-python"
                 title="Save a runnable iTerm2 Python stub for the Scripts folder"
               >

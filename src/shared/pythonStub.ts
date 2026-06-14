@@ -70,9 +70,9 @@ function buildRoleBlock(body: RpcRegistrationBody): string[] {
       ];
     }
     case 'session-title':
-      return displayIdentityBlock('TitleProviderRPC', name, buildParams(body), ret, body.attrs);
+      return displayIdentityBlock('TitleProviderRPC', name, buildParams(body), ret, body.attrs, body.timeout);
     case 'context-menu':
-      return displayIdentityBlock('ContextMenuProviderRPC', name, buildParams(body), ret, body.attrs);
+      return displayIdentityBlock('ContextMenuProviderRPC', name, buildParams(body), ret, body.attrs, body.timeout);
     case 'status-bar': {
       const params = buildParams(body);
       const signature = params ? `knobs, ${params}` : 'knobs';
@@ -101,13 +101,16 @@ function buildRoleBlock(body: RpcRegistrationBody): string[] {
 }
 
 // [LAW:one-type-per-behavior] Title and context-menu providers register identically — same attrs, same
-// async_register shape — differing only in the decorator value, so they are one builder, not two.
+// async_register shape (both accept the optional timeout) — differing only in the decorator value, so
+// they are one builder, not two. The authored timeout is preserved when set, dropped (defaulting to
+// the API's None) when zero, exactly as the generic arm handles it.
 function displayIdentityBlock(
   decorator: 'TitleProviderRPC' | 'ContextMenuProviderRPC',
   name: string,
   params: string,
   ret: string,
   attrs: { displayName: string; uniqueIdentifier: string },
+  timeout: number,
 ): string[] {
   return [
     `@iterm2.${decorator}`,
@@ -118,6 +121,7 @@ function displayIdentityBlock(
     `${BODY}connection,`,
     `${BODY}display_name=${pyStr(attrs.displayName)},`,
     `${BODY}unique_identifier=${pyStr(attrs.uniqueIdentifier)},`,
+    ...(timeout > 0 ? [`${BODY}timeout=${timeout},`] : []),
     ')',
   ];
 }

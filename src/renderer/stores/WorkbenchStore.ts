@@ -8,6 +8,7 @@ import type {
   ProfileSummary,
   RegistrationSpec,
   RegistrationBody,
+  RpcRegistrationBody,
   RegistrationRole,
   RegistrationSnapshot,
   CustomEscapeSnapshot,
@@ -462,11 +463,10 @@ export class WorkbenchStore {
     }
   }
 
-  // [LAW:types-are-the-program] Narrowing off the toolbelt arm hands the IPC an RpcRegistrationBody —
-  // the only shape with a Python stub — so a toolbelt export is unrepresentable, not a runtime guard.
-  async exportPythonStub(): Promise<void> {
-    const body = this.registrationDraft;
-    if (body.role === 'toolbelt') return;
+  // [LAW:dataflow-not-control-flow] Total over its input: it always exports. The toolbelt arm — the one
+  // registration with no Python stub — is excluded by the parameter type (RpcRegistrationBody), so the
+  // caller narrows once and this method never silently skips. [LAW:types-are-the-program]
+  async exportPythonStub(body: RpcRegistrationBody): Promise<void> {
     const result = await window.ipc.invoke('registration/export-python', { body, path: null });
     runInAction(() => {
       this.pythonExportResult = result;
