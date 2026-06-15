@@ -8,6 +8,7 @@ import { EntityFocusStore } from './EntityFocusStore';
 import { TmuxStore } from './TmuxStore';
 import { ColorPresetStore } from './ColorPresetStore';
 import { ErrorStore } from './ErrorStore';
+import { WorkspaceLayoutStore } from './WorkspaceLayoutStore';
 import {
   APP_ENTITY,
   appEntityExistsInLayout,
@@ -25,6 +26,7 @@ export class RootStore {
   readonly tmux: TmuxStore;
   readonly colorPresets: ColorPresetStore;
   readonly errors: ErrorStore;
+  readonly workspaceLayout: WorkspaceLayoutStore;
   private focusRequestSeq = 0;
 
   constructor() {
@@ -43,6 +45,7 @@ export class RootStore {
     this.activity = new ActivityStore();
     this.tmux = new TmuxStore();
     this.colorPresets = new ColorPresetStore();
+    this.workspaceLayout = new WorkspaceLayoutStore();
     makeAutoObservable(this, {
       connection: false,
       entityFocus: false,
@@ -53,6 +56,7 @@ export class RootStore {
       tmux: false,
       colorPresets: false,
       errors: false,
+      workspaceLayout: false,
     });
   }
 
