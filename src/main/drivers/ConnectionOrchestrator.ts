@@ -210,15 +210,7 @@ export class ConnectionOrchestrator extends EventEmitter {
       this.sessionScopedSubscriptions = [];
       this.cancelScreenCoalesce();
       this.emit('close', { code, reason });
-      // [LAW:no-ambient-temporal-coupling] An unsolicited drop (iTerm2 quit/restarted) hands the
-      // reconnect lifecycle to its single owner; a requested disconnect (user, or app quit) does not —
-      // they asked to stop, so we stay idle. `requested` is the represented fact, never inferred from
-      // timing. The state goes to the transient 'reconnecting' so the renderer shows recovery, not idle,
-      // while the supervisor re-handshakes without user action.
-      if (!requested) {
-        this.store.setState('reconnecting');
-        this.reconnect.start();
-      }
+      this.superviseAfterClose(requested);
     });
     this.protocol.on('error', (err) => {
       this.store.setError(errString(err));
@@ -229,6 +221,17 @@ export class ConnectionOrchestrator extends EventEmitter {
   // A user-initiated connect. It supersedes any auto-reconnect loop in flight (clicking Connect cancels
   // the backoff and connects now) and reports a failure as the terminal 'error' state — the user asked,
   // so the user is told. The reconnect path runs the same sequence but keeps trying on failure.
+  // [LAW:decomposition] The reconnect policy, kept separate from close teardown: an unsolicited drop
+  // (iTerm2 quit/restarted) hands the reconnect lifecycle to its supervisor and surfaces the transient
+  // 'reconnecting' state so the renderer shows recovery without user action; a requested disconnect
+  // (user, or app quit) stays down. `requested` is the represented close discriminant, never inferred
+  // from timing — the one place the "reconnect iff unsolicited" policy lives. [LAW:single-enforcer]
+  private superviseAfterClose(requested: boolean): void {
+    if (requested) return;
+    this.store.setState('reconnecting');
+    this.reconnect.start();
+  }
+
   async connect(): Promise<void> {
     // [LAW:no-ambient-temporal-coupling] Mark all prior attempts stale before releasing the scheduler,
     // so supersession is the unconditional first action of an override and never depends on no await

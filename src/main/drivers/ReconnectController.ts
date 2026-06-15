@@ -29,6 +29,11 @@ export function realScheduler(): Scheduler {
 export class ReconnectController {
   private attemptIndex = 0;
   private active = false;
+  // [LAW:no-ambient-temporal-coupling] The generation a running loop owns. `active` alone cannot tell an
+  // old in-flight attempt from a restarted loop, so a cancel()+start() would let a stale attempt's
+  // failure re-arm the new loop. Every cancel (and a successful attempt) bumps the generation; each
+  // attempt captures the generation it belongs to and only re-arms while it still owns the current one.
+  private generation = 0;
 
   constructor(
     private readonly attempt: () => Promise<void>,
@@ -42,32 +47,35 @@ export class ReconnectController {
     if (this.active) return;
     this.active = true;
     this.attemptIndex = 0;
-    this.arm();
+    this.arm(this.generation);
   }
 
   // Stop the loop and reset the backoff. A user disconnect or a superseding manual connect calls this,
   // so a pending timer cannot fire after the user took over, and an in-flight attempt cannot re-arm.
+  // Bumping the generation invalidates any attempt still in flight from the loop being canceled.
   cancel(): void {
     this.active = false;
     this.attemptIndex = 0;
+    this.generation += 1;
     this.scheduler.cancel();
   }
 
-  private arm(): void {
-    this.scheduler.schedule(() => void this.run(), this.delayFor(this.attemptIndex));
+  private arm(generation: number): void {
+    this.scheduler.schedule(() => void this.run(generation), this.delayFor(this.attemptIndex));
   }
 
-  private async run(): Promise<void> {
-    if (!this.active) return; // canceled during the wait
+  private async run(generation: number): Promise<void> {
+    if (generation !== this.generation) return; // canceled/restarted during the wait
     try {
       await this.attempt();
       this.cancel(); // success: stop the loop, reset the backoff
     } catch {
       // [LAW:no-silent-failure] The attempt is responsible for surfacing why it failed; the controller
-      // only decides whether to keep trying. A failure that lands after a cancel does not re-arm.
-      if (!this.active) return;
+      // only decides whether to keep trying. A failure from a superseded generation does not re-arm —
+      // even if a fresh loop is now active, this stale attempt belongs to an older generation.
+      if (generation !== this.generation) return;
       this.attemptIndex += 1;
-      this.arm();
+      this.arm(generation);
     }
   }
 }

@@ -139,6 +139,39 @@ describe('ReconnectController retry loop', () => {
     expect(m.isPending()).toBe(false);
   });
 
+  it('does not let a stale attempt from a cancelled loop re-arm a restarted loop', async () => {
+    const m = manualScheduler();
+    const deferreds: Array<{ promise: Promise<void>; reject: (e: unknown) => void }> = [];
+    const controller = new ReconnectController(
+      () => {
+        const d = deferred();
+        deferreds.push(d);
+        return d.promise;
+      },
+      reconnectDelay,
+      m.scheduler,
+    );
+
+    controller.start(); // generation A
+    await m.fire(); // attempt #0 in flight, belongs to generation A
+    controller.cancel(); // bumps generation
+    controller.start(); // generation B
+    await m.fire(); // attempt #1 in flight, belongs to generation B
+    expect(deferreds).toHaveLength(2);
+
+    // The old (generation A) attempt fails after the loop was cancelled and restarted. It must not touch
+    // the generation-B loop — no extra timer armed.
+    deferreds[0].reject(new Error('stale failure'));
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(m.isPending()).toBe(false);
+
+    // The current (generation B) attempt failing does re-arm its own loop, at its own backoff.
+    deferreds[1].reject(new Error('current failure'));
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(m.isPending()).toBe(true);
+    expect(m.delay()).toBe(500);
+  });
+
   it('is idempotent while a loop is already running', () => {
     const m = manualScheduler();
     const controller = new ReconnectController(noopAttempt, reconnectDelay, m.scheduler);
