@@ -230,8 +230,11 @@ export class ConnectionOrchestrator extends EventEmitter {
   // the backoff and connects now) and reports a failure as the terminal 'error' state — the user asked,
   // so the user is told. The reconnect path runs the same sequence but keeps trying on failure.
   async connect(): Promise<void> {
-    this.reconnect.cancel();
+    // [LAW:no-ambient-temporal-coupling] Mark all prior attempts stale before releasing the scheduler,
+    // so supersession is the unconditional first action of an override and never depends on no await
+    // sitting between these two statements.
     const epoch = ++this.connectEpoch;
+    this.reconnect.cancel();
     try {
       await this.runConnectSequence(epoch);
     } catch (err) {
@@ -324,11 +327,11 @@ export class ConnectionOrchestrator extends EventEmitter {
   }
 
   async disconnect(): Promise<void> {
-    // A user disconnect supersedes any reconnect loop: stop retrying, and bump the epoch so an attempt
-    // already in flight bails at its next staleness check instead of resurrecting the connection the
-    // user just asked to drop.
-    this.reconnect.cancel();
+    // A user disconnect supersedes any reconnect loop: bump the epoch first so an attempt already in
+    // flight bails at its next staleness check instead of resurrecting the connection the user just
+    // asked to drop, then stop retrying. [LAW:no-ambient-temporal-coupling] supersession before release.
     this.connectEpoch += 1;
+    this.reconnect.cancel();
     this.cancelScreenCoalesce();
     await this.protocol.disconnect();
     this.credentials = null;
