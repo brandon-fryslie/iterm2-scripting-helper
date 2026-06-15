@@ -4,8 +4,15 @@ import {
   ServerOriginatedMessageSchema,
   ColorPresetResponse_Status,
   SetProfilePropertyResponse_Status,
+  MenuItemResponse_Status,
+  InvokeFunctionResponse_Status,
 } from '@shared/proto/gen/api_pb';
-import { actionGetPreference, actionApplyColorPreset } from './actions';
+import {
+  actionGetPreference,
+  actionApplyColorPreset,
+  actionMenuItem,
+  actionInvokeFunction,
+} from './actions';
 import type { ConnectionOrchestrator } from './drivers/ConnectionOrchestrator';
 
 // A fake orchestrator: each sendRequest returns the next queued ServerOriginatedMessage and records
@@ -177,5 +184,100 @@ describe('actionApplyColorPreset', () => {
     expect(noName.ok).toBe(false);
     expect(noGuid.ok).toBe(false);
     expect(o.sendRequest).not.toHaveBeenCalled();
+  });
+});
+
+function menuItemResponse(status: MenuItemResponse_Status, checked = false, enabled = true) {
+  return create(ServerOriginatedMessageSchema, {
+    id: 5n,
+    submessage: { case: 'menuItemResponse', value: { status, checked, enabled } },
+  });
+}
+
+describe('actionMenuItem', () => {
+  it('reports ok:false when an activating invoke comes back non-OK (the item never ran)', async () => {
+    const o = fakeOrchestrator([menuItemResponse(MenuItemResponse_Status.DISABLED)]);
+
+    const result = await actionMenuItem(o, { identifier: 'Shell/New Window', queryOnly: false });
+
+    // A refusal carried inside a transport-delivered response is a failed action, not success with
+    // fine print: the status is BAD_IDENTIFIER/DISABLED, so the menu item was never activated.
+    expect(result.ok).toBe(false);
+    expect(result.error).toContain('DISABLED');
+    // The payload still carries the wire status as data; only `ok` flips.
+    expect(result.payload).toMatchObject({ status: String(MenuItemResponse_Status.DISABLED) });
+  });
+
+  it('reports ok:true for a queryOnly query — a non-OK status there is data, not a refusal', async () => {
+    const o = fakeOrchestrator([menuItemResponse(MenuItemResponse_Status.DISABLED, true, false)]);
+
+    const result = await actionMenuItem(o, { identifier: 'Shell/New Window', queryOnly: true });
+
+    expect(result.ok).toBe(true);
+    expect(result.error).toBeNull();
+    expect(result.payload).toMatchObject({
+      status: String(MenuItemResponse_Status.DISABLED),
+      checked: true,
+      enabled: false,
+    });
+  });
+
+  it('reports ok:true when an activating invoke succeeds', async () => {
+    const o = fakeOrchestrator([menuItemResponse(MenuItemResponse_Status.OK)]);
+
+    const result = await actionMenuItem(o, { identifier: 'Shell/New Window', queryOnly: false });
+
+    expect(result.ok).toBe(true);
+    expect(result.payload).toMatchObject({ status: String(MenuItemResponse_Status.OK) });
+  });
+});
+
+describe('actionInvokeFunction', () => {
+  it('reports ok:false when the disposition is an error (the invocation failed)', async () => {
+    const o = fakeOrchestrator([
+      create(ServerOriginatedMessageSchema, {
+        id: 6n,
+        submessage: {
+          case: 'invokeFunctionResponse',
+          value: {
+            disposition: {
+              case: 'error',
+              value: { status: InvokeFunctionResponse_Status.FAILED, errorReason: 'boom' },
+            },
+          },
+        },
+      }),
+    ]);
+
+    const result = await actionInvokeFunction(o, {
+      invocation: 'iterm2.run()',
+      scope: { kind: 'app' },
+    });
+
+    expect(result.ok).toBe(false);
+    expect(result.error).toContain('FAILED');
+    // The success:false detail survives as payload data; `ok` is the verdict.
+    expect(result.payload).toMatchObject({ success: false, message: 'boom' });
+  });
+
+  it('reports ok:true with the json result when the disposition is success', async () => {
+    const o = fakeOrchestrator([
+      create(ServerOriginatedMessageSchema, {
+        id: 7n,
+        submessage: {
+          case: 'invokeFunctionResponse',
+          value: { disposition: { case: 'success', value: { jsonResult: '42' } } },
+        },
+      }),
+    ]);
+
+    const result = await actionInvokeFunction(o, {
+      invocation: 'iterm2.run()',
+      scope: { kind: 'app' },
+    });
+
+    expect(result.ok).toBe(true);
+    expect(result.error).toBeNull();
+    expect(result.payload).toMatchObject({ success: true, jsonResult: '42' });
   });
 });

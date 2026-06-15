@@ -7,7 +7,9 @@ import {
   ActivateRequestSchema,
   ActivateRequest_AppSchema,
   MenuItemRequestSchema,
+  MenuItemResponse_Status,
   InvokeFunctionRequestSchema,
+  InvokeFunctionResponse_Status,
   InvokeFunctionRequest_AppSchema,
   InvokeFunctionRequest_SessionSchema,
   InvokeFunctionRequest_TabSchema,
@@ -53,10 +55,37 @@ import type { ConnectionOrchestrator } from './drivers/ConnectionOrchestrator';
 
 type Envelope = Parameters<ConnectionOrchestrator['sendRequest']>[0];
 
+// What an extractPayload tells fire about a transport-delivered response: the payload to surface, and
+// whether — though no 'error' submessage came back — the response carries an action-level refusal.
+// [LAW:single-enforcer] fire is the one seam that maps a refusal to ok:false, so 'ok' means the same
+// thing for every action: the action actually happened. The alternative (each action re-checking the
+// status after fire returns) is the same invariant enforced at every callsite, and the two actions
+// that forgot to check reported iTerm2's refusals as success.
+interface Extraction {
+  payload: Record<string, unknown> | null;
+  refusal: string | null;
+}
+
+// A response on the wrong submessage arm carries no status to trust, so the action's outcome is
+// unknown — itself a refusal. The expected/got message matches what the read paths report.
+function wrongArm(expected: string, got: string | undefined): Extraction {
+  return { payload: null, refusal: `expected ${expected}, got ${got ?? '<none>'}` };
+}
+
+// [LAW:one-source-of-truth] One verdict for every status-bearing response: OK is success, anything
+// else is a refusal rendered the one house way. The enum table and its OK member vary per response;
+// the verdict does not.
+function statusRefusal(status: number, okStatus: number, name: Record<number, string>): string | null {
+  return status === okStatus ? null : `iTerm2 refused: ${name[status] ?? status}`;
+}
+
 async function fire(
   orchestrator: ConnectionOrchestrator,
   envelope: Envelope,
-  extractPayload: (msg: ServerOriginatedMessage) => Record<string, unknown> | null = () => null,
+  extractPayload: (msg: ServerOriginatedMessage) => Extraction = () => ({
+    payload: null,
+    refusal: null,
+  }),
 ): Promise<ActionResult> {
   const started = Date.now();
   try {
@@ -75,12 +104,14 @@ async function fire(
         requestId,
       };
     }
+    const { payload, refusal } = extractPayload(response);
+    const responseCase = response.submessage.case ?? null;
     return {
-      ok: true,
-      error: null,
+      ok: refusal === null,
+      error: refusal,
       latencyMs,
-      responseCase: response.submessage.case ?? null,
-      payload: extractPayload(response),
+      responseCase,
+      payload,
       requestId,
     };
   } catch (err) {
@@ -191,12 +222,18 @@ export async function actionMenuItem(
     orchestrator,
     { submessage: { case: 'menuItemRequest', value } },
     (msg) => {
-      if (msg.submessage.case !== 'menuItemResponse') return null;
+      if (msg.submessage.case !== 'menuItemResponse') return wrongArm('menuItemResponse', msg.submessage.case);
       const r = msg.submessage.value;
+      // queryOnly asks iTerm2 to report a menu item's state without activating it, so a non-OK status
+      // (DISABLED, BAD_IDENTIFIER) is legitimate query data, not a refusal. An activating invoke that
+      // comes back non-OK never ran the item — that is a refusal, not a success with a status field.
+      const refusal =
+        args.queryOnly ?? false
+          ? null
+          : statusRefusal(r.status, MenuItemResponse_Status.OK, MenuItemResponse_Status);
       return {
-        status: String(r.status),
-        checked: r.checked,
-        enabled: r.enabled,
+        payload: { status: String(r.status), checked: r.checked, enabled: r.enabled },
+        refusal,
       };
     },
   );
@@ -239,19 +276,26 @@ export async function actionInvokeFunction(
     orchestrator,
     { submessage: { case: 'invokeFunctionRequest', value } },
     (msg) => {
-      if (msg.submessage.case !== 'invokeFunctionResponse') return null;
+      if (msg.submessage.case !== 'invokeFunctionResponse')
+        return wrongArm('invokeFunctionResponse', msg.submessage.case);
       const disposition = msg.submessage.value.disposition;
       if (disposition.case === 'success') {
-        return { success: true, jsonResult: disposition.value.jsonResult };
+        return { payload: { success: true, jsonResult: disposition.value.jsonResult }, refusal: null };
       }
+      // An error disposition (TIMEOUT, FAILED, REQUEST_MALFORMED, INVALID_ID) means the invocation
+      // failed; the success:false payload is the detail, but the action did not happen — ok is false.
       if (disposition.case === 'error') {
+        const status = disposition.value.status;
         return {
-          success: false,
-          status: String(disposition.value.status),
-          message: disposition.value.errorReason,
+          payload: {
+            success: false,
+            status: String(status),
+            message: disposition.value.errorReason,
+          },
+          refusal: `iTerm2 refused: ${InvokeFunctionResponse_Status[status] ?? status}`,
         };
       }
-      return null;
+      return wrongArm('invokeFunctionResponse disposition', disposition.case);
     },
   );
 }
@@ -327,36 +371,22 @@ export async function actionSavedArrangement(
     action: ARRANGEMENT_OP_TO_WIRE[args.op],
     ...(args.windowId ? { windowId: args.windowId } : {}),
   });
-  let wireStatus: SavedArrangementResponse_Status | null = null;
-  const result = await fire(
+  // [LAW:no-silent-failure] Transport success is not action success: a response that never carried a
+  // savedArrangementResponse has no status to trust, and a refusal status (arrangement or window not
+  // found, malformed request) is a failed action, not a success with fine print.
+  return fire(
     orchestrator,
     { submessage: { case: 'savedArrangementRequest', value } },
     (msg) => {
-      if (msg.submessage.case !== 'savedArrangementResponse') return null;
-      wireStatus = msg.submessage.value.status;
-      return { status: SavedArrangementResponse_Status[wireStatus] ?? String(wireStatus) };
+      if (msg.submessage.case !== 'savedArrangementResponse')
+        return wrongArm('savedArrangementResponse', msg.submessage.case);
+      const status = msg.submessage.value.status;
+      return {
+        payload: { status: SavedArrangementResponse_Status[status] ?? String(status) },
+        refusal: statusRefusal(status, SavedArrangementResponse_Status.OK, SavedArrangementResponse_Status),
+      };
     },
   );
-  if (!result.ok) return result;
-  // [LAW:no-silent-failure] Transport success is not action success: a response that never carried
-  // a savedArrangementResponse has no status to trust, and a refusal status (arrangement or window
-  // not found, malformed request) is a failed action, not a success with fine print. The check
-  // compares the wire enum value itself, same encoding the LIST read uses.
-  if (wireStatus === null) {
-    return {
-      ...result,
-      ok: false,
-      error: `expected savedArrangementResponse, got ${result.responseCase ?? '<none>'}`,
-    };
-  }
-  if (wireStatus !== SavedArrangementResponse_Status.OK) {
-    return {
-      ...result,
-      ok: false,
-      error: `iTerm2 refused: ${SavedArrangementResponse_Status[wireStatus] ?? wireStatus}`,
-    };
-  }
-  return result;
 }
 
 export async function actionSetBroadcastDomains(
@@ -380,35 +410,22 @@ export async function actionSetBroadcastDomains(
       create(BroadcastDomainSchema, { sessionIds }),
     ),
   });
-  let wireStatus: SetBroadcastDomainsResponse_Status | null = null;
-  const result = await fire(
+  // [LAW:no-silent-failure] Transport success is not action success: no setBroadcastDomainsResponse
+  // means no status to trust, and a refusal status (session not found, domains not disjoint, sessions
+  // spanning windows) is a failed action, not a success with fine print.
+  return fire(
     orchestrator,
     { submessage: { case: 'setBroadcastDomainsRequest', value } },
     (msg) => {
-      if (msg.submessage.case !== 'setBroadcastDomainsResponse') return null;
-      wireStatus = msg.submessage.value.status;
-      return { status: SetBroadcastDomainsResponse_Status[wireStatus] ?? String(wireStatus) };
+      if (msg.submessage.case !== 'setBroadcastDomainsResponse')
+        return wrongArm('setBroadcastDomainsResponse', msg.submessage.case);
+      const status = msg.submessage.value.status;
+      return {
+        payload: { status: SetBroadcastDomainsResponse_Status[status] ?? String(status) },
+        refusal: statusRefusal(status, SetBroadcastDomainsResponse_Status.OK, SetBroadcastDomainsResponse_Status),
+      };
     },
   );
-  if (!result.ok) return result;
-  // [LAW:no-silent-failure] Transport success is not action success: no setBroadcastDomainsResponse
-  // means no status to trust, and a refusal status (session not found, domains not disjoint,
-  // sessions spanning windows) is a failed action, not a success with fine print.
-  if (wireStatus === null) {
-    return {
-      ...result,
-      ok: false,
-      error: `expected setBroadcastDomainsResponse, got ${result.responseCase ?? '<none>'}`,
-    };
-  }
-  if (wireStatus !== SetBroadcastDomainsResponse_Status.OK) {
-    return {
-      ...result,
-      ok: false,
-      error: `iTerm2 refused: ${SetBroadcastDomainsResponse_Status[wireStatus] ?? wireStatus}`,
-    };
-  }
-  return result;
 }
 
 export async function actionRawProtobuf(
@@ -444,7 +461,8 @@ export async function actionRawProtobuf(
   // [LAW:single-enforcer] The send/response/error/latency/requestId handling is `fire`'s job; this
   // action only differs in how it renders the response payload, which is exactly what extractPayload is.
   return fire(orchestrator, envelope, (msg) => ({
-    responseJson: JSON.stringify(toJson(ServerOriginatedMessageSchema, msg), null, 2),
+    payload: { responseJson: JSON.stringify(toJson(ServerOriginatedMessageSchema, msg), null, 2) },
+    refusal: null,
   }));
 }
 
@@ -455,41 +473,27 @@ export async function actionGetSelection(
   const value = create(SelectionRequestSchema, {
     request: { case: 'getSelectionRequest', value: { sessionId: args.sessionId } },
   });
-  let wireStatus: SelectionResponse_Status | null = null;
-  const result = await fire(
+  // [LAW:no-silent-failure] non-OK status is a failed action, not ok-with-fine-print.
+  return fire(
     orchestrator,
     { submessage: { case: 'selectionRequest', value } },
     (msg) => {
-      if (msg.submessage.case !== 'selectionResponse') return null;
-      wireStatus = msg.submessage.value.status;
+      if (msg.submessage.case !== 'selectionResponse') return wrongArm('selectionResponse', msg.submessage.case);
+      const status = msg.submessage.value.status;
       const resp = msg.submessage.value.response;
       const selectionJson =
         resp.case === 'getSelectionResponse' && resp.value.selection
           ? JSON.stringify(toJson(SelectionSchema, resp.value.selection), null, 2)
           : null;
       return {
-        status: SelectionResponse_Status[wireStatus] ?? String(wireStatus),
-        ...(selectionJson != null ? { selectionJson } : {}),
+        payload: {
+          status: SelectionResponse_Status[status] ?? String(status),
+          ...(selectionJson != null ? { selectionJson } : {}),
+        },
+        refusal: statusRefusal(status, SelectionResponse_Status.OK, SelectionResponse_Status),
       };
     },
   );
-  if (!result.ok) return result;
-  if (wireStatus === null) {
-    return {
-      ...result,
-      ok: false,
-      error: `expected selectionResponse, got ${result.responseCase ?? '<none>'}`,
-    };
-  }
-  // [LAW:no-silent-failure] non-OK status is a failed action, not ok-with-fine-print.
-  if (wireStatus !== SelectionResponse_Status.OK) {
-    return {
-      ...result,
-      ok: false,
-      error: `iTerm2 refused: ${SelectionResponse_Status[wireStatus] ?? wireStatus}`,
-    };
-  }
-  return result;
 }
 
 export async function actionSetSelection(
@@ -515,47 +519,18 @@ export async function actionSetSelection(
       value: { sessionId: args.sessionId, selection },
     },
   });
-  let wireStatus: SelectionResponse_Status | null = null;
-  const result = await fire(
+  return fire(
     orchestrator,
     { submessage: { case: 'selectionRequest', value } },
     (msg) => {
-      if (msg.submessage.case !== 'selectionResponse') return null;
-      wireStatus = msg.submessage.value.status;
-      return { status: SelectionResponse_Status[wireStatus] ?? String(wireStatus) };
+      if (msg.submessage.case !== 'selectionResponse') return wrongArm('selectionResponse', msg.submessage.case);
+      const status = msg.submessage.value.status;
+      return {
+        payload: { status: SelectionResponse_Status[status] ?? String(status) },
+        refusal: statusRefusal(status, SelectionResponse_Status.OK, SelectionResponse_Status),
+      };
     },
   );
-  if (!result.ok) return result;
-  if (wireStatus === null) {
-    return {
-      ...result,
-      ok: false,
-      error: `expected selectionResponse, got ${result.responseCase ?? '<none>'}`,
-    };
-  }
-  if (wireStatus !== SelectionResponse_Status.OK) {
-    return {
-      ...result,
-      ok: false,
-      error: `iTerm2 refused: ${SelectionResponse_Status[wireStatus] ?? wireStatus}`,
-    };
-  }
-  return result;
-}
-
-// [LAW:single-enforcer] One place that decides whether a tmux round-trip succeeded: a response that
-// never carried a tmuxResponse has no status to trust, and any non-OK status (invalid request,
-// connection, or window) is a failed action, not a success with fine print ([LAW:no-silent-failure]).
-// Returns the error string, or null when the action genuinely succeeded.
-function tmuxStatusError(
-  wireStatus: TmuxResponse_Status | null,
-  responseCase: string | null,
-): string | null {
-  if (wireStatus === null) return `expected tmuxResponse, got ${responseCase ?? '<none>'}`;
-  if (wireStatus !== TmuxResponse_Status.OK) {
-    return `iTerm2 refused: ${TmuxResponse_Status[wireStatus] ?? wireStatus}`;
-  }
-  return null;
 }
 
 export async function actionTmuxSendCommand(
@@ -568,23 +543,22 @@ export async function actionTmuxSendCommand(
       value: { connectionId: args.connectionId, command: args.command },
     },
   });
-  let wireStatus: TmuxResponse_Status | null = null;
-  const result = await fire(
+  return fire(
     orchestrator,
     { submessage: { case: 'tmuxRequest', value } },
     (msg) => {
-      if (msg.submessage.case !== 'tmuxResponse') return null;
-      wireStatus = msg.submessage.value.status;
+      if (msg.submessage.case !== 'tmuxResponse') return wrongArm('tmuxResponse', msg.submessage.case);
+      const status = msg.submessage.value.status;
       const p = msg.submessage.value.payload;
       return {
-        status: TmuxResponse_Status[wireStatus] ?? String(wireStatus),
-        ...(p.case === 'sendCommand' ? { output: p.value.output } : {}),
+        payload: {
+          status: TmuxResponse_Status[status] ?? String(status),
+          ...(p.case === 'sendCommand' ? { output: p.value.output } : {}),
+        },
+        refusal: statusRefusal(status, TmuxResponse_Status.OK, TmuxResponse_Status),
       };
     },
   );
-  if (!result.ok) return result;
-  const error = tmuxStatusError(wireStatus, result.responseCase);
-  return error === null ? result : { ...result, ok: false, error };
 }
 
 export async function actionTmuxCreateWindow(
@@ -597,23 +571,22 @@ export async function actionTmuxCreateWindow(
       value: { connectionId: args.connectionId, affinity: args.affinity },
     },
   });
-  let wireStatus: TmuxResponse_Status | null = null;
-  const result = await fire(
+  return fire(
     orchestrator,
     { submessage: { case: 'tmuxRequest', value } },
     (msg) => {
-      if (msg.submessage.case !== 'tmuxResponse') return null;
-      wireStatus = msg.submessage.value.status;
+      if (msg.submessage.case !== 'tmuxResponse') return wrongArm('tmuxResponse', msg.submessage.case);
+      const status = msg.submessage.value.status;
       const p = msg.submessage.value.payload;
       return {
-        status: TmuxResponse_Status[wireStatus] ?? String(wireStatus),
-        ...(p.case === 'createWindow' ? { tabId: p.value.tabId } : {}),
+        payload: {
+          status: TmuxResponse_Status[status] ?? String(status),
+          ...(p.case === 'createWindow' ? { tabId: p.value.tabId } : {}),
+        },
+        refusal: statusRefusal(status, TmuxResponse_Status.OK, TmuxResponse_Status),
       };
     },
   );
-  if (!result.ok) return result;
-  const error = tmuxStatusError(wireStatus, result.responseCase);
-  return error === null ? result : { ...result, ok: false, error };
 }
 
 export async function actionTmuxSetWindowVisible(
@@ -630,19 +603,18 @@ export async function actionTmuxSetWindowVisible(
       },
     },
   });
-  let wireStatus: TmuxResponse_Status | null = null;
-  const result = await fire(
+  return fire(
     orchestrator,
     { submessage: { case: 'tmuxRequest', value } },
     (msg) => {
-      if (msg.submessage.case !== 'tmuxResponse') return null;
-      wireStatus = msg.submessage.value.status;
-      return { status: TmuxResponse_Status[wireStatus] ?? String(wireStatus) };
+      if (msg.submessage.case !== 'tmuxResponse') return wrongArm('tmuxResponse', msg.submessage.case);
+      const status = msg.submessage.value.status;
+      return {
+        payload: { status: TmuxResponse_Status[status] ?? String(status) },
+        refusal: statusRefusal(status, TmuxResponse_Status.OK, TmuxResponse_Status),
+      };
     },
   );
-  if (!result.ok) return result;
-  const error = tmuxStatusError(wireStatus, result.responseCase);
-  return error === null ? result : { ...result, ok: false, error };
 }
 
 export async function actionTransaction(
@@ -650,32 +622,19 @@ export async function actionTransaction(
   args: { op: TransactionOp },
 ): Promise<ActionResult> {
   const value = create(TransactionRequestSchema, { begin: args.op === 'begin' });
-  let wireStatus: TransactionResponse_Status | null = null;
-  const result = await fire(
+  return fire(
     orchestrator,
     { submessage: { case: 'transactionRequest', value } },
     (msg) => {
-      if (msg.submessage.case !== 'transactionResponse') return null;
-      wireStatus = msg.submessage.value.status;
-      return { status: TransactionResponse_Status[wireStatus] ?? String(wireStatus) };
+      if (msg.submessage.case !== 'transactionResponse')
+        return wrongArm('transactionResponse', msg.submessage.case);
+      const status = msg.submessage.value.status;
+      return {
+        payload: { status: TransactionResponse_Status[status] ?? String(status) },
+        refusal: statusRefusal(status, TransactionResponse_Status.OK, TransactionResponse_Status),
+      };
     },
   );
-  if (!result.ok) return result;
-  if (wireStatus === null) {
-    return {
-      ...result,
-      ok: false,
-      error: `expected transactionResponse, got ${result.responseCase ?? '<none>'}`,
-    };
-  }
-  if (wireStatus !== TransactionResponse_Status.OK) {
-    return {
-      ...result,
-      ok: false,
-      error: `iTerm2 refused: ${TransactionResponse_Status[wireStatus] ?? wireStatus}`,
-    };
-  }
-  return result;
 }
 
 // Raw preference-key inspection: the read arm of PreferencesRequest. iTerm2's Settings edits known
@@ -701,40 +660,24 @@ export async function actionGetPreference(
   const value = create(PreferencesRequestSchema, {
     requests: [{ request: { case: 'getPreferenceRequest', value: { key: args.key } } }],
   });
-  let resultCase: string | null = null;
-  const result = await fire(
+  return fire(
     orchestrator,
     { submessage: { case: 'preferencesRequest', value } },
     (msg) => {
-      if (msg.submessage.case !== 'preferencesResponse') return null;
+      if (msg.submessage.case !== 'preferencesResponse')
+        return wrongArm('preferencesResponse', msg.submessage.case);
       const first = msg.submessage.value.results[0];
-      resultCase = first?.result.case ?? null;
       if (first?.result.case === 'getPreferenceResult') {
-        return { key: args.key, jsonValue: first.result.value.jsonValue };
+        return { payload: { key: args.key, jsonValue: first.result.value.jsonValue }, refusal: null };
       }
-      // No success payload for a wrong arm — extractPayload returns the payload-or-null, and the
-      // post-fire guard owns the failure decision via the resultCase closure variable. Returning a
-      // value here would leak a non-null payload onto an error result, the one invariant every other
-      // failure path in this file keeps (payload: null). [LAW:dataflow-not-control-flow]
-      return null;
+      // A wrong result arm (an unrecognized request) is a failed read. The refusal carries no payload,
+      // the invariant every other structural-failure path in this file keeps.
+      return {
+        payload: null,
+        refusal: `iTerm2 returned ${first?.result.case ?? 'no results'} for a getPreference request`,
+      };
     },
   );
-  if (!result.ok) return result;
-  if (result.responseCase !== 'preferencesResponse') {
-    return {
-      ...result,
-      ok: false,
-      error: `expected preferencesResponse, got ${result.responseCase ?? '<none>'}`,
-    };
-  }
-  if (resultCase !== 'getPreferenceResult') {
-    return {
-      ...result,
-      ok: false,
-      error: `iTerm2 returned ${resultCase ?? 'no results'} for a getPreference request`,
-    };
-  }
-  return result;
 }
 
 // [LAW:one-source-of-truth] iTerm2 encodes a profile color as this plist dict (NSColor components);
