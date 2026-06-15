@@ -10,14 +10,23 @@ test('Entity Workspace renders co-present facets and IPC ping round-trips', asyn
   const app = await launchApp();
   const win = await app.firstWindow();
 
-  // One panel, not a bag of tabs: the entity rail and the observe/act/author facets are all
-  // co-present, no destination to switch to.
+  // One panel, not a bag of tabs: the entity rail and the screen/variables/activity/act/author facets
+  // are all co-present by default, no destination to switch to.
   await expect(win.getByTestId('entity-workspace')).toBeVisible();
   await expect(win.getByTestId('entity-spine-rail')).toBeVisible();
-  await expect(win.getByTestId('facet-live')).toBeVisible();
+  await expect(win.getByTestId('facet-screen')).toBeVisible();
+  await expect(win.getByTestId('facet-variables')).toBeVisible();
   await expect(win.getByTestId('facet-activity')).toBeVisible();
   await expect(win.getByTestId('facet-act')).toBeVisible();
   await expect(win.getByTestId('facet-author')).toBeVisible();
+
+  // The Panels bar hides and shows each facet on demand: hiding Variables removes that pane and
+  // leaves the rest standing; toggling it back restores it.
+  await win.getByTestId('facet-toggle-variables').click();
+  await expect(win.getByTestId('facet-variables')).toHaveCount(0);
+  await expect(win.getByTestId('facet-screen')).toBeVisible();
+  await win.getByTestId('facet-toggle-variables').click();
+  await expect(win.getByTestId('facet-variables')).toBeVisible();
 
   // Settings is a utility affordance reached from the rail's gear, not a peer tab.
   await win.getByTestId('settings-gear').click();
