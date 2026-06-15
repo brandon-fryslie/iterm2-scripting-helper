@@ -42,11 +42,16 @@ export class CoalescingScheduler {
     this.scheduler.schedule(() => void this.fire(this.generation), this.delayMs);
   }
 
-  // Stop the scheduler: drop a pending window and invalidate any in-flight run so it cannot re-arm a
-  // trailing pass after its owner (a session change, a connection close) has moved on.
+  // Stop the scheduler: drop a pending window and release the in-flight slot so a canceled run cannot
+  // re-arm a trailing pass after its owner (a session change, a connection close) has moved on. Clearing
+  // inFlight here is what keeps it an honest "a CURRENT-generation run is in flight" signal: a stale run
+  // still settling can no longer block request() from arming a fresh timer, so a post-cancel request is
+  // never dropped onto the dead run. The stale run's finally is gated on its captured generation, so it
+  // touches no shared state after this — including the inFlight a newer run may since have set true.
   cancel(): void {
     this.armed = false;
     this.trailing = false;
+    this.inFlight = false;
     this.generation += 1;
     this.scheduler.cancel();
   }
@@ -56,18 +61,20 @@ export class CoalescingScheduler {
     if (generation !== this.generation) return; // canceled during the window
     this.inFlight = true;
     this.trailing = false;
-    try {
-      await this.run();
-    } finally {
-      this.inFlight = false;
-      // Re-arm a trailing pass only if a request landed mid-flight AND this run still owns the current
-      // generation. [LAW:no-silent-failure] errors from run() are the run's own to surface; the
-      // scheduler only decides whether another pass is owed.
-      if (generation === this.generation && this.trailing) {
-        this.trailing = false;
-        this.armed = true;
-        this.scheduler.schedule(() => void this.fire(generation), this.delayMs);
-      }
+    // [LAW:no-silent-failure] errors from run() are the run's own to surface (the screen refetch records
+    // its failure on the store); the scheduler only decides whether another pass is owed, so it awaits
+    // settlement either way without letting a rejection skip the trailing-pass bookkeeping below.
+    await this.run().catch(() => undefined);
+    // [LAW:no-ambient-temporal-coupling] A run canceled mid-flight (or superseded by a newer generation)
+    // must not touch shared state on completion — cancel() already released the slot, and a fresh run of
+    // the current generation may now own inFlight. Only the run that still owns the current generation
+    // resets the slot and decides whether a trailing pass is owed.
+    if (generation !== this.generation) return;
+    this.inFlight = false;
+    if (this.trailing) {
+      this.trailing = false;
+      this.armed = true;
+      this.scheduler.schedule(() => void this.fire(generation), this.delayMs);
     }
   }
 }

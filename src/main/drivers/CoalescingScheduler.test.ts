@@ -181,4 +181,39 @@ describe('CoalescingScheduler', () => {
     await m.fire();
     expect(runs).toBe(1);
   });
+
+  // [LAW:no-ambient-temporal-coupling] The bug the in-flight slot must not reintroduce: a request that
+  // lands after cancel() but before the canceled run has settled must arm a fresh timer, not be written
+  // onto the dead run. cancel() releasing inFlight is what makes inFlight an honest current-generation
+  // signal here.
+  it('arms a fresh timer for a request that lands after cancel while the canceled run is still settling', async () => {
+    let runs = 0;
+    const gate = deferred();
+    const m = manualScheduler();
+    const sched = new CoalescingScheduler(
+      async () => {
+        runs++;
+        if (runs === 1) await gate.promise; // the run that gets canceled stays suspended
+      },
+      DELAY,
+      m.scheduler,
+    );
+
+    sched.request();
+    m.start(); // first run begins and suspends on the gate
+    expect(runs).toBe(1);
+
+    sched.cancel(); // owner moved on (focus change / close) while the run is still in flight
+    sched.request(); // a fresh request lands before the canceled run settles — must NOT be dropped
+    expect(m.isPending()).toBe(true); // a fresh timer is armed, not swallowed onto the dead run
+
+    await m.fire(); // the fresh run executes
+    expect(runs).toBe(2);
+
+    // The canceled run finally settles; its completion must touch nothing — no stray trailing pass.
+    gate.resolve();
+    await m.drain();
+    expect(m.isPending()).toBe(false);
+    expect(runs).toBe(2);
+  });
 });
