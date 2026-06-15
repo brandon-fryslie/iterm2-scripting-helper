@@ -275,6 +275,9 @@ export class ConnectionOrchestrator extends EventEmitter {
     // true no-op when already disconnected (ProtocolDriver.disconnect emits nothing in that branch), so
     // reconnect attempts — which the controller already serializes one at a time — are unaffected.
     await this.protocol.disconnect();
+    // A superseding connect/disconnect may have taken over during the teardown await; bail before any
+    // store write so a stale attempt cannot flip state back to 'detecting' after the user took over.
+    this.assertCurrent(epoch, 'after disconnect');
     this.store.setState('detecting');
     const exists = existsSync(this.options.socketPath);
     this.store.setSocket(this.options.socketPath, exists);
