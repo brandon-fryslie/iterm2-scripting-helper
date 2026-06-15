@@ -61,20 +61,24 @@ export class CoalescingScheduler {
     if (generation !== this.generation) return; // canceled during the window
     this.inFlight = true;
     this.trailing = false;
-    // [LAW:no-silent-failure] errors from run() are the run's own to surface (the screen refetch records
-    // its failure on the store); the scheduler only decides whether another pass is owed, so it awaits
-    // settlement either way without letting a rejection skip the trailing-pass bookkeeping below.
-    await this.run().catch(() => undefined);
-    // [LAW:no-ambient-temporal-coupling] A run canceled mid-flight (or superseded by a newer generation)
-    // must not touch shared state on completion — cancel() already released the slot, and a fresh run of
-    // the current generation may now own inFlight. Only the run that still owns the current generation
-    // resets the slot and decides whether a trailing pass is owed.
-    if (generation !== this.generation) return;
-    this.inFlight = false;
-    if (this.trailing) {
-      this.trailing = false;
-      this.armed = true;
-      this.scheduler.schedule(() => void this.fire(generation), this.delayMs);
+    try {
+      await this.run();
+    } finally {
+      // [LAW:no-ambient-temporal-coupling] Only the run that still owns the current generation resets the
+      // slot and decides whether a trailing pass is owed; a run canceled mid-flight (cancel() already
+      // released the slot and bumped the generation) touches nothing here, and a stale run settling after
+      // a newer run started cannot clobber the newer run's inFlight. Expressed as a nested `if` rather
+      // than a guard-`return`: [LAW:no-silent-failure] this finally must not swallow a run() rejection —
+      // there is no control-flow statement here, so an unexpected failure propagates loudly after the
+      // bookkeeping runs (the trailing re-arm still fires, so an errored refetch is retried next pass).
+      if (generation === this.generation) {
+        this.inFlight = false;
+        if (this.trailing) {
+          this.trailing = false;
+          this.armed = true;
+          this.scheduler.schedule(() => void this.fire(generation), this.delayMs);
+        }
+      }
     }
   }
 }

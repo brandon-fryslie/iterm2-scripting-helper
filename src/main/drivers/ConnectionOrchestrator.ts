@@ -427,6 +427,11 @@ export class ConnectionOrchestrator extends EventEmitter {
   private async restoreFocusedSession(epoch: number): Promise<void> {
     const sessionId = this.monitor.variables.focusedSessionId;
     if (!sessionId) return;
+    // [LAW:no-ambient-temporal-coupling] The method takes `epoch` to be self-guarding: assert before the
+    // first store mutation so a future await inserted ahead of this call cannot let a superseded attempt
+    // clobber the focused-screen state. Every effect in the connect sequence is epoch-guarded; this is no
+    // exception, even though the sole caller asserts immediately before with no await in between today.
+    this.assertCurrent(epoch, 'before focus restore');
     this.monitor.screen.setFocused(sessionId);
 
     const dump = await this.fetchAllVariablesForSession(sessionId).catch((err) => {
