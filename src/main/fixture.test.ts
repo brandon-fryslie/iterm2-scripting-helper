@@ -73,7 +73,7 @@ describe('buildFixtureNdjson / applyFixtureNdjson', () => {
     expect(target.events().map((e) => e.seq)).toEqual([2, 3]);
   });
 
-  it.each(['detecting', 'requesting-cookie', 'connecting', 'ready'] as const)(
+  it.each(['detecting', 'requesting-cookie', 'connecting', 'ready', 'reconnecting'] as const)(
     'refuses to replay while connected (state: %s) and leaves the spine untouched',
     (state) => {
       const ndjson = buildFixtureNdjson(seeded(), null, 0).ndjson;

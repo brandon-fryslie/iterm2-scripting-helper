@@ -126,6 +126,12 @@ export class ConnectionOrchestrator extends EventEmitter {
     () => this.reconnectAttempt(),
     reconnectDelay,
   );
+  // [LAW:no-ambient-temporal-coupling] The single owner of "which connect attempt is current". Every
+  // connect lifecycle — manual connect, manual disconnect, and each auto-reconnect attempt — bumps it. A
+  // connect sequence captures its epoch and abandons all further effects the moment a newer one
+  // supersedes it, so a slow in-flight reconnect attempt can neither flip connection state out from
+  // under a manual connect/disconnect nor resurrect a connection the user just dropped.
+  private connectEpoch = 0;
 
   constructor(
     private readonly store: ConnectionStore,
@@ -225,10 +231,14 @@ export class ConnectionOrchestrator extends EventEmitter {
   // so the user is told. The reconnect path runs the same sequence but keeps trying on failure.
   async connect(): Promise<void> {
     this.reconnect.cancel();
+    const epoch = ++this.connectEpoch;
     try {
-      await this.runConnectSequence();
+      await this.runConnectSequence(epoch);
     } catch (err) {
-      this.store.setError(errString(err));
+      // Only the current attempt owns the terminal error state; a manual connect/disconnect that
+      // superseded this one mid-flight has already set the authoritative state. [LAW:no-silent-failure]
+      // the failure still propagates to the caller — it is not swallowed, only the stale store write is.
+      if (epoch === this.connectEpoch) this.store.setError(errString(err));
       throw err;
     }
   }
@@ -238,10 +248,14 @@ export class ConnectionOrchestrator extends EventEmitter {
   // re-arm), rather than surfacing a terminal error; it rethrows so the controller schedules the next
   // attempt with the next backoff.
   private async reconnectAttempt(): Promise<void> {
+    const epoch = ++this.connectEpoch;
     try {
-      await this.runConnectSequence();
+      await this.runConnectSequence(epoch);
     } catch (err) {
-      this.store.noteReconnectFailure(errString(err));
+      // [LAW:no-ambient-temporal-coupling] A superseded attempt must not flip state back to
+      // 'reconnecting' after a manual connect/disconnect has taken over; only the current attempt records
+      // its failure. The rethrow is unconditional so the controller's own active check decides re-arm.
+      if (epoch === this.connectEpoch) this.store.noteReconnectFailure(errString(err));
       throw err;
     }
   }
@@ -251,7 +265,7 @@ export class ConnectionOrchestrator extends EventEmitter {
   // global subscriptions, and persistent registrations. Sharing it is what makes a reconnect a true
   // re-handshake (a fresh cookie every time), not a half-restore. Error policy is the caller's: connect()
   // makes a failure terminal, reconnectAttempt() keeps it transient.
-  private async runConnectSequence(): Promise<void> {
+  private async runConnectSequence(epoch: number): Promise<void> {
     this.store.setState('detecting');
     const exists = existsSync(this.options.socketPath);
     this.store.setSocket(this.options.socketPath, exists);
@@ -263,9 +277,16 @@ export class ConnectionOrchestrator extends EventEmitter {
 
     this.store.setState('requesting-cookie');
     this.store.noteCookieRequested();
-    this.credentials = await this.applescript.requestCookieAndKey(
+    const credentials = await this.applescript.requestCookieAndKey(
       this.options.advisoryName,
     );
+    // [LAW:no-ambient-temporal-coupling] Requesting the cookie is the long await where a manual
+    // connect/disconnect can supersede this attempt. If one did, bail before opening the protocol — a
+    // stale attempt must never resurrect a connection the user just dropped or steal a manual connect.
+    if (epoch !== this.connectEpoch) {
+      throw new ProtocolError('connect attempt superseded before handshake');
+    }
+    this.credentials = credentials;
 
     this.store.setState('connecting');
     await this.protocol.connect({
@@ -283,9 +304,11 @@ export class ConnectionOrchestrator extends EventEmitter {
   }
 
   async disconnect(): Promise<void> {
-    // A user disconnect supersedes any reconnect loop: stop retrying before tearing the socket down, so
-    // a pending attempt cannot resurrect the connection the user just asked to drop.
+    // A user disconnect supersedes any reconnect loop: stop retrying, and bump the epoch so an attempt
+    // already in flight bails at its next staleness check instead of resurrecting the connection the
+    // user just asked to drop.
     this.reconnect.cancel();
+    this.connectEpoch += 1;
     this.cancelScreenCoalesce();
     await this.protocol.disconnect();
     this.credentials = null;
