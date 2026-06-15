@@ -448,7 +448,10 @@ export class ConnectionOrchestrator extends EventEmitter {
     this.assertCurrent(epoch, 'after focus watch reconcile');
     await this.subscribeSessionScoped(sessionId);
     this.assertCurrent(epoch, 'after focus resubscribe');
-    await this.fetchScreenBuffer(sessionId);
+    // [LAW:no-ambient-temporal-coupling] fetchScreenBuffer fuses the send and the apply, so the epoch is
+    // threaded in as the staleness check it runs between them: a buffer fetched in a window this attempt
+    // was superseded in is not applied. The outer assertCurrent('after focus restore') still tears down.
+    await this.fetchScreenBuffer(sessionId, false, () => epoch === this.connectEpoch);
   }
 
   async setFocusedVariables(entity: AppEntityRef): Promise<void> {
@@ -1027,7 +1030,16 @@ export class ConnectionOrchestrator extends EventEmitter {
     }
   }
 
-  private async fetchScreenBuffer(sessionId: string, incremental = false): Promise<void> {
+  // [LAW:composability] The caller supplies the staleness policy as a value (`isCurrent`) rather than
+  // this fetch knowing about connect-attempt epochs: the connect sequence passes its epoch check so a
+  // buffer fetched during a window the sequence was superseded in is not applied after a newer attempt
+  // took over, while the focus/refetch callers omit it. The check sits between the send (await) and the
+  // apply (effect) — fetch -> check -> apply — exactly where the rest of the sequence guards its effects.
+  private async fetchScreenBuffer(
+    sessionId: string,
+    incremental = false,
+    isCurrent?: () => boolean,
+  ): Promise<void> {
     if (this.monitor.screen.buffer.sessionId !== sessionId) return;
     const lineRange = incremental
       ? create(LineRangeSchema, { screenContentsOnly: true })
@@ -1042,6 +1054,7 @@ export class ConnectionOrchestrator extends EventEmitter {
       const { message: response } = await this.protocol.send({
         submessage: { case: 'getBufferRequest' as const, value: req },
       });
+      if (isCurrent && !isCurrent()) return; // superseded mid-fetch; the newer attempt owns the screen
       if (response.submessage.case === 'getBufferResponse') {
         const { lines, cursor } = convertGetBuffer(response.submessage.value);
         this.monitor.screen.applyBuffer(sessionId, lines, cursor);
