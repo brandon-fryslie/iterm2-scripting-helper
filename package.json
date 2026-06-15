@@ -63,6 +63,7 @@
     "@vitejs/plugin-react": "^4.7.0",
     "electron": "41.2.1",
     "eslint": "^8.57.1",
+    "eslint-import-resolver-typescript": "^4.4.5",
     "eslint-plugin-import": "^2.32.0",
     "jsdom": "^29.0.2",
     "tailwindcss": "^4.2.2",

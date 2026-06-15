@@ -294,10 +294,14 @@ function EscapeFieldInput({
 }
 
 function humanize(s: string): string {
+  // [LAW:single-enforcer] Matching the literal ESC/BEL/NUL bytes is the whole point here —
+  // rendering control characters as readable escapes — so no-control-regex is a false positive.
+  /* eslint-disable no-control-regex */
   return s
     .replace(/\x1b/g, '\\e')
     .replace(/\x07/g, '\\a')
     .replace(/\x00/g, '\\0');
+  /* eslint-enable no-control-regex */
 }
 
 // [LAW:one-source-of-truth] The hex shown in the preview and the hex sent over inject are the
