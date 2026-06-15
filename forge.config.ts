@@ -1,12 +1,17 @@
 import type { ForgeConfig } from '@electron-forge/shared-types';
 import { MakerSquirrel } from '@electron-forge/maker-squirrel';
 import { MakerZIP } from '@electron-forge/maker-zip';
+import { MakerDMG } from '@electron-forge/maker-dmg';
 import { MakerDeb } from '@electron-forge/maker-deb';
 import { MakerRpm } from '@electron-forge/maker-rpm';
 import { VitePlugin } from '@electron-forge/plugin-vite';
 import { FusesPlugin } from '@electron-forge/plugin-fuses';
 import { FuseV1Options, FuseVersion } from '@electron/fuses';
+import { notarize } from '@electron/notarize';
+import { execFileSync } from 'node:child_process';
 import { resolveMacSigning } from './src/build/macSigning';
+import { planDmgNotarization } from './src/build/dmgNotarization';
+import { selectDeveloperIdApplicationIdentity } from './src/build/signingIdentity';
 
 const macSigning = resolveMacSigning(process.env);
 
@@ -36,9 +41,38 @@ const config: ForgeConfig = {
   makers: [
     new MakerSquirrel({}),
     new MakerZIP({}, ['darwin']),
+    // Wraps the already-signed+notarized .app into a distributable DMG. The DMG itself gets
+    // codesigned + notarized + stapled in the postMake hook below. [LAW:single-enforcer]
+    new MakerDMG({}, ['darwin']),
     new MakerRpm({}),
     new MakerDeb({}),
   ],
+  hooks: {
+    // The package step signs+notarizes+staples the .app; `make` then wraps it into a DMG,
+    // a separate artifact Gatekeeper assesses on its own. An unsigned-but-notarized DMG is
+    // rejected by `spctl -a -t open` ("no usable signature"), so each produced DMG must be
+    // codesigned, then notarized, then stapled — in that order, because signing changes the
+    // DMG's cdhash that notarization is keyed to. [LAW:no-ambient-temporal-coupling]
+    // This boundary owns the whole "make the DMG distributable" effect. [LAW:single-enforcer]
+    postMake: async (_forgeConfig, makeResults) => {
+      const artifacts = makeResults.flatMap((result) => result.artifacts);
+      const tasks = planDmgNotarization(macSigning, artifacts);
+      for (const task of tasks) {
+        const identitySha1 = selectDeveloperIdApplicationIdentity(
+          execFileSync('security', ['find-identity', '-v', '-p', 'codesigning'], { encoding: 'utf8' }),
+          task.notarize.teamId,
+        );
+        console.log(`[forge] codesigning DMG ${task.dmgPath} with ${identitySha1}`);
+        // --timestamp is required for a notarization-grade Developer ID signature.
+        execFileSync('codesign', ['--force', '--timestamp', '--sign', identitySha1, task.dmgPath], {
+          stdio: 'inherit',
+        });
+        console.log(`[forge] notarizing + stapling DMG ${task.dmgPath}`);
+        await notarize({ tool: 'notarytool', appPath: task.dmgPath, ...task.notarize });
+      }
+      return makeResults;
+    },
+  },
   plugins: [
     new VitePlugin({
       // `build` can specify multiple entry builds, which can be Main process, Preload scripts, Worker process, etc.
