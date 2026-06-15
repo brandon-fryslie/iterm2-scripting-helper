@@ -269,6 +269,12 @@ export class ConnectionOrchestrator extends EventEmitter {
   // re-handshake (a fresh cookie every time), not a half-restore. Error policy is the caller's: connect()
   // makes a failure terminal, reconnectAttempt() keeps it transient.
   private async runConnectSequence(epoch: number): Promise<void> {
+    // [LAW:no-ambient-temporal-coupling] Begin from a guaranteed-disconnected protocol. A manual Connect
+    // can land while a reconnect attempt still holds an open socket; tearing it down here lets this
+    // sequence take over immediately instead of racing ProtocolDriver.connect() in 'ready' state. It is a
+    // true no-op when already disconnected (ProtocolDriver.disconnect emits nothing in that branch), so
+    // reconnect attempts — which the controller already serializes one at a time — are unaffected.
+    await this.protocol.disconnect();
     this.store.setState('detecting');
     const exists = existsSync(this.options.socketPath);
     this.store.setSocket(this.options.socketPath, exists);
