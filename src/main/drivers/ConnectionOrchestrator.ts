@@ -283,9 +283,7 @@ export class ConnectionOrchestrator extends EventEmitter {
     // [LAW:no-ambient-temporal-coupling] Requesting the cookie is the long await where a manual
     // connect/disconnect can supersede this attempt. If one did, bail before opening the protocol — a
     // stale attempt must never resurrect a connection the user just dropped or steal a manual connect.
-    if (epoch !== this.connectEpoch) {
-      throw new ProtocolError('connect attempt superseded before handshake');
-    }
+    this.assertCurrent(epoch, 'before handshake');
     this.credentials = credentials;
 
     this.store.setState('connecting');
@@ -296,11 +294,33 @@ export class ConnectionOrchestrator extends EventEmitter {
       cookie: this.credentials.cookie,
       key: this.credentials.key,
     });
-    this.store.syncFromProtocol(this.protocol.getState(), this.protocol.getProtocolVersion());
 
-    await this.refreshLayout();
-    await this.subscribeGlobalNotifications();
-    await this.reregisterPersistent();
+    // [LAW:no-ambient-temporal-coupling] The single post-open cleanup path. Once the ws is open, this
+    // sequence must either reach a fully-ready connection or leave the protocol disconnected — never a
+    // live ws under a thrown sequence, which would poison the next connect with "connect called in state
+    // ready" and stick the reconnect loop. So every exit after the handshake — a supersession caught by
+    // assertCurrent, or a refreshLayout/subscription failure — routes through this catch, which tears the
+    // protocol back down before rethrowing.
+    try {
+      this.assertCurrent(epoch, 'after handshake');
+      this.store.syncFromProtocol(this.protocol.getState(), this.protocol.getProtocolVersion());
+      await this.refreshLayout();
+      this.assertCurrent(epoch, 'after layout');
+      await this.subscribeGlobalNotifications();
+      this.assertCurrent(epoch, 'after subscriptions');
+      await this.reregisterPersistent();
+    } catch (err) {
+      await this.protocol.disconnect().catch(() => void 0);
+      throw err;
+    }
+  }
+
+  // [LAW:no-ambient-temporal-coupling] Throws if a newer connect lifecycle has superseded the one that
+  // captured `epoch`, so a stale in-flight attempt stops driving side effects at the next checkpoint.
+  private assertCurrent(epoch: number, phase: string): void {
+    if (epoch !== this.connectEpoch) {
+      throw new ProtocolError(`connect attempt superseded ${phase}`);
+    }
   }
 
   async disconnect(): Promise<void> {
