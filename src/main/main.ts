@@ -2,6 +2,8 @@ import { app, BrowserWindow } from 'electron';
 import path from 'node:path';
 import { autorun } from 'mobx';
 import started from 'electron-squirrel-startup';
+import { autoUpdater } from 'electron-updater';
+import { resolveUpdaterConfig } from './updaterConfig';
 import { registerIpc, broadcast } from './ipc';
 import { ConnectionStore } from './stores/ConnectionStore';
 import { LayoutStore } from './stores/LayoutStore';
@@ -17,6 +19,27 @@ import { DynamicProfileWatcher } from './drivers/DynamicProfileWatcher';
 
 declare const MAIN_WINDOW_VITE_DEV_SERVER_URL: string | undefined;
 declare const MAIN_WINDOW_VITE_NAME: string;
+// Baked at make time by vite.main.config.mts; empty string when no feed URL was configured.
+declare const WORKBENCH_UPDATE_FEED_URL: string;
+
+// Start checking the static update feed, but only when this build is packaged and carries a
+// feed URL — electron-updater throws outside a packaged app, and a URL-less build has nothing
+// to check. The decision is pure; this boundary performs the effect. [LAW:effects-at-boundaries]
+function startAutoUpdater(): void {
+  const decision = resolveUpdaterConfig({
+    isPackaged: app.isPackaged,
+    feedUrl: WORKBENCH_UPDATE_FEED_URL,
+  });
+  if (decision.kind === 'disabled') {
+    console.log(`[updater] disabled: ${decision.reason}`);
+    return;
+  }
+  autoUpdater.setFeedURL({ provider: 'generic', url: decision.feedUrl });
+  console.log(`[updater] checking ${decision.feedUrl} for updates`);
+  void autoUpdater.checkForUpdates().catch((err: unknown) => {
+    console.error('[updater] update check failed:', err);
+  });
+}
 
 if (started) {
   app.quit();
@@ -140,6 +163,7 @@ app.whenReady().then(() => {
   });
   void dynamicProfileWatcher.start();
   createWindow();
+  startAutoUpdater();
 
   void orchestrator.connect().catch(() => { /* error recorded on store */ });
 

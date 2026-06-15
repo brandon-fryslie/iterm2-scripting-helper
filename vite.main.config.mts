@@ -5,6 +5,12 @@ import { fileURLToPath } from 'node:url';
 const here = path.dirname(fileURLToPath(import.meta.url));
 
 export default defineConfig({
+  // Bake the static update feed URL into the main bundle at make time. A build knows its own
+  // update channel; an empty string (the default when unset) makes autoupdate explicitly
+  // disable itself rather than fail at runtime. [LAW:no-silent-failure]
+  define: {
+    WORKBENCH_UPDATE_FEED_URL: JSON.stringify(process.env.WORKBENCH_UPDATE_FEED_URL ?? ''),
+  },
   build: {
     rollupOptions: {
       // Native optional deps of `ws` — leaving them bundled makes esbuild
