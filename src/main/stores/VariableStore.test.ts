@@ -211,6 +211,34 @@ describe('VariableStore', () => {
       expect(resolution.events.some((e) => e.kind === 'notification')).toBe(false);
     }
   });
+
+  // [LAW:single-enforcer] The reconnect contract: an unsolicited close clears the dead variable values
+  // but keeps the focused-session intent, so the reconnect sequence can re-establish its subscriptions;
+  // a requested disconnect (clearAll) drops the intent too.
+  it('clearValuesPreservingFocus drops values but keeps the focused session', () => {
+    const { store } = makeStore();
+    store.setFocused('session-1');
+    store.setFocusedEntity(SESSION_ENTITY);
+    store.applyDump(SESSION_ENTITY, { 'session.name': 'alpha' }, 5);
+    expect(store.snapshot().variables).toHaveLength(1);
+
+    store.clearValuesPreservingFocus();
+
+    expect(store.focusedSessionId).toBe('session-1');
+    expect(store.snapshot().variables).toHaveLength(0);
+  });
+
+  it('clearAll drops both the values and the focused session', () => {
+    const { store } = makeStore();
+    store.setFocused('session-1');
+    store.setFocusedEntity(SESSION_ENTITY);
+    store.applyDump(SESSION_ENTITY, { 'session.name': 'alpha' }, 5);
+
+    store.clearAll();
+
+    expect(store.focusedSessionId).toBeNull();
+    expect(store.snapshot().variables).toHaveLength(0);
+  });
 });
 
 // applyChange builds a session entity from the scope identifier alone, so window/tab are unknown.

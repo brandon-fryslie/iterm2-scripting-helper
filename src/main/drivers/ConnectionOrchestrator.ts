@@ -46,6 +46,7 @@ import {
   type ProtocolClose,
 } from './ProtocolDriver';
 import { ReconnectController } from './ReconnectController';
+import { CoalescingScheduler } from './CoalescingScheduler';
 import { reconnectDelay } from '../reconnectPolicy';
 import type { ConnectionStore } from '../stores/ConnectionStore';
 import type { LayoutStore } from '../stores/LayoutStore';
@@ -112,8 +113,15 @@ export class ConnectionOrchestrator extends EventEmitter {
     type: NotificationType;
     sessionId: string;
   }> = [];
-  private screenCoalesceTimer: NodeJS.Timeout | null = null;
-  private screenFetchPending = false;
+  // [LAW:no-ambient-temporal-coupling] Single owner of "when to refetch the screen". Screen-update
+  // notifications arrive at up to 60fps; this collapses that burst into at most one buffer refetch per
+  // SCREEN_COALESCE_MS window while guaranteeing the trailing frame is never dropped, so the screen pane
+  // stays bounded under load yet converges to the latest state. The full-fidelity raw frames remain
+  // available through the Wire pane, which records every frame on the spine independently of this.
+  private readonly screenRefetch = new CoalescingScheduler(
+    () => this.refetchFocusedScreen(),
+    SCREEN_COALESCE_MS,
+  );
   // [LAW:no-ambient-temporal-coupling] Single owner of the probe_eval registration lifecycle: the
   // in-flight (or settled) registration promise for this connection. Template probes await it so the
   // function is registered exactly once before the first invoke; it is nulled on close so the next
@@ -196,7 +204,12 @@ export class ConnectionOrchestrator extends EventEmitter {
     );
     this.protocol.on('close', ({ code, reason, requested }: ProtocolClose) => {
       this.monitor.layout.clear();
-      this.monitor.variables.clearAll();
+      // [LAW:single-enforcer] The same `requested` discriminant that owns "reconnect iff unsolicited"
+      // owns "preserve focus iff unsolicited": an unsolicited drop keeps the focused-session intent so
+      // the reconnect sequence re-establishes its session-scoped subscriptions, while a requested
+      // disconnect fully resets it. The intent never outlives the user's decision to stay disconnected.
+      if (requested) this.monitor.variables.clearAll();
+      else this.monitor.variables.clearValuesPreservingFocus();
       this.monitor.appEvents.clear();
       this.monitor.screen.clear();
       // Unlike the other monitor stores, registrations are not blanket-cleared: a close ends the
@@ -208,7 +221,7 @@ export class ConnectionOrchestrator extends EventEmitter {
       this.activeGlobalSubscriptions = [];
       this.activeVariableSubs = [];
       this.sessionScopedSubscriptions = [];
-      this.cancelScreenCoalesce();
+      this.screenRefetch.cancel();
       this.emit('close', { code, reason });
       this.superviseAfterClose(requested);
     });
@@ -330,10 +343,12 @@ export class ConnectionOrchestrator extends EventEmitter {
       await this.subscribeGlobalNotifications();
       this.assertCurrent(epoch, 'after subscriptions');
       await this.reregisterPersistent();
+      this.assertCurrent(epoch, 'after re-registration');
+      await this.restoreFocusedSession(epoch);
       // [LAW:no-ambient-temporal-coupling] Publish 'ready' only after a fully-current restore. Until
       // here the store stays 'connecting', so a superseded attempt never publishes a ready connection the
       // user didn't ask for, and any layout it applied is not yet visible as a ready connection.
-      this.assertCurrent(epoch, 'after re-registration');
+      this.assertCurrent(epoch, 'after focus restore');
       this.store.syncFromProtocol(this.protocol.getState(), this.protocol.getProtocolVersion());
     } catch (err) {
       // [LAW:no-ambient-temporal-coupling] Only tear down if this attempt still owns the protocol. If a
@@ -362,7 +377,7 @@ export class ConnectionOrchestrator extends EventEmitter {
     // asked to drop, then stop retrying. [LAW:no-ambient-temporal-coupling] supersession before release.
     this.connectEpoch += 1;
     this.reconnect.cancel();
-    this.cancelScreenCoalesce();
+    this.screenRefetch.cancel();
     await this.protocol.disconnect();
     this.credentials = null;
   }
@@ -399,6 +414,36 @@ export class ConnectionOrchestrator extends EventEmitter {
 
     await this.subscribeSessionScoped(sessionId);
     await this.fetchScreenBuffer(sessionId).catch(() => void 0);
+  }
+
+  // [LAW:single-enforcer] The focused session's session-scoped subscriptions (keystroke, prompt,
+  // screen-update) and its screen buffer are connection-scoped state, like persistent registrations: a
+  // reconnect must re-establish them or those streams stay dead until the user re-focuses. This re-runs
+  // the establish half of setFocusedSession for the focus that survived an unsolicited close (there is
+  // nothing to tear down — the close already cleared the old wire subscriptions). It runs inside
+  // runConnectSequence before 'ready', so every await is epoch-guarded (fetch -> assertCurrent ->
+  // apply): a superseded attempt applies nothing, exactly as the rest of the sequence does. A genuine
+  // fetch failure is non-fatal and represented (emit 'error' / noteFetchFailed), never swallowed.
+  private async restoreFocusedSession(epoch: number): Promise<void> {
+    const sessionId = this.monitor.variables.focusedSessionId;
+    if (!sessionId) return;
+    this.monitor.screen.setFocused(sessionId);
+
+    const dump = await this.fetchAllVariablesForSession(sessionId).catch((err) => {
+      // [LAW:no-silent-failure] A genuine dump failure on the current connection is surfaced; but a
+      // rejection caused by a newer attempt tearing this protocol down is not a failure to report — the
+      // assertCurrent below turns that into the supersession it actually is.
+      if (epoch === this.connectEpoch) this.emit('error', err);
+      return null;
+    });
+    this.assertCurrent(epoch, 'after focus var dump');
+    if (dump) this.monitor.variables.applyDump(sessionVariableEntity(sessionId), dump.dict, dump.frameSeq);
+
+    await this.reconcileWatchSubscriptions(sessionId);
+    this.assertCurrent(epoch, 'after focus watch reconcile');
+    await this.subscribeSessionScoped(sessionId);
+    this.assertCurrent(epoch, 'after focus resubscribe');
+    await this.fetchScreenBuffer(sessionId);
   }
 
   async setFocusedVariables(entity: AppEntityRef): Promise<void> {
@@ -843,7 +888,7 @@ export class ConnectionOrchestrator extends EventEmitter {
     }
     this.activeVariableSubs = [];
     this.sessionScopedSubscriptions = [];
-    this.cancelScreenCoalesce();
+    this.screenRefetch.cancel();
   }
 
   private async sendNotificationRequest(
@@ -1008,27 +1053,14 @@ export class ConnectionOrchestrator extends EventEmitter {
     }
   }
 
-  private scheduleScreenRefetch(sessionId: string): void {
-    if (this.monitor.screen.buffer.sessionId !== sessionId) return;
-    if (this.screenCoalesceTimer) return;
-    this.screenCoalesceTimer = setTimeout(() => {
-      this.screenCoalesceTimer = null;
-      if (this.screenFetchPending) return;
-      this.screenFetchPending = true;
-      this.fetchScreenBuffer(sessionId, true)
-        .catch(() => void 0)
-        .finally(() => {
-          this.screenFetchPending = false;
-        });
-    }, SCREEN_COALESCE_MS);
-  }
-
-  private cancelScreenCoalesce(): void {
-    if (this.screenCoalesceTimer) {
-      clearTimeout(this.screenCoalesceTimer);
-      this.screenCoalesceTimer = null;
-    }
-    this.screenFetchPending = false;
+  // [LAW:dataflow-not-control-flow] Always refetch whatever session the screen pane is focused on now;
+  // the scheduler decides *when*, this decides *what*. Reading the focused session at fire time (not
+  // capturing it at request time) means a focus change between a notification and its coalesced refetch
+  // resolves to the current pane, and fetchScreenBuffer's own session guard drops a stale fetch.
+  private async refetchFocusedScreen(): Promise<void> {
+    const sessionId = this.monitor.screen.buffer.sessionId;
+    if (!sessionId) return;
+    await this.fetchScreenBuffer(sessionId, true).catch(() => void 0);
   }
 
   private routeNotification(n: Notification, frameSeq: number, causeSeq: number): void {
@@ -1055,7 +1087,7 @@ export class ConnectionOrchestrator extends EventEmitter {
     if (n.screenUpdateNotification) {
       const session = n.screenUpdateNotification.session;
       if (session && this.monitor.screen.buffer.sessionId === session) {
-        this.scheduleScreenRefetch(session);
+        this.screenRefetch.request();
       }
     }
     if (n.customEscapeSequenceNotification) {

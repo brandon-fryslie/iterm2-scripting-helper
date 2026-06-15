@@ -148,6 +148,15 @@ export class VariableStore {
     this.focusedEntity = APP_ENTITY;
   }
 
+  // [LAW:one-source-of-truth] A connection close ends the current era's variable *values* — every dump
+  // reads dead — but the focused session/entity is the user's standing intent, with the same survival
+  // semantics as a persistent registration (449.6.4): it outlives the connection so the reconnect
+  // sequence can re-establish its session-scoped subscriptions. An unsolicited drop preserves focus this
+  // way; a requested disconnect uses clearAll() to fully reset, since the user is done with the session era.
+  clearValuesPreservingFocus(): void {
+    this.byFocus.clear();
+  }
+
   snapshot(): VariableSnapshot {
     const map = this.byFocus.get(variableFocusKey(this.focusedEntity));
     if (!map) return { entity: this.focusedEntity, variables: [] };
