@@ -47,11 +47,15 @@ export class ConnectionStore {
     this.lastError = classifyConnectionFailure(message);
   }
 
+  // [LAW:single-enforcer] The protocol-driven transition routes through setState, the one place the
+  // "a healthy state carries no lastError" invariant lives. Without this, syncFromProtocol could publish
+  // 'ready' while a prior reconnect failure still rode lastError — a connected connection showing an
+  // error, an incoherent representation. [FRAMING:representation]
   syncFromProtocol(protoState: ProtocolState, protocolVersion: string): void {
     this.protocolVersion = protocolVersion;
-    if (protoState === 'disconnected') this.state = 'idle';
-    else if (protoState === 'connecting') this.state = 'connecting';
-    else if (protoState === 'ready') this.state = 'ready';
+    if (protoState === 'disconnected') this.setState('idle');
+    else if (protoState === 'connecting') this.setState('connecting');
+    else if (protoState === 'ready') this.setState('ready');
   }
 
   noteCookieRequested(): void {

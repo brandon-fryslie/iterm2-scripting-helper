@@ -228,6 +228,10 @@ export class ConnectionOrchestrator extends EventEmitter {
   // from timing — the one place the "reconnect iff unsolicited" policy lives. [LAW:single-enforcer]
   private superviseAfterClose(requested: boolean): void {
     if (requested) return;
+    // [LAW:no-ambient-temporal-coupling] Reconnect supervision is taking over; invalidate any in-flight
+    // manual connect so its eventual failure cannot overwrite this 'reconnecting' state with a terminal
+    // 'error' the user can no longer act on.
+    this.connectEpoch += 1;
     this.store.setState('reconnecting');
     this.reconnect.start();
   }
