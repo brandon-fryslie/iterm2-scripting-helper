@@ -22,6 +22,7 @@ import {
   InvokeFunctionRequest_WindowSchema,
   InvokeFunctionResponse_Status,
   NotificationType,
+  NotificationResponse_Status,
   VariableScope,
   VariableResponse_Status,
   PromptMonitorMode,
@@ -923,11 +924,12 @@ export class ConnectionOrchestrator extends EventEmitter {
     const { message: response } = await this.protocol.send({
       submessage: { case: 'notificationRequest' as const, value: req },
     });
-    if (response.submessage.case === 'error') {
-      throw new ProtocolError(
-        `subscribe(${NotificationType[type]}) failed: ${response.submessage.value}`,
-      );
-    }
+    // [LAW:effects-at-boundaries] The send is the effect; the verdict is a pure classification, thrown
+    // here at the boundary. [LAW:single-enforcer] This is the one place every monitor/registration
+    // (un)subscribe — global, session-scoped, variable watch, RPC registration, custom escape — learns
+    // whether iTerm2 accepted it, so the refusal check lives here and nowhere else.
+    const refusal = notificationRefusal(response, type, subscribe);
+    if (refusal !== null) throw new ProtocolError(refusal);
   }
 
   // [LAW:no-ambient-temporal-coupling] Single owner of variable-subscription lifecycle. Idempotent:
@@ -1250,6 +1252,32 @@ function errString(err: unknown): string {
   if (err instanceof AppleScriptError || err instanceof ProtocolError) return err.message;
   if (err instanceof Error) return err.message;
   return String(err);
+}
+
+// [LAW:no-silent-failure] iTerm2 confirms every (un)subscribe with a NotificationResponse.status;
+// transport delivery is not subscription success. A non-OK status (SESSION_NOT_FOUND,
+// ALREADY_SUBSCRIBED, NOT_SUBSCRIBED, DUPLICATE_SERVER_ORIGINATED_RPC, INVALID_IDENTIFIER,
+// REQUEST_MALFORMED) is a refusal every subscribe path was trusting as success — surface it as the
+// named status. [LAW:effects-at-boundaries] Pure verdict, no IO: the caller awaits the send and throws
+// this, the same decision/effect split tmuxStatusError makes for action responses. Returns the error
+// string, or null when iTerm2 accepted the request.
+export function notificationRefusal(
+  response: ServerOriginatedMessage,
+  type: NotificationType,
+  subscribe: boolean,
+): string | null {
+  const what = `${subscribe ? 'subscribe' : 'unsubscribe'}(${NotificationType[type]})`;
+  if (response.submessage.case === 'error') {
+    return `${what} failed: ${response.submessage.value}`;
+  }
+  if (response.submessage.case !== 'notificationResponse') {
+    return `${what} got unexpected response: ${response.submessage.case ?? '<none>'}`;
+  }
+  const status = response.submessage.value.status;
+  if (status !== NotificationResponse_Status.OK) {
+    return `${what} refused: ${NotificationResponse_Status[status] ?? status}`;
+  }
+  return null;
 }
 
 function variableRequestScope(entity: AppEntityRef):
