@@ -6,10 +6,31 @@ import { MakerRpm } from '@electron-forge/maker-rpm';
 import { VitePlugin } from '@electron-forge/plugin-vite';
 import { FusesPlugin } from '@electron-forge/plugin-fuses';
 import { FuseV1Options, FuseVersion } from '@electron/fuses';
+import { resolveMacSigning } from './src/build/macSigning';
+
+const macSigning = resolveMacSigning(process.env);
+
+// Make the resolved signing mode observable rather than letting an unsigned release
+// slip out unnoticed. [LAW:no-silent-failure]
+console.log(
+  macSigning.kind === 'signed'
+    ? `[forge] macOS signing ENABLED — notarizing as ${macSigning.notarize.appleId} (team ${macSigning.notarize.teamId})`
+    : '[forge] macOS signing DISABLED — no Apple credentials in env; producing an unsigned build',
+);
+
+// osxSign with default options uses @electron/osx-sign's built-in, Electron-aware
+// entitlements and enables the hardened runtime — a notarization prerequisite.
+// Notarization requires a signed app, so both keys appear together or neither does.
+const macCodesign =
+  macSigning.kind === 'signed'
+    ? { osxSign: {}, osxNotarize: macSigning.notarize }
+    : {};
 
 const config: ForgeConfig = {
   packagerConfig: {
     asar: true,
+    appBundleId: 'com.brandonfryslie.iterm2-scripting-workbench',
+    ...macCodesign,
   },
   rebuildConfig: {},
   makers: [
