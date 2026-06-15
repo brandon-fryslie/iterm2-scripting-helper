@@ -318,12 +318,19 @@ export class ConnectionOrchestrator extends EventEmitter {
     // protocol back down before rethrowing.
     try {
       this.assertCurrent(epoch, 'after handshake');
-      this.store.syncFromProtocol(this.protocol.getState(), this.protocol.getProtocolVersion());
-      await this.refreshLayout();
+      // Fetch then check then apply: a stale attempt must not apply a layout after a newer connect took
+      // over, so the epoch is re-checked between the fetch (an await) and the apply (the effect).
+      const layout = await this.fetchLayout();
       this.assertCurrent(epoch, 'after layout');
+      if (layout) this.monitor.layout.apply(layout);
       await this.subscribeGlobalNotifications();
       this.assertCurrent(epoch, 'after subscriptions');
       await this.reregisterPersistent();
+      // [LAW:no-ambient-temporal-coupling] Publish 'ready' only after a fully-current restore. Until
+      // here the store stays 'connecting', so a superseded attempt never publishes a ready connection the
+      // user didn't ask for, and any layout it applied is not yet visible as a ready connection.
+      this.assertCurrent(epoch, 'after re-registration');
+      this.store.syncFromProtocol(this.protocol.getState(), this.protocol.getProtocolVersion());
     } catch (err) {
       // [LAW:no-ambient-temporal-coupling] Only tear down if this attempt still owns the protocol. If a
       // newer connect has superseded it — and may have already reopened the socket — disconnecting here
@@ -723,7 +730,15 @@ export class ConnectionOrchestrator extends EventEmitter {
   }
 
   async refreshLayout(): Promise<void> {
-    if (this.protocol.getState() !== 'ready') return;
+    const layout = await this.fetchLayout();
+    if (layout) this.monitor.layout.apply(layout);
+  }
+
+  // [LAW:effects-at-boundaries] Fetch the layout without applying it, so the connect sequence can insert
+  // an epoch check between the fetch (an await) and the apply (the effect). The public refreshLayout
+  // applies immediately; the reconnect path applies only if still current.
+  private async fetchLayout(): Promise<ReturnType<typeof convertLayout> | null> {
+    if (this.protocol.getState() !== 'ready') return null;
 
     const { message: response } = await this.protocol.send({
       submessage: {
@@ -732,12 +747,12 @@ export class ConnectionOrchestrator extends EventEmitter {
       },
     });
     if (response.submessage.case === 'listSessionsResponse') {
-      this.monitor.layout.apply(convertLayout(response.submessage.value));
-      return;
+      return convertLayout(response.submessage.value);
     }
     if (response.submessage.case === 'error') {
       throw new ProtocolError(response.submessage.value);
     }
+    return null;
   }
 
   private async subscribeGlobalNotifications(): Promise<void> {

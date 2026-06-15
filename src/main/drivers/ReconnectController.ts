@@ -68,6 +68,10 @@ export class ReconnectController {
     if (generation !== this.generation) return; // canceled/restarted during the wait
     try {
       await this.attempt();
+      // A stale attempt can resolve after its loop was canceled and a new one started; cancelling here
+      // would tear down that newer loop. Only stop the controller when this success owns the current
+      // generation.
+      if (generation !== this.generation) return;
       this.cancel(); // success: stop the loop, reset the backoff
     } catch {
       // [LAW:no-silent-failure] The attempt is responsible for surfacing why it failed; the controller
