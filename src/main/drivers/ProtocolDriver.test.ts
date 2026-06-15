@@ -4,7 +4,7 @@ import http from 'node:http';
 import path from 'node:path';
 import os from 'node:os';
 import { mkdirSync, mkdtempSync, readdirSync, rmSync } from 'node:fs';
-import { ProtocolDriver } from './ProtocolDriver';
+import { ProtocolDriver, type ProtocolClose } from './ProtocolDriver';
 
 // The production socket lives at "~/Library/Application Support/iTerm2/private/socket" — a path with a
 // space. `ws` derives its connect target from `parsedUrl.pathname`, which percent-encodes that space to
@@ -29,6 +29,9 @@ describe('ProtocolDriver ws+unix Application Support workaround', () => {
   let socketPath: string;
   let httpServer: http.Server;
   let wss: WebSocketServer;
+  // The server-side end of each accepted connection, so a test can drop one server-side to simulate
+  // iTerm2 quitting while the listening socket stays up for the reconnect.
+  let serverSockets: WebSocket[];
 
   beforeEach(async () => {
     base = mkdtempSync(path.join(os.tmpdir(), 'wb-sock-'));
@@ -37,6 +40,8 @@ describe('ProtocolDriver ws+unix Application Support workaround', () => {
 
     httpServer = http.createServer();
     wss = new WebSocketServer({ server: httpServer });
+    serverSockets = [];
+    wss.on('connection', (socket) => serverSockets.push(socket));
     // iTerm2 reports its protocol version in the upgrade response; mirror that so the driver has a real
     // header to capture.
     wss.on('headers', (headers) => headers.push('x-iterm2-protocol-version: 1.7'));
@@ -92,6 +97,59 @@ describe('ProtocolDriver ws+unix Application Support workaround', () => {
     const driver = new ProtocolDriver();
     await driver.connect(connectOptions());
     expect(helperSymlinks()).toHaveLength(1);
+
+    await driver.disconnect();
+    expect(helperSymlinks()).toHaveLength(0);
+  });
+
+  // The reconnect decision turns entirely on `requested`: an iTerm2 quit is unsolicited (reconnect),
+  // a disconnect() is requested (stay down). Pin both at the source the orchestrator reads.
+  it('reports an unsolicited server-side drop as requested=false', async () => {
+    const driver = new ProtocolDriver();
+    await driver.connect(connectOptions());
+
+    const closed = new Promise<ProtocolClose>((resolve) => driver.once('close', resolve));
+    serverSockets[serverSockets.length - 1].close();
+    const event = await closed;
+
+    expect(event.requested).toBe(false);
+    expect(driver.getState()).toBe('disconnected');
+  });
+
+  it('reports a client disconnect() as requested=true', async () => {
+    const driver = new ProtocolDriver();
+    await driver.connect(connectOptions());
+
+    const closed = new Promise<ProtocolClose>((resolve) => driver.once('close', resolve));
+    await driver.disconnect();
+    const event = await closed;
+
+    expect(event.requested).toBe(true);
+  });
+
+  // The transport supports the iTerm2-restart cycle deterministically: drop the connection server-side,
+  // the driver returns to 'disconnected' with no leaked symlink, and a fresh connect lands 'ready' —
+  // repeated, so a symlink minted per connection is always reclaimed before the next.
+  it('reconnects through repeated server-side drops with no leaked symlink across cycles', async () => {
+    const driver = new ProtocolDriver();
+    await driver.connect(connectOptions());
+    expect(driver.getState()).toBe('ready');
+    expect(helperSymlinks()).toHaveLength(1);
+
+    for (let cycle = 0; cycle < 3; cycle += 1) {
+      const closed = new Promise<ProtocolClose>((resolve) => driver.once('close', resolve));
+      serverSockets[serverSockets.length - 1].close();
+      const event = await closed;
+
+      expect(event.requested).toBe(false);
+      expect(driver.getState()).toBe('disconnected');
+      expect(helperSymlinks()).toHaveLength(0);
+
+      const info = await driver.connect(connectOptions());
+      expect(driver.getState()).toBe('ready');
+      expect(info.protocolVersion).toBe('1.7');
+      expect(helperSymlinks()).toHaveLength(1);
+    }
 
     await driver.disconnect();
     expect(helperSymlinks()).toHaveLength(0);

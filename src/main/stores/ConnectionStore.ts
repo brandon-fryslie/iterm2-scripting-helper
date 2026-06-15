@@ -38,6 +38,15 @@ export class ConnectionStore {
     this.lastError = classifyConnectionFailure(message);
   }
 
+  // [LAW:no-silent-failure] A failed reconnect *attempt* — distinct from setError. The supervisor is
+  // still retrying without user action, so the state stays the transient 'reconnecting' (not the
+  // terminal 'error' a user must clear) while the latest reason rides on lastError so the failure is
+  // surfaced, never swallowed. Assigns directly rather than via setState, which would clear lastError.
+  noteReconnectFailure(message: string): void {
+    this.state = 'reconnecting';
+    this.lastError = classifyConnectionFailure(message);
+  }
+
   syncFromProtocol(protoState: ProtocolState, protocolVersion: string): void {
     this.protocolVersion = protocolVersion;
     if (protoState === 'disconnected') this.state = 'idle';

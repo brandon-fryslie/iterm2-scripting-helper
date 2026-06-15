@@ -43,7 +43,10 @@ import {
   ProtocolError,
   type WireFrame,
   type ProtocolNotification,
+  type ProtocolClose,
 } from './ProtocolDriver';
+import { ReconnectController } from './ReconnectController';
+import { reconnectDelay } from '../reconnectPolicy';
 import type { ConnectionStore } from '../stores/ConnectionStore';
 import type { LayoutStore } from '../stores/LayoutStore';
 import type { VariableStore } from '../stores/VariableStore';
@@ -116,6 +119,13 @@ export class ConnectionOrchestrator extends EventEmitter {
   // function is registered exactly once before the first invoke; it is nulled on close so the next
   // connection re-registers, and on failure so a later probe retries.
   private probeRegistration: Promise<void> | null = null;
+  // [LAW:no-ambient-temporal-coupling] The single owner of reconnect timing. The orchestrator owns the
+  // connect sequence (cookie + protocol + subscriptions + re-register); this owns *when* to re-run it
+  // after an unsolicited drop. Separating the two keeps the retry loop testable apart from osascript.
+  private readonly reconnect = new ReconnectController(
+    () => this.reconnectAttempt(),
+    reconnectDelay,
+  );
 
   constructor(
     private readonly store: ConnectionStore,
@@ -178,7 +188,7 @@ export class ConnectionOrchestrator extends EventEmitter {
     this.protocol.on('state', () =>
       this.store.syncFromProtocol(this.protocol.getState(), this.protocol.getProtocolVersion()),
     );
-    this.protocol.on('close', ({ code, reason }) => {
+    this.protocol.on('close', ({ code, reason, requested }: ProtocolClose) => {
       this.monitor.layout.clear();
       this.monitor.variables.clearAll();
       this.monitor.appEvents.clear();
@@ -194,6 +204,15 @@ export class ConnectionOrchestrator extends EventEmitter {
       this.sessionScopedSubscriptions = [];
       this.cancelScreenCoalesce();
       this.emit('close', { code, reason });
+      // [LAW:no-ambient-temporal-coupling] An unsolicited drop (iTerm2 quit/restarted) hands the
+      // reconnect lifecycle to its single owner; a requested disconnect (user, or app quit) does not —
+      // they asked to stop, so we stay idle. `requested` is the represented fact, never inferred from
+      // timing. The state goes to the transient 'reconnecting' so the renderer shows recovery, not idle,
+      // while the supervisor re-handshakes without user action.
+      if (!requested) {
+        this.store.setState('reconnecting');
+        this.reconnect.start();
+      }
     });
     this.protocol.on('error', (err) => {
       this.store.setError(errString(err));
@@ -201,43 +220,72 @@ export class ConnectionOrchestrator extends EventEmitter {
     });
   }
 
+  // A user-initiated connect. It supersedes any auto-reconnect loop in flight (clicking Connect cancels
+  // the backoff and connects now) and reports a failure as the terminal 'error' state — the user asked,
+  // so the user is told. The reconnect path runs the same sequence but keeps trying on failure.
   async connect(): Promise<void> {
+    this.reconnect.cancel();
     try {
-      this.store.setState('detecting');
-      const exists = existsSync(this.options.socketPath);
-      this.store.setSocket(this.options.socketPath, exists);
-      if (!exists) {
-        throw new ProtocolError(
-          `iTerm2 private socket not found at ${this.options.socketPath}. Is iTerm2 running?`,
-        );
-      }
-
-      this.store.setState('requesting-cookie');
-      this.store.noteCookieRequested();
-      this.credentials = await this.applescript.requestCookieAndKey(
-        this.options.advisoryName,
-      );
-
-      this.store.setState('connecting');
-      await this.protocol.connect({
-        socketPath: this.options.socketPath,
-        advisoryName: this.options.advisoryName,
-        libraryVersion: this.options.libraryVersion,
-        cookie: this.credentials.cookie,
-        key: this.credentials.key,
-      });
-      this.store.syncFromProtocol(this.protocol.getState(), this.protocol.getProtocolVersion());
-
-      await this.refreshLayout();
-      await this.subscribeGlobalNotifications();
-      await this.reregisterPersistent();
+      await this.runConnectSequence();
     } catch (err) {
       this.store.setError(errString(err));
       throw err;
     }
   }
 
+  // One unsolicited-drop recovery attempt, run by the reconnect supervisor. [LAW:no-silent-failure] A
+  // failed attempt records its reason on the snapshot and stays in 'reconnecting' (the supervisor will
+  // re-arm), rather than surfacing a terminal error; it rethrows so the controller schedules the next
+  // attempt with the next backoff.
+  private async reconnectAttempt(): Promise<void> {
+    try {
+      await this.runConnectSequence();
+    } catch (err) {
+      this.store.noteReconnectFailure(errString(err));
+      throw err;
+    }
+  }
+
+  // [LAW:single-enforcer] The one connect sequence both an initial/manual connect and a reconnect
+  // attempt run — detect the socket, request a fresh cookie, open the protocol, then restore layout,
+  // global subscriptions, and persistent registrations. Sharing it is what makes a reconnect a true
+  // re-handshake (a fresh cookie every time), not a half-restore. Error policy is the caller's: connect()
+  // makes a failure terminal, reconnectAttempt() keeps it transient.
+  private async runConnectSequence(): Promise<void> {
+    this.store.setState('detecting');
+    const exists = existsSync(this.options.socketPath);
+    this.store.setSocket(this.options.socketPath, exists);
+    if (!exists) {
+      throw new ProtocolError(
+        `iTerm2 private socket not found at ${this.options.socketPath}. Is iTerm2 running?`,
+      );
+    }
+
+    this.store.setState('requesting-cookie');
+    this.store.noteCookieRequested();
+    this.credentials = await this.applescript.requestCookieAndKey(
+      this.options.advisoryName,
+    );
+
+    this.store.setState('connecting');
+    await this.protocol.connect({
+      socketPath: this.options.socketPath,
+      advisoryName: this.options.advisoryName,
+      libraryVersion: this.options.libraryVersion,
+      cookie: this.credentials.cookie,
+      key: this.credentials.key,
+    });
+    this.store.syncFromProtocol(this.protocol.getState(), this.protocol.getProtocolVersion());
+
+    await this.refreshLayout();
+    await this.subscribeGlobalNotifications();
+    await this.reregisterPersistent();
+  }
+
   async disconnect(): Promise<void> {
+    // A user disconnect supersedes any reconnect loop: stop retrying before tearing the socket down, so
+    // a pending attempt cannot resurrect the connection the user just asked to drop.
+    this.reconnect.cancel();
     this.cancelScreenCoalesce();
     await this.protocol.disconnect();
     this.credentials = null;
