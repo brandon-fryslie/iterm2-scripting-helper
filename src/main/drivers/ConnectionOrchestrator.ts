@@ -1065,7 +1065,10 @@ export class ConnectionOrchestrator extends EventEmitter {
   private async refetchFocusedScreen(): Promise<void> {
     const sessionId = this.monitor.screen.buffer.sessionId;
     if (!sessionId) return;
-    await this.fetchScreenBuffer(sessionId, true).catch(() => void 0);
+    // [LAW:no-silent-failure] No swallow here: fetchScreenBuffer wraps its protocol call in try/catch and
+    // surfaces every failure (noteFetchFailed on the store + emit 'error'), so it never rejects and the
+    // failure is already reported. A blanket .catch would only hide an unexpected rejection.
+    await this.fetchScreenBuffer(sessionId, true);
   }
 
   private routeNotification(n: Notification, frameSeq: number, causeSeq: number): void {
