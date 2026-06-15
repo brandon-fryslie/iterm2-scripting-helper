@@ -319,7 +319,14 @@ export class ConnectionOrchestrator extends EventEmitter {
       this.assertCurrent(epoch, 'after subscriptions');
       await this.reregisterPersistent();
     } catch (err) {
-      await this.protocol.disconnect().catch(() => void 0);
+      // [LAW:no-ambient-temporal-coupling] Only tear down if this attempt still owns the protocol. If a
+      // newer connect has superseded it — and may have already reopened the socket — disconnecting here
+      // would destroy that fresh connection; the new owner is responsible for the protocol. Nothing
+      // leaks, because the superseding op begins with its own disconnect-first, which reclaims this
+      // attempt's socket.
+      if (epoch === this.connectEpoch) {
+        await this.protocol.disconnect().catch(() => void 0);
+      }
       throw err;
     }
   }
