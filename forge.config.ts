@@ -9,11 +9,28 @@ import { FusesPlugin } from '@electron-forge/plugin-fuses';
 import { FuseV1Options, FuseVersion } from '@electron/fuses';
 import { notarize } from '@electron/notarize';
 import { execFileSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
+import { readFileSync, writeFileSync } from 'node:fs';
+import path from 'node:path';
 import { resolveMacSigning } from './src/build/macSigning';
 import { planDmgNotarization } from './src/build/dmgNotarization';
 import { selectDeveloperIdApplicationIdentity } from './src/build/signingIdentity';
+import { buildLatestMacYml, planUpdateFeed } from './src/build/updateFeed';
 
 const macSigning = resolveMacSigning(process.env);
+
+// The update manifest stamps the version it advertises; an absent version would mint a feed
+// that promises an update to nothing, so surface it loudly rather than emitting "undefined".
+// [LAW:no-silent-failure]
+function readProjectVersion(): string {
+  const raw = JSON.parse(readFileSync(path.join(process.cwd(), 'package.json'), 'utf8')) as {
+    version?: unknown;
+  };
+  if (typeof raw.version !== 'string' || raw.version.length === 0) {
+    throw new Error('package.json has no version; cannot build an update feed manifest');
+  }
+  return raw.version;
+}
 
 // Make the resolved signing mode observable rather than letting an unsigned release
 // slip out unnoticed. [LAW:no-silent-failure]
@@ -70,7 +87,29 @@ const config: ForgeConfig = {
         console.log(`[forge] notarizing + stapling DMG ${task.dmgPath}`);
         await notarize({ tool: 'notarytool', appPath: task.dmgPath, ...task.notarize });
       }
-      return makeResults;
+
+      // Emit electron-updater's static feed manifest next to each macOS .zip. The manifest is
+      // derived from the zip — its sha512 and size are measured here, at the boundary that owns
+      // the file IO — while the manifest's shape is decided by the pure planner/serializer.
+      // [LAW:effects-at-boundaries] [LAW:single-enforcer]
+      const version = readProjectVersion();
+      const releaseDate = new Date().toISOString();
+      return makeResults.map((result) => {
+        const manifests = planUpdateFeed(result.artifacts).map((plan) => {
+          const bytes = readFileSync(plan.zipPath);
+          const yml = buildLatestMacYml({
+            version,
+            fileName: path.basename(plan.zipPath),
+            sha512: createHash('sha512').update(bytes).digest('base64'),
+            size: bytes.byteLength,
+            releaseDate,
+          });
+          writeFileSync(plan.ymlPath, yml);
+          console.log(`[forge] wrote update feed manifest ${plan.ymlPath}`);
+          return plan.ymlPath;
+        });
+        return { ...result, artifacts: [...result.artifacts, ...manifests] };
+      });
     },
   },
   plugins: [
