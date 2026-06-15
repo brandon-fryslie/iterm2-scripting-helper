@@ -18,12 +18,26 @@ export type FixtureApplyResult =
   | { ok: true; eventCount: number }
   | { ok: false; error: string };
 
-// Connecting or connected: a live connection still owns and mutates the spine, so restoring a fixture
-// into it would interleave recorded and live events. Replay is therefore "replay-only" — it requires a
-// torn-down connection. 'idle' (never connected / cleanly disconnected) and 'error' (a failed connect,
-// the literal state of a machine with no iTerm2) are the states a fixture may be loaded into.
+// Connecting, connected, or auto-reconnecting: such a connection still owns and mutates the spine
+// (a reconnect attempt re-handshakes — refreshLayout, subscriptions, re-registration all append events),
+// so restoring a fixture into it would interleave recorded and live events. Replay is therefore
+// "replay-only" — it requires a torn-down connection. 'idle' (never connected / cleanly disconnected)
+// and 'error' (a failed connect, the literal state of a machine with no iTerm2) are the states a fixture
+// may be loaded into. [LAW:types-are-the-program] Liveness is classified exhaustively over the union, so
+// a state added to ConnectionState is a compile error here until its spine-ownership is decided — the
+// gate can never silently drift from the union again, which is exactly how 'reconnecting' slipped in.
 function isLive(state: ConnectionState): boolean {
-  return state === 'detecting' || state === 'requesting-cookie' || state === 'connecting' || state === 'ready';
+  switch (state) {
+    case 'detecting':
+    case 'requesting-cookie':
+    case 'connecting':
+    case 'ready':
+    case 'reconnecting':
+      return true;
+    case 'idle':
+    case 'error':
+      return false;
+  }
 }
 
 // Serialize the current spine, or a seq sub-range of it, to NDJSON. A span filters by the inclusive

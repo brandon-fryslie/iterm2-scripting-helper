@@ -84,6 +84,7 @@ describe('RpcSchema', () => {
       | 'requesting-cookie'
       | 'connecting'
       | 'ready'
+      | 'reconnecting'
       | 'error'
     >();
     expectTypeOf(s.protocolVersion).toEqualTypeOf<string>();

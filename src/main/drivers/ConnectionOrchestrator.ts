@@ -43,7 +43,10 @@ import {
   ProtocolError,
   type WireFrame,
   type ProtocolNotification,
+  type ProtocolClose,
 } from './ProtocolDriver';
+import { ReconnectController } from './ReconnectController';
+import { reconnectDelay } from '../reconnectPolicy';
 import type { ConnectionStore } from '../stores/ConnectionStore';
 import type { LayoutStore } from '../stores/LayoutStore';
 import type { VariableStore } from '../stores/VariableStore';
@@ -116,6 +119,19 @@ export class ConnectionOrchestrator extends EventEmitter {
   // function is registered exactly once before the first invoke; it is nulled on close so the next
   // connection re-registers, and on failure so a later probe retries.
   private probeRegistration: Promise<void> | null = null;
+  // [LAW:no-ambient-temporal-coupling] The single owner of reconnect timing. The orchestrator owns the
+  // connect sequence (cookie + protocol + subscriptions + re-register); this owns *when* to re-run it
+  // after an unsolicited drop. Separating the two keeps the retry loop testable apart from osascript.
+  private readonly reconnect = new ReconnectController(
+    () => this.reconnectAttempt(),
+    reconnectDelay,
+  );
+  // [LAW:no-ambient-temporal-coupling] The single owner of "which connect attempt is current". Every
+  // connect lifecycle — manual connect, manual disconnect, and each auto-reconnect attempt — bumps it. A
+  // connect sequence captures its epoch and abandons all further effects the moment a newer one
+  // supersedes it, so a slow in-flight reconnect attempt can neither flip connection state out from
+  // under a manual connect/disconnect nor resurrect a connection the user just dropped.
+  private connectEpoch = 0;
 
   constructor(
     private readonly store: ConnectionStore,
@@ -178,7 +194,7 @@ export class ConnectionOrchestrator extends EventEmitter {
     this.protocol.on('state', () =>
       this.store.syncFromProtocol(this.protocol.getState(), this.protocol.getProtocolVersion()),
     );
-    this.protocol.on('close', ({ code, reason }) => {
+    this.protocol.on('close', ({ code, reason, requested }: ProtocolClose) => {
       this.monitor.layout.clear();
       this.monitor.variables.clearAll();
       this.monitor.appEvents.clear();
@@ -194,6 +210,7 @@ export class ConnectionOrchestrator extends EventEmitter {
       this.sessionScopedSubscriptions = [];
       this.cancelScreenCoalesce();
       this.emit('close', { code, reason });
+      this.superviseAfterClose(requested);
     });
     this.protocol.on('error', (err) => {
       this.store.setError(errString(err));
@@ -201,43 +218,150 @@ export class ConnectionOrchestrator extends EventEmitter {
     });
   }
 
+  // A user-initiated connect. It supersedes any auto-reconnect loop in flight (clicking Connect cancels
+  // the backoff and connects now) and reports a failure as the terminal 'error' state — the user asked,
+  // so the user is told. The reconnect path runs the same sequence but keeps trying on failure.
+  // [LAW:decomposition] The reconnect policy, kept separate from close teardown: an unsolicited drop
+  // (iTerm2 quit/restarted) hands the reconnect lifecycle to its supervisor and surfaces the transient
+  // 'reconnecting' state so the renderer shows recovery without user action; a requested disconnect
+  // (user, or app quit) stays down. `requested` is the represented close discriminant, never inferred
+  // from timing — the one place the "reconnect iff unsolicited" policy lives. [LAW:single-enforcer]
+  private superviseAfterClose(requested: boolean): void {
+    if (requested) return;
+    // [LAW:no-ambient-temporal-coupling] Reconnect supervision is taking over; invalidate any in-flight
+    // manual connect so its eventual failure cannot overwrite this 'reconnecting' state with a terminal
+    // 'error' the user can no longer act on.
+    this.connectEpoch += 1;
+    this.store.setState('reconnecting');
+    this.reconnect.start();
+  }
+
   async connect(): Promise<void> {
+    // [LAW:no-ambient-temporal-coupling] Mark all prior attempts stale before releasing the scheduler,
+    // so supersession is the unconditional first action of an override and never depends on no await
+    // sitting between these two statements.
+    const epoch = ++this.connectEpoch;
+    this.reconnect.cancel();
     try {
-      this.store.setState('detecting');
-      const exists = existsSync(this.options.socketPath);
-      this.store.setSocket(this.options.socketPath, exists);
-      if (!exists) {
-        throw new ProtocolError(
-          `iTerm2 private socket not found at ${this.options.socketPath}. Is iTerm2 running?`,
-        );
-      }
-
-      this.store.setState('requesting-cookie');
-      this.store.noteCookieRequested();
-      this.credentials = await this.applescript.requestCookieAndKey(
-        this.options.advisoryName,
-      );
-
-      this.store.setState('connecting');
-      await this.protocol.connect({
-        socketPath: this.options.socketPath,
-        advisoryName: this.options.advisoryName,
-        libraryVersion: this.options.libraryVersion,
-        cookie: this.credentials.cookie,
-        key: this.credentials.key,
-      });
-      this.store.syncFromProtocol(this.protocol.getState(), this.protocol.getProtocolVersion());
-
-      await this.refreshLayout();
-      await this.subscribeGlobalNotifications();
-      await this.reregisterPersistent();
+      await this.runConnectSequence(epoch);
     } catch (err) {
-      this.store.setError(errString(err));
+      // Only the current attempt owns the terminal error state; a manual connect/disconnect that
+      // superseded this one mid-flight has already set the authoritative state. [LAW:no-silent-failure]
+      // the failure still propagates to the caller — it is not swallowed, only the stale store write is.
+      if (epoch === this.connectEpoch) this.store.setError(errString(err));
       throw err;
     }
   }
 
+  // One unsolicited-drop recovery attempt, run by the reconnect supervisor. [LAW:no-silent-failure] A
+  // failed attempt records its reason on the snapshot and stays in 'reconnecting' (the supervisor will
+  // re-arm), rather than surfacing a terminal error; it rethrows so the controller schedules the next
+  // attempt with the next backoff.
+  private async reconnectAttempt(): Promise<void> {
+    const epoch = ++this.connectEpoch;
+    try {
+      await this.runConnectSequence(epoch);
+    } catch (err) {
+      // [LAW:no-ambient-temporal-coupling] A superseded attempt must not flip state back to
+      // 'reconnecting' after a manual connect/disconnect has taken over; only the current attempt records
+      // its failure. The rethrow is unconditional so the controller's own active check decides re-arm.
+      if (epoch === this.connectEpoch) this.store.noteReconnectFailure(errString(err));
+      throw err;
+    }
+  }
+
+  // [LAW:single-enforcer] The one connect sequence both an initial/manual connect and a reconnect
+  // attempt run — detect the socket, request a fresh cookie, open the protocol, then restore layout,
+  // global subscriptions, and persistent registrations. Sharing it is what makes a reconnect a true
+  // re-handshake (a fresh cookie every time), not a half-restore. Error policy is the caller's: connect()
+  // makes a failure terminal, reconnectAttempt() keeps it transient.
+  private async runConnectSequence(epoch: number): Promise<void> {
+    // [LAW:no-ambient-temporal-coupling] Begin from a guaranteed-disconnected protocol. A manual Connect
+    // can land while a reconnect attempt still holds an open socket; tearing it down here lets this
+    // sequence take over immediately instead of racing ProtocolDriver.connect() in 'ready' state. It is a
+    // true no-op when already disconnected (ProtocolDriver.disconnect emits nothing in that branch), so
+    // reconnect attempts — which the controller already serializes one at a time — are unaffected.
+    await this.protocol.disconnect();
+    // A superseding connect/disconnect may have taken over during the teardown await; bail before any
+    // store write so a stale attempt cannot flip state back to 'detecting' after the user took over.
+    this.assertCurrent(epoch, 'after disconnect');
+    this.store.setState('detecting');
+    const exists = existsSync(this.options.socketPath);
+    this.store.setSocket(this.options.socketPath, exists);
+    if (!exists) {
+      throw new ProtocolError(
+        `iTerm2 private socket not found at ${this.options.socketPath}. Is iTerm2 running?`,
+      );
+    }
+
+    this.store.setState('requesting-cookie');
+    this.store.noteCookieRequested();
+    const credentials = await this.applescript.requestCookieAndKey(
+      this.options.advisoryName,
+    );
+    // [LAW:no-ambient-temporal-coupling] Requesting the cookie is the long await where a manual
+    // connect/disconnect can supersede this attempt. If one did, bail before opening the protocol — a
+    // stale attempt must never resurrect a connection the user just dropped or steal a manual connect.
+    this.assertCurrent(epoch, 'before handshake');
+    this.credentials = credentials;
+
+    this.store.setState('connecting');
+    await this.protocol.connect({
+      socketPath: this.options.socketPath,
+      advisoryName: this.options.advisoryName,
+      libraryVersion: this.options.libraryVersion,
+      cookie: this.credentials.cookie,
+      key: this.credentials.key,
+    });
+
+    // [LAW:no-ambient-temporal-coupling] The single post-open cleanup path. Once the ws is open, this
+    // sequence must either reach a fully-ready connection or leave the protocol disconnected — never a
+    // live ws under a thrown sequence, which would poison the next connect with "connect called in state
+    // ready" and stick the reconnect loop. So every exit after the handshake — a supersession caught by
+    // assertCurrent, or a refreshLayout/subscription failure — routes through this catch, which tears the
+    // protocol back down before rethrowing.
+    try {
+      this.assertCurrent(epoch, 'after handshake');
+      // Fetch then check then apply: a stale attempt must not apply a layout after a newer connect took
+      // over, so the epoch is re-checked between the fetch (an await) and the apply (the effect).
+      const layout = await this.fetchLayout();
+      this.assertCurrent(epoch, 'after layout');
+      if (layout) this.monitor.layout.apply(layout);
+      await this.subscribeGlobalNotifications();
+      this.assertCurrent(epoch, 'after subscriptions');
+      await this.reregisterPersistent();
+      // [LAW:no-ambient-temporal-coupling] Publish 'ready' only after a fully-current restore. Until
+      // here the store stays 'connecting', so a superseded attempt never publishes a ready connection the
+      // user didn't ask for, and any layout it applied is not yet visible as a ready connection.
+      this.assertCurrent(epoch, 'after re-registration');
+      this.store.syncFromProtocol(this.protocol.getState(), this.protocol.getProtocolVersion());
+    } catch (err) {
+      // [LAW:no-ambient-temporal-coupling] Only tear down if this attempt still owns the protocol. If a
+      // newer connect has superseded it — and may have already reopened the socket — disconnecting here
+      // would destroy that fresh connection; the new owner is responsible for the protocol. Nothing
+      // leaks, because the superseding op begins with its own disconnect-first, which reclaims this
+      // attempt's socket.
+      if (epoch === this.connectEpoch) {
+        await this.protocol.disconnect().catch(() => void 0);
+      }
+      throw err;
+    }
+  }
+
+  // [LAW:no-ambient-temporal-coupling] Throws if a newer connect lifecycle has superseded the one that
+  // captured `epoch`, so a stale in-flight attempt stops driving side effects at the next checkpoint.
+  private assertCurrent(epoch: number, phase: string): void {
+    if (epoch !== this.connectEpoch) {
+      throw new ProtocolError(`connect attempt superseded ${phase}`);
+    }
+  }
+
   async disconnect(): Promise<void> {
+    // A user disconnect supersedes any reconnect loop: bump the epoch first so an attempt already in
+    // flight bails at its next staleness check instead of resurrecting the connection the user just
+    // asked to drop, then stop retrying. [LAW:no-ambient-temporal-coupling] supersession before release.
+    this.connectEpoch += 1;
+    this.reconnect.cancel();
     this.cancelScreenCoalesce();
     await this.protocol.disconnect();
     this.credentials = null;
@@ -610,7 +734,15 @@ export class ConnectionOrchestrator extends EventEmitter {
   }
 
   async refreshLayout(): Promise<void> {
-    if (this.protocol.getState() !== 'ready') return;
+    const layout = await this.fetchLayout();
+    if (layout) this.monitor.layout.apply(layout);
+  }
+
+  // [LAW:effects-at-boundaries] Fetch the layout without applying it, so the connect sequence can insert
+  // an epoch check between the fetch (an await) and the apply (the effect). The public refreshLayout
+  // applies immediately; the reconnect path applies only if still current.
+  private async fetchLayout(): Promise<ReturnType<typeof convertLayout> | null> {
+    if (this.protocol.getState() !== 'ready') return null;
 
     const { message: response } = await this.protocol.send({
       submessage: {
@@ -619,12 +751,12 @@ export class ConnectionOrchestrator extends EventEmitter {
       },
     });
     if (response.submessage.case === 'listSessionsResponse') {
-      this.monitor.layout.apply(convertLayout(response.submessage.value));
-      return;
+      return convertLayout(response.submessage.value);
     }
     if (response.submessage.case === 'error') {
       throw new ProtocolError(response.submessage.value);
     }
+    return null;
   }
 
   private async subscribeGlobalNotifications(): Promise<void> {

@@ -50,6 +50,11 @@ export type ConnectionState =
   | 'requesting-cookie'
   | 'connecting'
   | 'ready'
+  // The transient auto-recovery phase after an unsolicited drop (iTerm2 quit/restarted): the supervisor
+  // is re-handshaking without user action. Distinct from 'connecting' (which a user click drives) and
+  // from 'error' (terminal, awaiting the user) — a failed attempt stays here and the latest reason rides
+  // on lastError, so the user sees progress, not a button to press. [LAW:types-are-the-program]
+  | 'reconnecting'
   | 'error';
 
 // [LAW:types-are-the-program] A connection failure is classified at the boundary where it is raised

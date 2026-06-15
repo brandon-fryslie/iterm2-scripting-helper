@@ -38,11 +38,24 @@ export class ConnectionStore {
     this.lastError = classifyConnectionFailure(message);
   }
 
+  // [LAW:no-silent-failure] A failed reconnect *attempt* — distinct from setError. The supervisor is
+  // still retrying without user action, so the state stays the transient 'reconnecting' (not the
+  // terminal 'error' a user must clear) while the latest reason rides on lastError so the failure is
+  // surfaced, never swallowed. Assigns directly rather than via setState, which would clear lastError.
+  noteReconnectFailure(message: string): void {
+    this.state = 'reconnecting';
+    this.lastError = classifyConnectionFailure(message);
+  }
+
+  // [LAW:single-enforcer] The protocol-driven transition routes through setState, the one place the
+  // "a healthy state carries no lastError" invariant lives. Without this, syncFromProtocol could publish
+  // 'ready' while a prior reconnect failure still rode lastError — a connected connection showing an
+  // error, an incoherent representation. [FRAMING:representation]
   syncFromProtocol(protoState: ProtocolState, protocolVersion: string): void {
     this.protocolVersion = protocolVersion;
-    if (protoState === 'disconnected') this.state = 'idle';
-    else if (protoState === 'connecting') this.state = 'connecting';
-    else if (protoState === 'ready') this.state = 'ready';
+    if (protoState === 'disconnected') this.setState('idle');
+    else if (protoState === 'connecting') this.setState('connecting');
+    else if (protoState === 'ready') this.setState('ready');
   }
 
   noteCookieRequested(): void {

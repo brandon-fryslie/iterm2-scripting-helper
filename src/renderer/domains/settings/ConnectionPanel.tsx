@@ -15,6 +15,7 @@ const STATE_LABEL: Record<State, string> = {
   'requesting-cookie': 'Requesting cookie',
   connecting: 'Connecting',
   ready: 'Connected',
+  reconnecting: 'Reconnecting…',
   error: 'Error',
 };
 

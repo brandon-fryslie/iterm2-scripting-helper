@@ -52,6 +52,14 @@ export interface ProtocolNotification {
   frameSeq: number;
 }
 
+// The 'close' event payload. `requested` distinguishes a close we asked for (disconnect()) from an
+// unsolicited drop (iTerm2 quit/restarted) — the single fact a reconnect decision turns on.
+export interface ProtocolClose {
+  code: number;
+  reason: string;
+  requested: boolean;
+}
+
 export class ProtocolError extends Error {
   constructor(
     message: string,
@@ -190,7 +198,7 @@ export class ProtocolDriver extends EventEmitter {
       // replay restoring the spine) therefore cannot be raced by either event.
       ws.removeAllListeners();
       ws.close();
-      this.finishClose(1000, 'client disconnect');
+      this.finishClose(1000, 'client disconnect', true);
       return;
     }
     this.cleanupSymlink();
@@ -227,19 +235,23 @@ export class ProtocolDriver extends EventEmitter {
     resolver({ message: server, frameSeq });
   }
 
+  // An unsolicited ws close — iTerm2 quit or restarted — was not requested by us, so the close event
+  // carries requested=false and a consumer is free to drive a reconnect off it.
   private onClose(code: number, reason: string): void {
-    this.finishClose(code, reason);
+    this.finishClose(code, reason, false);
   }
 
   // The single teardown both an unexpected drop (ws 'close') and an intentional disconnect route
   // through, so the spine and connection state always settle the same way regardless of which path
-  // closed the socket.
-  private finishClose(code: number, reason: string): void {
+  // closed the socket. [LAW:types-are-the-program] `requested` is the represented fact a user disconnect
+  // and an iTerm2 crash otherwise share — minted at the one site that knows which path closed the
+  // socket — so a consumer never has to infer intent from timing.
+  private finishClose(code: number, reason: string, requested: boolean): void {
     this.ws = null;
     this.cleanupSymlink();
     this.pending.clear();
     this.setState('disconnected');
-    this.emit('close', { code, reason });
+    this.emit('close', { code, reason, requested } satisfies ProtocolClose);
   }
 
   private cleanupSymlink(): void {
