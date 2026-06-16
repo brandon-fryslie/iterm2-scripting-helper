@@ -1,10 +1,6 @@
 import type { AppLine } from '@shared/domain';
 
-export function styledLinesToAnsi(
-  lines: AppLine[],
-  cursor: { x: number; y: number } | null,
-  termCols: number,
-): string {
+export function styledLinesToAnsi(lines: AppLine[]): string {
   const parts: string[] = [];
 
   for (let i = 0; i < lines.length; i++) {
@@ -32,13 +28,25 @@ export function styledLinesToAnsi(
     }
   }
 
-  if (cursor) {
-    const row = Math.min(cursor.y + 1, lines.length);
-    const col = Math.min(cursor.x + 1, termCols);
-    parts.push(`\x1b[${row};${col}H`);
-  }
-
   return parts.join('');
+}
+
+// Map an iTerm2 buffer-relative cursor onto a viewport that shows the last `rows` lines of the
+// buffer. [FRAMING:representation] cursor.y is a buffer index (0 = first fetched line); ANSI
+// `\x1b[row;colH` is 1-based and viewport-relative. The viewport's top line is `startIdx` lines
+// down the buffer, so the cursor's screen row is its index minus that. Returns 1-based row/col
+// clamped to the viewport. This is the single source of truth for that translation; conflating the
+// two coordinate spaces is the off-by-N (one per line below the cursor) bug it exists to prevent.
+export function cursorToViewport(
+  cursor: { x: number; y: number },
+  startIdx: number,
+  rows: number,
+  cols: number,
+): { row: number; col: number } {
+  return {
+    row: Math.min(Math.max(1, cursor.y - startIdx + 1), rows),
+    col: Math.min(cursor.x + 1, cols),
+  };
 }
 
 function buildSgr(run: {

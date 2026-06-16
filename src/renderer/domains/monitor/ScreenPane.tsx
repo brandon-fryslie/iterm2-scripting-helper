@@ -6,7 +6,7 @@ import { FitAddon } from '@xterm/addon-fit';
 import { WebLinksAddon } from '@xterm/addon-web-links';
 import '@xterm/xterm/css/xterm.css';
 import { useStore } from '@/stores/context';
-import { styledLinesToAnsi } from './screenToAnsi';
+import { styledLinesToAnsi, cursorToViewport } from './screenToAnsi';
 import { Badge } from '@/components/ui/badge';
 
 export const ScreenPane = observer(function ScreenPane() {
@@ -99,43 +99,33 @@ const XTermScreen = observer(function XTermScreen() {
     let lastSessionId: string | null = null;
     let lastUpdatesReceived = -1;
 
-    const renderFull = () => {
+    // Render the screen snapshot into the viewport and place the cursor. Full (session change)
+    // and incremental (same-session update) are one behavior parameterized by `reset`: full clears
+    // the previous session's scrollback and loads all fetched lines as history; incremental repaints
+    // only the visible window in place so scrollback isn't re-grown on every update.
+    const render = (reset: boolean) => {
       const snap = monitor.screen;
-      if (!snap.lines || snap.lines.length === 0) return;
-      term.reset();
-      const content = styledLinesToAnsi(snap.lines, null, term.cols);
-      const cursor = snap.cursor;
-      term.write(`\x1b[?25l${content}`, () => {
-        if (cursor) {
-          const row = Math.min(cursor.y + 1, snap.lines.length);
-          const col = Math.min(cursor.x + 1, term.cols);
-          term.write(`\x1b[${row};${col}H\x1b[?25h`);
-        } else {
-          term.write('\x1b[?25h');
-        }
-      });
-    };
+      if (snap.lines.length === 0 || term.rows === 0) return;
 
-    const renderIncremental = () => {
-      const snap = monitor.screen;
-      if (!snap.lines || snap.lines.length === 0) return;
-      const rows = term.rows;
-      if (rows === 0) return;
+      // [FRAMING:representation] cursor.y is a buffer index, but ANSI `\x1b[row;colH` addresses the
+      // viewport — different coordinate spaces. The viewport shows the last `term.rows` lines, so the
+      // cursor's screen row is its buffer index minus the count scrolled above. Conflating the two is
+      // the off-by-N (one per line below the cursor) bug this mapping exists to prevent.
+      const startIdx = Math.max(0, snap.lines.length - term.rows);
+      const lines = reset ? snap.lines : snap.lines.slice(startIdx);
+      const cursor = snap.cursor;
+
+      if (reset) term.reset();
       term.scrollToBottom();
-      const startIdx = Math.max(0, snap.lines.length - rows);
-      const visibleLines = snap.lines.slice(startIdx);
-      const cursor = snap.cursor
-        ? { x: snap.cursor.x, y: Math.max(0, snap.cursor.y - startIdx) }
-        : null;
-      const content = styledLinesToAnsi(visibleLines, null, term.cols);
-      term.write(`\x1b[?25l\x1b[1;1H\x1b[0J${content}`, () => {
-        if (cursor) {
-          const row = Math.min(cursor.y + 1, visibleLines.length);
-          const col = Math.min(cursor.x + 1, term.cols);
-          term.write(`\x1b[${row};${col}H\x1b[?25h`);
-        } else {
+      const clearSeq = reset ? '' : '\x1b[1;1H\x1b[0J';
+      const content = styledLinesToAnsi(lines);
+      term.write(`\x1b[?25l${clearSeq}${content}`, () => {
+        if (!cursor) {
           term.write('\x1b[?25h');
+          return;
         }
+        const { row, col } = cursorToViewport(cursor, startIdx, term.rows, term.cols);
+        term.write(`\x1b[${row};${col}H\x1b[?25h`);
       });
     };
 
@@ -149,11 +139,7 @@ const XTermScreen = observer(function XTermScreen() {
       lastUpdatesReceived = snap.updatesReceived;
       lastSessionId = snap.sessionId;
 
-      if (isSessionChange) {
-        renderFull();
-      } else {
-        renderIncremental();
-      }
+      render(isSessionChange);
     });
 
     return () => {
