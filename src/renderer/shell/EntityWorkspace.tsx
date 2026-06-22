@@ -7,11 +7,12 @@ import { ActPane } from '@/domains/console/ActPane';
 import { AuthorPane } from '@/domains/workbench/AuthorPane';
 import { ScreenPane } from '@/domains/monitor/ScreenPane';
 import { VariablesPane } from '@/domains/monitor/VariablesPane';
+import type { LensId } from '@/stores/WorkspaceStore';
 import { EntitySpineRail } from './EntitySpineRail';
 import { SettingsOverlay } from './SettingsOverlay';
 import { ToastLayer } from './ToastLayer';
 import { FacetFrame } from './FacetFrame';
-import { FacetToggleBar } from './FacetToggleBar';
+import { LensSwitcher } from './LensSwitcher';
 import { usePersistedLayout } from './usePersistedLayout';
 
 const SEP_V = 'h-[2px] bg-border transition-colors hover:bg-primary';
@@ -25,16 +26,8 @@ type StackItem = {
   node: ReactNode;
 };
 
-// Drop the `false` entries (hidden facets / empty containers) and narrow to real items, so the layout
-// below reads as a list of what IS shown rather than a thicket of conditionals. [LAW:dataflow-not-control-flow]
-function stack(...items: Array<StackItem | false>): StackItem[] {
-  return items.filter((item): item is StackItem => item !== false);
-}
-
-// [LAW:decomposition] One resizable region from a list of currently-visible panels: separators are
-// placed strictly between adjacent panels (never a leading/trailing one), so hiding any facet can
-// never leave a dangling divider. Empty is the caller's concern — a region with no visible panels is
-// never asked to render (it is dropped from its parent's stack()).
+// [LAW:decomposition] One resizable region from a list of panels: separators are placed strictly
+// between adjacent panels (never leading/trailing), so a region can never render a dangling divider.
 function ResizableStack({
   groupId,
   orientation,
@@ -69,21 +62,73 @@ function ResizableStack({
   );
 }
 
-// The single Entity Workspace shell. There is no tab bar: the app is one panel anchored to the focused
-// entity, with observe (Screen + Variables + Activity), act (Act), and author (Author) facets — none a
-// destination you switch to. The facet toggle bar shows/hides each facet on demand so the workspace is
-// not forced to co-present everything at once.
+// [LAW:dataflow-not-control-flow] Each lens is a pure factory from id to focal content. The shell looks
+// up the active lens here rather than branching on which facets are shown — there is no "is this panel
+// visible" question to ask, because exactly one lens is focal at all times. A lens is a SUBJECT
+// (observe + act + author fused), not a verb: Inspect = the focused entity's live state; Events = what
+// iTerm2 emits over time; Console = experiment; Build = durable artifacts and static config.
+const LENS_CONTENT: Record<LensId, () => ReactNode> = {
+  inspect: () => (
+    <ResizableStack
+      groupId="lens-inspect"
+      orientation="horizontal"
+      className="h-full"
+      items={[
+        {
+          id: 'inspect-variables',
+          defaultSize: '55%',
+          minSize: '30%',
+          node: (
+            <FacetFrame title="Variables" testId="facet-variables">
+              <VariablesPane />
+            </FacetFrame>
+          ),
+        },
+        {
+          id: 'inspect-screen',
+          defaultSize: '45%',
+          minSize: '25%',
+          node: (
+            <FacetFrame title="Screen" testId="facet-screen">
+              <ScreenPane />
+            </FacetFrame>
+          ),
+        },
+      ]}
+    />
+  ),
+  events: () => (
+    <FacetFrame title="Events" testId="facet-events">
+      <ActivityTimeline />
+    </FacetFrame>
+  ),
+  console: () => (
+    <FacetFrame title="Console" testId="facet-console">
+      <ActPane />
+    </FacetFrame>
+  ),
+  build: () => (
+    <FacetFrame title="Build" testId="facet-build">
+      <AuthorPane />
+    </FacetFrame>
+  ),
+};
+
+// The single Entity Workspace shell. Two orthogonal axes: the always-present entity rail (the
+// app→window→tab→session spine that selects WHOSE state every lens observes/acts/authors against), and
+// one focal LENS at a time. There is no facet co-presence and no tab bar — the lens switcher swaps the
+// focal subject; the entity rail and Settings utility persist across all lenses.
 //
 // [LAW:no-ambient-temporal-coupling] This shell is the single lifecycle owner: it hydrates and wires
-// every IPC subscription once, here, instead of each facet doing it on mount. Hydration runs
-// unconditionally ([LAW:dataflow-not-control-flow]) regardless of which facets are currently shown — a
-// hidden facet is not unmounted state, it is simply not rendered, so its store stays live and showing
-// it again is instant.
+// every IPC subscription once, here, instead of each lens doing it on mount. Hydration runs
+// unconditionally ([LAW:dataflow-not-control-flow]) regardless of which lens is focal — a non-focal
+// lens is not unmounted state, it is simply not rendered, so its store stays live and switching to it
+// is instant.
 //
-// [LAW:one-source-of-truth] Which facets are visible is owned by WorkspaceLayoutStore; region sizes by
+// [LAW:one-source-of-truth] Which lens is focal is owned by WorkspaceStore; region sizes by
 // react-resizable-panels' persisted-layout groups. The layout below is a pure function of those two.
 export const EntityWorkspace = observer(function EntityWorkspace() {
-  const { monitor, connection, workbench, workspaceLayout } = useStore();
+  const { monitor, connection, workbench, workspace } = useStore();
   const [settingsOpen, setSettingsOpen] = useState(false);
 
   useEffect(() => {
@@ -105,137 +150,35 @@ export const EntityWorkspace = observer(function EntityWorkspace() {
     return () => unsubs.forEach((unsub) => unsub());
   }, [monitor, connection, workbench]);
 
-  const visible = (id: Parameters<typeof workspaceLayout.isVisible>[0]) =>
-    workspaceLayout.isVisible(id);
-
-  const liveItems = stack(
-    visible('screen') && {
-      id: 'live-screen',
-      defaultSize: '62%',
-      minSize: '30%',
-      node: (
-        <FacetFrame title="Screen" testId="facet-screen">
-          <ScreenPane />
-        </FacetFrame>
-      ),
-    },
-    visible('variables') && {
-      id: 'live-variables',
-      defaultSize: '38%',
-      minSize: '20%',
-      node: (
-        <FacetFrame title="Variables" testId="facet-variables">
-          <VariablesPane />
-        </FacetFrame>
-      ),
-    },
-  );
-
-  const observeItems = stack(
-    liveItems.length > 0 && {
-      id: 'live',
-      defaultSize: '60%',
-      minSize: '25%',
-      node: (
-        <ResizableStack
-          groupId="workspace-live"
-          orientation="horizontal"
-          className="h-full"
-          items={liveItems}
-        />
-      ),
-    },
-    visible('activity') && {
-      id: 'activity',
-      defaultSize: '40%',
-      minSize: '20%',
-      node: (
-        <FacetFrame title="Activity" testId="facet-activity">
-          <ActivityTimeline />
-        </FacetFrame>
-      ),
-    },
-  );
-
-  const actAuthorItems = stack(
-    visible('act') && {
-      id: 'act',
-      defaultSize: '45%',
-      minSize: '20%',
-      node: (
-        <FacetFrame title="Act" testId="facet-act">
-          <ActPane />
-        </FacetFrame>
-      ),
-    },
-    visible('author') && {
-      id: 'author',
-      defaultSize: '55%',
-      minSize: '25%',
-      node: (
-        <FacetFrame title="Author" testId="facet-author">
-          <AuthorPane />
-        </FacetFrame>
-      ),
-    },
-  );
-
-  const rootItems = stack(
-    visible('rail') && {
-      id: 'rail',
-      defaultSize: '18%',
-      minSize: '14%',
-      maxSize: '28%',
-      node: <EntitySpineRail onOpenSettings={() => setSettingsOpen(true)} />,
-    },
-    observeItems.length > 0 && {
-      id: 'observe',
-      defaultSize: '52%',
-      minSize: '30%',
-      node: (
-        <ResizableStack
-          groupId="workspace-observe"
-          orientation="vertical"
-          className="h-full"
-          items={observeItems}
-        />
-      ),
-    },
-    actAuthorItems.length > 0 && {
-      id: 'act-author',
-      defaultSize: '30%',
-      minSize: '20%',
-      node: (
-        <ResizableStack
-          groupId="workspace-act-author"
-          orientation="vertical"
-          className="h-full"
-          items={actAuthorItems}
-        />
-      ),
-    },
-  );
-
   return (
     <div className="flex h-screen flex-col" data-testid="entity-workspace">
-      <FacetToggleBar />
-      {rootItems.length > 0 ? (
-        <ResizableStack
-          groupId="workspace-root"
-          orientation="horizontal"
-          className="flex-1 p-2"
-          items={rootItems}
-        />
-      ) : (
-        // [LAW:no-silent-failure] All facets hidden is a state, not a blank void — say so and point
-        // at the way back, so the toggle bar never strands the user on an empty screen.
-        <div
-          className="flex flex-1 items-center justify-center p-2 text-sm text-muted-foreground"
-          data-testid="workspace-empty"
-        >
-          All panels are hidden — use the Panels bar above to show one.
-        </div>
-      )}
+      <ResizableStack
+        groupId="workspace-root"
+        orientation="horizontal"
+        className="flex-1 p-2"
+        items={[
+          {
+            id: 'rail',
+            defaultSize: '18%',
+            minSize: '14%',
+            maxSize: '28%',
+            node: <EntitySpineRail onOpenSettings={() => setSettingsOpen(true)} />,
+          },
+          {
+            id: 'lens',
+            defaultSize: '82%',
+            minSize: '50%',
+            node: (
+              <div className="flex h-full flex-col overflow-hidden rounded border">
+                <LensSwitcher />
+                <div className="min-h-0 flex-1 p-2" data-testid="lens-content">
+                  {LENS_CONTENT[workspace.activeLens]()}
+                </div>
+              </div>
+            ),
+          },
+        ]}
+      />
       {settingsOpen && <SettingsOverlay onClose={() => setSettingsOpen(false)} />}
       <ToastLayer />
     </div>

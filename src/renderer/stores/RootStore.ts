@@ -8,7 +8,7 @@ import { EntityFocusStore } from './EntityFocusStore';
 import { TmuxStore } from './TmuxStore';
 import { ColorPresetStore } from './ColorPresetStore';
 import { ErrorStore } from './ErrorStore';
-import { WorkspaceLayoutStore } from './WorkspaceLayoutStore';
+import { WorkspaceStore } from './WorkspaceStore';
 import {
   APP_ENTITY,
   appEntityExistsInLayout,
@@ -26,7 +26,7 @@ export class RootStore {
   readonly tmux: TmuxStore;
   readonly colorPresets: ColorPresetStore;
   readonly errors: ErrorStore;
-  readonly workspaceLayout: WorkspaceLayoutStore;
+  readonly workspace: WorkspaceStore;
   private focusRequestSeq = 0;
 
   constructor() {
@@ -45,7 +45,7 @@ export class RootStore {
     this.activity = new ActivityStore();
     this.tmux = new TmuxStore();
     this.colorPresets = new ColorPresetStore();
-    this.workspaceLayout = new WorkspaceLayoutStore();
+    this.workspace = new WorkspaceStore();
     makeAutoObservable(this, {
       connection: false,
       entityFocus: false,
@@ -56,20 +56,24 @@ export class RootStore {
       tmux: false,
       colorPresets: false,
       errors: false,
-      workspaceLayout: false,
+      workspace: false,
     });
   }
 
   // [LAW:single-enforcer] The one place a docs deep-link becomes navigation. The DocLink is data;
   // this exhaustive match is the only translation from "where the index points" to store state, so
-  // the destination cannot be opened two inconsistent ways from two callsites.
+  // the destination cannot be opened two inconsistent ways from two callsites. Each destination also
+  // brings its lens into focus ([LAW:no-silent-failure]): deep-linking to a pane that lives in a
+  // non-focal lens would otherwise land the user on something not on screen.
   navigateToDoc(link: DocLink): void {
     switch (link.kind) {
       case 'escape':
+        this.workspace.setLens('build');
         this.workbench.setArtifact('escape-sequence');
         this.workbench.setEscapeTemplate(link.templateId);
         return;
       case 'console':
+        this.workspace.setLens('console');
         this.console.setAction(link.action);
         return;
     }
