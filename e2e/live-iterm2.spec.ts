@@ -10,9 +10,9 @@ const socketPath = path.join(
   'Library/Application Support/iTerm2/private/socket',
 );
 
-// Connection/Settings is a utility affordance behind the rail's gear, not a peer tab. Open it, wait
-// for the auto-negotiated session to be ready, then close it so the co-present facets are interactable
-// (the overlay backdrop covers them while open).
+// Connection/Settings is a utility affordance behind the rail's gear, not a peer lens. Open it, wait
+// for the auto-negotiated session to be ready, then close it so the focal lens is interactable (the
+// overlay backdrop covers it while open).
 async function connectViaGear(win: Page): Promise<void> {
   await win.getByTestId('settings-gear').click();
   await expect(win.getByTestId('connection-state-badge')).toHaveAttribute(
@@ -25,6 +25,15 @@ async function connectViaGear(win: Page): Promise<void> {
 async function closeSettings(win: Page): Promise<void> {
   await win.getByTestId('settings-close').click();
   await expect(win.getByTestId('settings-overlay')).not.toBeVisible();
+}
+
+// The workspace shows exactly one focal lens at a time; a subject's panes are mounted only while its
+// lens is focal. The persisted active-lens leaks across app launches (shared userData), so every test
+// explicitly selects each lens it drives rather than trusting the default — [LAW:no-ambient-temporal-coupling].
+type Lens = 'inspect' | 'events' | 'console' | 'build';
+async function selectLens(win: Page, lens: Lens): Promise<void> {
+  await win.getByTestId(`lens-${lens}`).click();
+  await expect(win.getByTestId(`facet-${lens === 'inspect' ? 'variables' : lens}`)).toBeVisible();
 }
 
 test.describe('live iTerm2', () => {
@@ -68,14 +77,12 @@ test.describe('live iTerm2', () => {
     await connectViaGear(win);
     await closeSettings(win);
 
-    // The entity rail, live state, and Activity are co-present facets — no tab to switch to. Wire
-    // frames and notifications are no longer separate panes; they are facets of the one Activity
-    // timeline that every event stream projects through.
+    // The entity rail is always present; the Inspect lens shows the focused entity's live state. Wire
+    // frames and notifications are facets of the Events lens's one timeline, asserted at the end once
+    // that lens is focal — they are not co-present with Inspect.
+    await selectLens(win, 'inspect');
     await expect(win.getByTestId('layout-pane')).toBeVisible();
     await expect(win.getByTestId('variables-pane')).toBeVisible();
-    await expect(win.getByTestId('activity-timeline')).toBeVisible();
-    await expect(win.getByTestId('activity-facet-frame')).toBeVisible();
-    await expect(win.getByTestId('activity-facet-notification')).toBeVisible();
 
     const firstSession = win.locator('[data-testid^="layout-session-"]').first();
     await expect(firstSession).toBeVisible({ timeout: 10_000 });
@@ -121,6 +128,14 @@ test.describe('live iTerm2', () => {
     await expect(probeResult.getByTestId('variable-probe-value')).toContainText('/');
 
     expect(cloneErrors.filter((e) => /could not be cloned/i.test(e))).toEqual([]);
+
+    // The Events lens projects every stream through one timeline; wire frames and notifications are
+    // facets of it. Switching lenses never tears down the live subscriptions that feed them — the
+    // shell is the single lifecycle owner, so a non-focal lens's store stays live.
+    await selectLens(win, 'events');
+    await expect(win.getByTestId('activity-timeline')).toBeVisible();
+    await expect(win.getByTestId('activity-facet-frame')).toBeVisible();
+    await expect(win.getByTestId('activity-facet-notification')).toBeVisible();
 
     await app.close();
   });
@@ -202,6 +217,7 @@ test.describe('live iTerm2', () => {
 
     await closeSettings(win);
     await win.getByTestId(`layout-session-${sessionId}`).click();
+    await selectLens(win, 'build');
     await win.getByTestId('workbench-rail-escape-sequence').click();
 
     await win.getByTestId('escape-template-select').click();
@@ -413,8 +429,9 @@ test.describe('live iTerm2', () => {
     expect(probe.sessionId).not.toBe('');
     expect(probe.guid).not.toBe('');
 
-    // The Author facet is co-present — its artifact rail is reachable without leaving the workspace.
+    // The Build lens hosts every authoring artifact; its rail is reachable once that lens is focal.
     await closeSettings(win);
+    await selectLens(win, 'build');
 
     // Profiles artifact: pick a profile through the UI, verify the read-only inspector
     // lists the API's raw property keys. There is deliberately NO write path here (449.8.1):
@@ -535,6 +552,8 @@ test.describe('live iTerm2', () => {
         bytesHex: args.markerHex,
       });
     }, { sessionId: probe.sessionId, markerHex });
+    // The live screen is the Inspect lens's companion pane.
+    await selectLens(win, 'inspect');
     const screenPane = win.getByTestId('screen-pane');
     await expect(screenPane.locator('.xterm-rows')).toContainText(marker, { timeout: 10_000 });
 
@@ -600,6 +619,7 @@ end tell'`,
     }).toPass({ timeout: 15_000 });
 
     await closeSettings(win);
+    await selectLens(win, 'inspect');
 
     // Focus the dedicated session and put the firing marker into its captured output.
     await expect(win.getByTestId(`layout-session-${testSessionId}`)).toBeVisible({
@@ -621,6 +641,7 @@ end tell'`,
       { timeout: 10_000 },
     );
 
+    await selectLens(win, 'build');
     await win.getByTestId('workbench-rail-triggers').click();
     await win.getByTestId('triggers-refresh-profiles').click();
     await win.getByTestId('triggers-profile-select').click();
@@ -737,6 +758,7 @@ end tell'`,
       }).toPass({ timeout: 10_000 });
 
       await closeSettings(win);
+      await selectLens(win, 'build');
 
       // The artifact is connection-wide and reachable from the workbench rail.
       await win.getByTestId('workbench-rail-arrangement').click();
@@ -810,7 +832,8 @@ end tell'`,
       expect(refused.ok).toBe(false);
       expect(refused.error).toContain('ARRANGEMENT_NOT_FOUND');
 
-      // Every fire above is an action event on the one spine.
+      // Every fire above is an action event on the Events lens's one spine.
+      await selectLens(win, 'events');
       const actionRows = win.locator(
         '[data-testid^="activity-row-"][data-facet="action"]',
       );
@@ -919,6 +942,7 @@ end tell'`,
       }).toPass({ timeout: 10_000 });
 
       await closeSettings(win);
+      await selectLens(win, 'build');
 
       // Connection-wide artifact, reachable from the workbench rail.
       await win.getByTestId('workbench-rail-broadcast-domain').click();
@@ -965,7 +989,8 @@ end tell'`,
       expect(refused.ok).toBe(false);
       expect(refused.error).toContain('SESSION_NOT_FOUND');
 
-      // Every apply above is an action event on the one spine.
+      // Every apply above is an action event on the Events lens's one spine.
+      await selectLens(win, 'events');
       const actionRows = win.locator(
         '[data-testid^="activity-row-"][data-facet="action"]',
       );
@@ -1015,8 +1040,9 @@ end tell'`,
     expect(probe.sessionId).not.toBe('');
     expect(probe.tabId).not.toBe('');
 
-    // The Act facet is co-present — no Console tab to switch to.
+    // Firing actions lives in the Console lens.
     await closeSettings(win);
+    await selectLens(win, 'console');
 
     // Send text — fire without text (safe no-op on shell).
     await win.getByTestId('action-send-text').click();
@@ -1038,8 +1064,10 @@ end tell'`,
     await expect(snippet).toBeVisible();
     await snippet.locator('[data-testid^="snippet-fire-"]').click();
 
-    // Actions feed the co-present Activity facet (no Act-local transcript). The three fires surface as
-    // three action events on the spine, and every one succeeded (no ✗ in its summary).
+    // Actions feed the Events lens's spine (no Console-local transcript). The three fires surface as
+    // three action events there, and every one succeeded (no ✗ in its summary). Switching lenses
+    // never drops the events — the firing store stays live behind the non-focal lens.
+    await selectLens(win, 'events');
     const actionRows = win.locator(
       '[data-testid^="activity-row-"][data-facet="action"]',
     );
@@ -1056,7 +1084,8 @@ end tell'`,
     await connectViaGear(win);
     await closeSettings(win);
 
-    // Keystrokes, prompts and focus are facets of the one Activity timeline, not separate panes.
+    // Keystrokes, prompts and focus are facets of the Events lens's one timeline, not separate panes.
+    await selectLens(win, 'events');
     await expect(win.getByTestId('activity-timeline')).toBeVisible();
     await expect(win.getByTestId('activity-facet-keystroke')).toBeVisible();
     await expect(win.getByTestId('activity-facet-prompt')).toBeVisible();
@@ -1070,7 +1099,9 @@ end tell'`,
       (await firstSession.getAttribute('data-testid'))?.replace('layout-session-', '') ?? '';
     expect(sessionId).not.toBe('');
 
-    // The pane keeps a data-empty attribute until a snapshot for the focused session arrives.
+    // The live screen is the Inspect lens's companion pane; it keeps a data-empty attribute until a
+    // snapshot for the focused session arrives.
+    await selectLens(win, 'inspect');
     const screenPane = win.getByTestId('screen-pane');
     await expect(screenPane).toBeVisible({ timeout: 15_000 });
     await expect(screenPane).not.toHaveAttribute('data-empty', /./, { timeout: 15_000 });
