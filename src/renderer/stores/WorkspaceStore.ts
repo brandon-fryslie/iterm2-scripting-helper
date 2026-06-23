@@ -20,28 +20,32 @@ const STORAGE_KEY = 'workspace-active-lens';
 // one lens, always. A calm, coherent launch is the only thing a fresh profile can be.
 const DEFAULT_LENS: LensId = 'inspect';
 
-// [LAW:no-silent-failure] localStorage is a trust boundary: a corrupt or stale value (hand-edited, or
-// written by an older lens set) falls back to the default lens, never trusted into the live shell. An
-// unknown id is not honored, so a removed lens's leftover entry cannot strand the workspace.
-function loadLens(): LensId {
-  try {
-    const raw = window.localStorage.getItem(STORAGE_KEY);
-    return raw !== null && LENS_IDS.has(raw) ? (raw as LensId) : DEFAULT_LENS;
-  } catch {
-    return DEFAULT_LENS;
-  }
+// [LAW:no-silent-failure] Whether a persistence home exists is a typed environment condition, not an
+// exception to swallow: outside a renderer (node unit env, SSR) there is no window/localStorage, and
+// that absence is the one legitimate no-op. A genuine localStorage failure in a real renderer is NOT
+// caught here — it surfaces rather than masquerading as success. (Electron renderers always expose
+// localStorage, so the absent case is exactly the test/SSR env, never a privacy-mode browser quirk.)
+function hasPersistence(): boolean {
+  return typeof window !== 'undefined' && !!window.localStorage;
 }
 
-// [LAW:effects-at-boundaries] The write half of the same localStorage boundary as loadLens. It is
-// guarded symmetrically: outside a renderer (unit tests in the node env, SSR) there is no window to
-// persist into, so persistence is a no-op rather than an uncaught reaction throw. This is not a
-// swallowed failure — absence of a persistence home is the same legitimate boundary the read accepts.
+// [LAW:no-silent-failure] A corrupt or stale value (hand-edited, or written by an older lens set) is
+// not a failure — it is an unknown id that falls back to the default lens by validation, so a removed
+// lens's leftover entry cannot strand the workspace. The read itself is not wrapped in a swallowing
+// catch: with persistence present, a getItem that throws is a real fault, surfaced not hidden.
+function loadLens(): LensId {
+  if (!hasPersistence()) return DEFAULT_LENS;
+  const raw = window.localStorage.getItem(STORAGE_KEY);
+  return raw !== null && LENS_IDS.has(raw) ? (raw as LensId) : DEFAULT_LENS;
+}
+
+// [LAW:effects-at-boundaries] The write half of the same localStorage boundary as loadLens. The no-op
+// is gated on the same typed environment condition — never on catching the write's own exception, which
+// would swallow a real persist failure (quota, disabled storage) and make a lens switch look persisted
+// when it was not. With a persistence home present, the write runs and any failure surfaces.
 function saveLens(id: LensId): void {
-  try {
-    window.localStorage.setItem(STORAGE_KEY, id);
-  } catch {
-    // No window/localStorage in this environment; nothing to persist into.
-  }
+  if (!hasPersistence()) return;
+  window.localStorage.setItem(STORAGE_KEY, id);
 }
 
 // [LAW:no-shared-mutable-globals] The single owner of which lens is focal. Visibility is one observable
