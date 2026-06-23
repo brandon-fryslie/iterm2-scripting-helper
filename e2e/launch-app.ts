@@ -1,5 +1,7 @@
 import { _electron as electron } from '@playwright/test';
 import { execFileSync } from 'node:child_process';
+import { mkdtempSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import path from 'node:path';
 
 export const repoRoot = path.resolve(__dirname, '..');
@@ -17,9 +19,16 @@ const playwrightElectronLoader = path.join(
 export function launchApp() {
   const executablePath = resolveElectronExecutablePath();
 
+  // [LAW:no-ambient-temporal-coupling] Each launch owns a fresh, isolated userData directory so
+  // persisted state (the active lens, region sizes) cannot leak between tests or across runs. Without
+  // this seam a test's lens switch would be restored by the next launch, and the "launches on the
+  // Inspect default" assertion would depend on execution order — a fresh profile is the only honest
+  // way to assert what a fresh launch does.
+  const userDataDir = mkdtempSync(path.join(tmpdir(), 'iterm2-helper-e2e-'));
+
   return electron.launch({
     executablePath,
-    args: ['-r', playwrightElectronLoader, mainEntry],
+    args: [`--user-data-dir=${userDataDir}`, '-r', playwrightElectronLoader, mainEntry],
     cwd: repoRoot,
     // Tests must never steal foreground focus from whatever the user is doing.
     env: { ...process.env, WORKBENCH_BACKGROUND: '1' },

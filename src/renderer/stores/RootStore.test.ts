@@ -20,4 +20,12 @@ describe('RootStore.navigateToDoc', () => {
     store.navigateToDoc({ kind: 'console', action: 'invoke-function' });
     expect(store.console.selectedAction).toBe('invoke-function');
   });
+
+  // This suite runs in the node env (no window). Focusing a destination lens changes activeLens, which
+  // fires the persistence reaction; the write boundary must no-op rather than throw an uncaught reaction
+  // exception when there is no localStorage to persist into.
+  it('focuses a destination lens without a window present, persistence a silent no-op', () => {
+    expect(() => store.navigateToDoc({ kind: 'console', action: 'invoke-function' })).not.toThrow();
+    expect(store.workspace.activeLens).toBe('console');
+  });
 });

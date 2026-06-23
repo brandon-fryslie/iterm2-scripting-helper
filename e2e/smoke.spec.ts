@@ -1,7 +1,7 @@
 import { test, expect } from '@playwright/test';
 import { launchApp } from './launch-app';
 
-test('Entity Workspace renders co-present facets and IPC ping round-trips', async () => {
+test('Entity Workspace launches on a single Inspect lens and switches lenses on demand', async () => {
   test.skip(
     process.env.CI === 'true',
     'GitHub macOS runners cannot reliably launch the Electron app; run locally.',
@@ -10,25 +10,31 @@ test('Entity Workspace renders co-present facets and IPC ping round-trips', asyn
   const app = await launchApp();
   const win = await app.firstWindow();
 
-  // One panel, not a bag of tabs: the entity rail and the screen/variables/activity/act/author facets
-  // are all co-present by default, no destination to switch to.
+  // Two axes, not a bag of co-present panels: the entity rail is always present, and exactly one lens
+  // is focal. A fresh launch lands on Inspect — Variables + Screen — and nothing else is co-rendered.
   await expect(win.getByTestId('entity-workspace')).toBeVisible();
   await expect(win.getByTestId('entity-spine-rail')).toBeVisible();
-  await expect(win.getByTestId('facet-screen')).toBeVisible();
+  await expect(win.getByTestId('lens-switcher')).toBeVisible();
   await expect(win.getByTestId('facet-variables')).toBeVisible();
-  await expect(win.getByTestId('facet-activity')).toBeVisible();
-  await expect(win.getByTestId('facet-act')).toBeVisible();
-  await expect(win.getByTestId('facet-author')).toBeVisible();
+  await expect(win.getByTestId('facet-screen')).toBeVisible();
+  // The other subjects are not on screen — co-presence is gone by construction.
+  await expect(win.getByTestId('facet-console')).toHaveCount(0);
+  await expect(win.getByTestId('facet-build')).toHaveCount(0);
 
-  // The Panels bar hides and shows each facet on demand: hiding Variables removes that pane and
-  // leaves the rest standing; toggling it back restores it.
-  await win.getByTestId('facet-toggle-variables').click();
+  // The lens switcher swaps the focal subject whole: Build replaces Inspect, not adds to it.
+  await win.getByTestId('lens-build').click();
+  await expect(win.getByTestId('facet-build')).toBeVisible();
+  await expect(win.getByTestId('author-pane')).toBeVisible();
   await expect(win.getByTestId('facet-variables')).toHaveCount(0);
-  await expect(win.getByTestId('facet-screen')).toBeVisible();
-  await win.getByTestId('facet-toggle-variables').click();
-  await expect(win.getByTestId('facet-variables')).toBeVisible();
 
-  // Settings is a utility affordance reached from the rail's gear, not a peer tab.
+  // The entity rail persists across every lens — it is navigation, not a lens.
+  await expect(win.getByTestId('entity-spine-rail')).toBeVisible();
+
+  await win.getByTestId('lens-inspect').click();
+  await expect(win.getByTestId('facet-variables')).toBeVisible();
+  await expect(win.getByTestId('facet-build')).toHaveCount(0);
+
+  // Settings is a utility affordance reached from the rail's gear, not a peer lens.
   await win.getByTestId('settings-gear').click();
   await expect(win.getByTestId('settings-overlay')).toBeVisible();
   await expect(win.getByTestId('ping-result')).toContainText(/"ok":\s*true/);
@@ -51,6 +57,7 @@ test('snippet re-fire crosses IPC and lands on the Activity spine without a conn
   // array, so the re-fire sent Proxies that Electron's structured clone rejected — the action died
   // before reaching the main process and never joined the spine. No live iTerm2 is needed to cover
   // that seam: a disconnected fire still appends a (failed) action event to the spine.
+  await win.getByTestId('lens-console').click();
   await win.getByTestId('action-activate').click();
   await win.getByTestId('activate-id-input').fill('t1');
   await win.getByTestId('snippet-name').fill('clone-safety probe');
@@ -58,6 +65,11 @@ test('snippet re-fire crosses IPC and lands on the Activity spine without a conn
   const snippet = win.locator('[data-testid^="snippet-snip-"]').first();
   await expect(snippet).toBeVisible();
   await snippet.locator('[data-testid^="snippet-fire-"]').click();
+
+  // The Activity spine is the Events lens now, not a co-present panel: fire on Console, then switch to
+  // Events to read what landed. A non-focal lens's store stays live, so the action recorded while on
+  // Console survives the switch and renders here.
+  await win.getByTestId('lens-events').click();
 
   // The event reaching the spine is the contract under test, not the action's success — with no
   // connection the result is a loud ✗, which is exactly the honest shape.
@@ -78,6 +90,7 @@ test('dynamic profile editor surfaces JSON, shape, and parent-resolution states 
 
   // Everything asserted here derives from the buffer alone via the shared analyzer — typing is
   // enough; nothing is saved, so the user's real DynamicProfiles folder is never touched.
+  await win.getByTestId('lens-build').click();
   await win.getByTestId('workbench-rail-dynamic-profile').click();
   const body = win.getByTestId('dynamic-profile-editor-body');
 
@@ -116,6 +129,7 @@ test('escape editor previews incomplete input as an error and copies a built seq
   const app = await launchApp();
   const win = await app.firstWindow();
 
+  await win.getByTestId('lens-build').click();
   await win.getByTestId('workbench-rail-escape-sequence').click();
 
   // A template missing a required field is an error *value* in the preview, never a crash, and
@@ -148,8 +162,8 @@ test('docs index deep-links the OSC catalog to the matching escape template edit
   const app = await launchApp();
   const win = await app.firstWindow();
 
-  // The Author pane opens on Profiles, so the escape editor is not even mounted yet — landing on it
-  // is the proof the deep-link switched the workbench artifact, not a coincidence of defaults.
+  // The app launches on the Inspect lens, so the Build lens (and its escape editor) is not mounted at
+  // all — landing on it is proof the deep-link switched both the lens and the workbench artifact.
   await expect(win.getByTestId('workbench-escape-editor')).not.toBeVisible();
 
   // CurrentDir is not the default template (SetMark is), so selecting it proves the link sets the

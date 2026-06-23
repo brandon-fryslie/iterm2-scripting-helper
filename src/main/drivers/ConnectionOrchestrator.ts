@@ -381,6 +381,13 @@ export class ConnectionOrchestrator extends EventEmitter {
     this.screenRefetch.cancel();
     await this.protocol.disconnect();
     this.credentials = null;
+    // [LAW:one-source-of-truth] Disconnect is the single owner of establishing the disconnected state,
+    // so it sets 'idle' unconditionally rather than relying on protocol.disconnect()'s emit — which only
+    // fires when a socket was actually open. A disconnect mid-handshake (the connect parked in
+    // 'requesting-cookie' awaiting the cookie) opened no socket, so without this the store would keep
+    // misreporting a live-looking connection the user already dropped. The epoch bump above already
+    // doomed the superseded attempt's own writes, so this idle is the final authoritative word.
+    this.store.setState('idle');
   }
 
   async sendRequest(

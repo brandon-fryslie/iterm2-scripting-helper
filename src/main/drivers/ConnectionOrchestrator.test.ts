@@ -96,12 +96,27 @@ function buildOrchestrator() {
     registrations: new RegistrationStore(),
     customEscape: new CustomEscapeStore(),
   };
-  const orchestrator = new ConnectionOrchestrator(new ConnectionStore(), monitor, {
+  const store = new ConnectionStore();
+  const orchestrator = new ConnectionOrchestrator(store, monitor, {
     advisoryName: 'test',
     libraryVersion: 'test',
   });
-  return { orchestrator, monitor };
+  return { orchestrator, monitor, store };
 }
+
+describe('disconnect establishes the disconnected state authoritatively', () => {
+  it('lands the store at idle even when disconnected mid-handshake, before any socket opened', async () => {
+    const { orchestrator, store } = buildOrchestrator();
+    // The state a connect parks in while awaiting the cookie subprocess: no socket is open yet, so
+    // protocol.disconnect() emits nothing. Disconnect must still resolve the store to a non-connected
+    // state rather than leave it reporting a live-looking 'requesting-cookie' the user already dropped.
+    store.setState('requesting-cookie');
+
+    await orchestrator.disconnect();
+
+    expect(store.state).toBe('idle');
+  });
+});
 
 const RPC_SPEC: RpcRegistrationSpec = {
   id: 'reg-1',
