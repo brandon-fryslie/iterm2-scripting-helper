@@ -31,6 +31,12 @@ import {
   ApplyColorPresetForm,
 } from './ActionForms';
 
+// [LAW:decomposition] The grid is a curated SUBSET of the total form catalog below: it surfaces
+// only the verbs whose whole subject lives in the Console lens. saved-arrangement and
+// set-broadcast-domains are deliberately absent — each is whole in its own Build subject
+// (ArrangementViewer, BroadcastDomainEditor), which fires the same kind through ConsoleStore.fire.
+// FORM_COMPONENTS stays total over every ActionKind (fire plumbing + AppActionKind set are shared
+// and intact); dropping a grid button never touches that.
 const ACTIONS: Array<{ kind: ActionKind; label: string }> = [
   { kind: 'send-text', label: 'Send text' },
   { kind: 'inject', label: 'Inject' },
@@ -39,8 +45,6 @@ const ACTIONS: Array<{ kind: ActionKind; label: string }> = [
   { kind: 'invoke-function', label: 'Invoke function' },
   { kind: 'restart-session', label: 'Restart' },
   { kind: 'close', label: 'Close' },
-  { kind: 'saved-arrangement', label: 'Arrangement' },
-  { kind: 'set-broadcast-domains', label: 'Broadcast' },
   { kind: 'get-selection', label: 'Get selection' },
   { kind: 'set-selection', label: 'Set selection' },
   { kind: 'transaction', label: 'Transaction' },

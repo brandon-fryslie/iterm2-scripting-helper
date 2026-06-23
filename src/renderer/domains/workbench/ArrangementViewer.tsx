@@ -4,17 +4,34 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
 import { useStore } from '@/stores/context';
 import { diffJson, type JsonValue } from '@shared/jsonDiff';
 import type { ActionResult } from '@shared/rpc';
 
-// Read-only API view plus the wire verbs (449.8 lens): iTerm2's Window menu is the canonical
-// arrangement editor — this surface shows what that menu never does (the saved JSON, a diff
-// between two arrangements, the engine-vs-defaults disagreement) and fires save/restore through
-// the same console action the Act bar uses, so every workflow lands on the spine.
+// Sentinels for the window pickers: Radix Select has no empty-string value, so "no window scope"
+// (save all windows / restore as new windows) is its own option, mapped to an empty windowId.
+const SAVE_ALL = '__all__';
+const RESTORE_NEW = '__new__';
+
+// Read-only API view plus the whole save/restore verb (449.8 lens): iTerm2's Window menu is the
+// canonical arrangement editor — this surface shows what that menu never does (the saved JSON, a
+// diff between two arrangements, the engine-vs-defaults disagreement) and fires every save/restore
+// variant — all windows or one window, new windows or into an existing one — through the same
+// console action, so the subject is whole here and every workflow lands on the spine.
 export const ArrangementViewer = observer(function ArrangementViewer() {
-  const { workbench, console: consoleStore } = useStore();
+  const { workbench, console: consoleStore, monitor } = useStore();
   const [saveName, setSaveName] = useState('');
+  // [LAW:one-source-of-truth] The window scope rides as a value alongside the op; an empty
+  // windowId is "all windows" (save) / "new window(s)" (restore), exactly as the protocol reads it.
+  const [saveScope, setSaveScope] = useState(SAVE_ALL);
+  const [restoreTarget, setRestoreTarget] = useState(RESTORE_NEW);
   const [lastFired, setLastFired] = useState<{ label: string; result: ActionResult } | null>(null);
 
   useEffect(() => {
@@ -22,9 +39,19 @@ export const ArrangementViewer = observer(function ArrangementViewer() {
   }, [workbench]);
 
   const snap = workbench.arrangements;
+  const windows = monitor.layout.windows;
 
-  const fire = async (label: string, op: 'save' | 'restore', name: string) => {
-    const result = await consoleStore.fire('saved-arrangement', { op, name });
+  const fire = async (
+    label: string,
+    op: 'save' | 'restore',
+    name: string,
+    windowId: string,
+  ) => {
+    const result = await consoleStore.fire('saved-arrangement', {
+      op,
+      name,
+      ...(windowId ? { windowId } : {}),
+    });
     setLastFired({ label, result });
     await workbench.refreshArrangements();
   };
@@ -68,7 +95,7 @@ export const ArrangementViewer = observer(function ArrangementViewer() {
               defaults read failed: {snap.contents.error}
             </Badge>
           )}
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
             <Input
               value={saveName}
               onChange={(e) => setSaveName(e.target.value)}
@@ -76,13 +103,33 @@ export const ArrangementViewer = observer(function ArrangementViewer() {
               className="max-w-[260px]"
               data-testid="arrangement-save-name"
             />
+            <Select value={saveScope} onValueChange={setSaveScope}>
+              <SelectTrigger className="max-w-[220px]" data-testid="arrangement-save-scope">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value={SAVE_ALL}>All windows</SelectItem>
+                {windows.map((w) => (
+                  <SelectItem key={w.windowId} value={w.windowId}>
+                    Window {w.number} ({w.windowId})
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
             <Button
               size="sm"
               disabled={!saveName}
-              onClick={() => void fire(`save "${saveName}"`, 'save', saveName)}
+              onClick={() =>
+                void fire(
+                  `save "${saveName}"`,
+                  'save',
+                  saveName,
+                  saveScope === SAVE_ALL ? '' : saveScope,
+                )
+              }
               data-testid="arrangement-save"
             >
-              Save current windows
+              {saveScope === SAVE_ALL ? 'Save all windows' : 'Save this window'}
             </Button>
           </div>
           {lastFired && (
@@ -97,10 +144,26 @@ export const ArrangementViewer = observer(function ArrangementViewer() {
       </Card>
 
       <Card>
-        <CardHeader className="pb-2">
+        <CardHeader className="pb-2 flex flex-row flex-wrap items-center justify-between gap-2">
           <CardTitle className="text-base">
             {workbench.arrangementIndex.length} arrangement(s)
           </CardTitle>
+          <label className="flex items-center gap-2 text-xs text-muted-foreground">
+            Restore into
+            <Select value={restoreTarget} onValueChange={setRestoreTarget}>
+              <SelectTrigger className="max-w-[220px]" data-testid="arrangement-restore-target">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value={RESTORE_NEW}>New window(s)</SelectItem>
+                {windows.map((w) => (
+                  <SelectItem key={w.windowId} value={w.windowId}>
+                    Window {w.number} ({w.windowId})
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </label>
         </CardHeader>
         <CardContent>
           {workbench.arrangementIndex.length === 0 ? (
@@ -150,20 +213,23 @@ export const ArrangementViewer = observer(function ArrangementViewer() {
                     size="sm"
                     variant="secondary"
                     onClick={() =>
-                      void fire(`restore "${row.name}"`, 'restore', row.name)
+                      void fire(
+                        `restore "${row.name}"`,
+                        'restore',
+                        row.name,
+                        restoreTarget === RESTORE_NEW ? '' : restoreTarget,
+                      )
                     }
                     data-testid={`arrangement-restore-${row.name}`}
                   >
-                    Restore as new window(s)
+                    {restoreTarget === RESTORE_NEW
+                      ? 'Restore as new window(s)'
+                      : 'Restore into this window'}
                   </Button>
                 </li>
               ))}
             </ul>
           )}
-          <p className="mt-2 text-[10px] text-muted-foreground">
-            To restore into an existing window (or save just one window), use the
-            Arrangement action in the Act bar — its window id field carries those variants.
-          </p>
         </CardContent>
       </Card>
 
