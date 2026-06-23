@@ -128,6 +128,15 @@ test.describe('live iTerm2', () => {
     // interpolated the whole template, not just one reference.
     await expect(probeResult.getByTestId('variable-probe-value')).toContainText('/');
 
+    // The headline of the Inspect lens: a variable row feeds the probe instead of the user retyping a
+    // path they can already see. Clicking the row's insert control appends that variable's reference to
+    // the one probe draft the input renders, and it then evaluates live against the focused session.
+    await probe.getByTestId('variable-probe-input').fill('');
+    await sessionScope.getByTestId('probe-insert-hostname').click();
+    await expect(probe.getByTestId('variable-probe-input')).toHaveValue('\\(hostname)');
+    await probe.getByTestId('variable-probe-submit').click();
+    await expect(probeResult).toHaveAttribute('data-outcome', 'value', { timeout: 10_000 });
+
     expect(cloneErrors.filter((e) => /could not be cloned/i.test(e))).toEqual([]);
 
     // The Events lens projects every stream through one timeline; wire frames and notifications are

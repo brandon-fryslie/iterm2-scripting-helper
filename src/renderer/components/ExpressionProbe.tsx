@@ -1,5 +1,5 @@
-import { useState } from 'react';
 import { observer } from 'mobx-react-lite';
+import { FlaskConical } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -10,9 +10,12 @@ import { appEntityKey, type AppProbeResult } from '@shared/domain';
 // One probe component, mounted wherever an author needs to resolve a variable/expression
 // against the focused entity ([LAW:one-type-per-behavior]): the live-variable inspector and
 // the escape-template editor share this exact model rather than minting a second probe.
+// [LAW:one-source-of-truth] Draft, result and pending all read from MonitorStore — the probe holds no
+// private state — so a variable row that inserts a reference and the user who types both drive the
+// one input, and any other mount of this component reflects it.
 export const ExpressionProbe = observer(function ExpressionProbe() {
   const { entityFocus, monitor } = useStore();
-  const [expression, setExpression] = useState('');
+  const expression = monitor.probeDraft;
   const result = monitor.probeResult;
 
   const submit = (event: React.FormEvent): void => {
@@ -26,13 +29,22 @@ export const ExpressionProbe = observer(function ExpressionProbe() {
 
   return (
     <div className="border-b p-3" data-testid="variable-probe">
+      <div className="mb-2 flex items-center gap-2">
+        <FlaskConical className="h-3.5 w-3.5 text-primary" />
+        <span className="font-semibold uppercase tracking-wide text-muted-foreground">
+          Probe
+        </span>
+        <span className="truncate text-[11px] text-muted-foreground">
+          evaluate live against <code className="font-mono">{entityFocus.kind}</code>
+        </span>
+      </div>
       <form className="flex items-center gap-2" onSubmit={submit}>
         <Input
           aria-label="Variable path or expression to evaluate"
           className="h-8 font-mono text-xs"
           data-testid="variable-probe-input"
           value={expression}
-          onChange={(event) => setExpression(event.target.value)}
+          onChange={(event) => monitor.setProbeDraft(event.target.value)}
           placeholder="Evaluate a path or template, e.g. \(session.name)@\(session.hostname)"
         />
         <Button

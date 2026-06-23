@@ -75,9 +75,11 @@ const LENS_CONTENT: Record<LensId, () => ReactNode> = {
       className="h-full"
       items={[
         {
+          // Variables + probe are the focal material of the Inspect lens; the screen is its companion,
+          // so the default split seats the focus here and gives the companion the smaller share.
           id: 'inspect-variables',
-          defaultSize: '55%',
-          minSize: '30%',
+          defaultSize: '62%',
+          minSize: '35%',
           node: (
             <FacetFrame title="Variables" testId="facet-variables">
               <VariablesPane />
@@ -86,8 +88,8 @@ const LENS_CONTENT: Record<LensId, () => ReactNode> = {
         },
         {
           id: 'inspect-screen',
-          defaultSize: '45%',
-          minSize: '25%',
+          defaultSize: '38%',
+          minSize: '22%',
           node: (
             <FacetFrame title="Screen" testId="facet-screen">
               <ScreenPane />

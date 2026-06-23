@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { Pin, PinOff, Search } from 'lucide-react';
+import { Pin, PinOff, Search, Variable } from 'lucide-react';
 import { observer } from 'mobx-react-lite';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -47,6 +47,9 @@ export const VariablesPane = observer(function VariablesPane() {
     [watchedNames, byName],
   );
   const toggleWatched = (name: string): void => void monitor.toggleWatched(name);
+  // [LAW:locality-or-seam] A row inserts its reference into the probe through this one seam; the row
+  // never reaches into how the probe stores its draft, it just names the variable it wants probed.
+  const insertProbe = (name: string): void => monitor.insertProbeReference(name);
 
   if (!focusReady) {
     return (
@@ -89,7 +92,11 @@ export const VariablesPane = observer(function VariablesPane() {
       <ExpressionProbe />
 
       <div className="flex-1 overflow-auto p-3">
-        <WatchlistSection items={watchItems} onToggleWatched={toggleWatched} />
+        <WatchlistSection
+          items={watchItems}
+          onToggleWatched={toggleWatched}
+          onInsertProbe={insertProbe}
+        />
         {snap.variables.length === 0 ? (
           <EmptyVariables focusKind={entityFocus.kind} />
         ) : visibleVariables.length === 0 ? (
@@ -105,6 +112,7 @@ export const VariablesPane = observer(function VariablesPane() {
                 variables={grouped.get(scope) ?? []}
                 watched={watched}
                 onToggleWatched={toggleWatched}
+                onInsertProbe={insertProbe}
               />
             ))}
           </div>
@@ -128,9 +136,11 @@ function EmptyVariables({ focusKind }: { focusKind: string }) {
 function WatchlistSection({
   items,
   onToggleWatched,
+  onInsertProbe,
 }: {
   items: Array<{ name: string; entry: AppVariableEntry | null }>;
   onToggleWatched: (name: string) => void;
+  onInsertProbe: (name: string) => void;
 }) {
   if (items.length === 0) return null;
 
@@ -151,6 +161,7 @@ function WatchlistSection({
               variable={entry}
               watched
               onToggleWatched={onToggleWatched}
+              onInsertProbe={onInsertProbe}
             />
           ) : (
             <UnobservedWatchRow
@@ -194,11 +205,13 @@ function VariableScopeGroup({
   variables,
   watched,
   onToggleWatched,
+  onInsertProbe,
 }: {
   scope: AppVariableScope;
   variables: AppVariableEntry[];
   watched: Set<string>;
   onToggleWatched: (name: string) => void;
+  onInsertProbe: (name: string) => void;
 }) {
   if (variables.length === 0) return null;
 
@@ -217,6 +230,7 @@ function VariableScopeGroup({
             variable={variable}
             watched={watched.has(variable.name)}
             onToggleWatched={onToggleWatched}
+            onInsertProbe={onInsertProbe}
           />
         ))}
       </div>
@@ -228,10 +242,12 @@ function VariableRow({
   variable,
   watched,
   onToggleWatched,
+  onInsertProbe,
 }: {
   variable: AppVariableEntry;
   watched: boolean;
   onToggleWatched: (name: string) => void;
+  onInsertProbe: (name: string) => void;
 }) {
   const changed = hasChanged(variable);
 
@@ -253,6 +269,16 @@ function VariableRow({
           <Badge variant={variable.live ? 'default' : 'outline'}>
             {variable.live ? 'live' : 'static'}
           </Badge>
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon-xs"
+            aria-label={`Insert \\(${variable.name}) into probe`}
+            data-testid={`probe-insert-${variable.name}`}
+            onClick={() => onInsertProbe(variable.name)}
+          >
+            <Variable className="text-muted-foreground" />
+          </Button>
           <WatchToggle
             name={variable.name}
             watched={watched}
