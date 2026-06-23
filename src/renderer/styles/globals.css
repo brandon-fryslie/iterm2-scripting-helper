@@ -2,30 +2,50 @@
 
 @custom-variant dark (&:is(.dark *));
 
+/* [LAW:one-source-of-truth] Every visual decision — surface color, ink, the one blue accent identity,
+   the status hues, the type scale's tiny step — is named exactly once here and consumed as a token by
+   every surface. A literal palette utility (text-amber-400, bg-black/40) anywhere downstream is a second,
+   divergent copy of a decision that lives here; the visual-language pass converges them onto these names.
+   Light and dark are the SAME language spoken in two registers: one cool-slate neutral ramp, one shared
+   blue identity (hue ~258), one amber warning, one red destructive — not two unrelated skins. */
+
 :root {
-  --background: oklch(1 0 0);
-  --foreground: oklch(0.145 0 0);
+  /* Light register: a cool paper neutral, not the stock grayscale (oklch …0 0). Faint 255-hue chroma in
+     every neutral keeps the surface from reading as flat gray and ties it to the blue identity. */
+  --background: oklch(0.985 0.003 255);
+  --foreground: oklch(0.24 0.028 262);
   --card: oklch(1 0 0);
-  --card-foreground: oklch(0.145 0 0);
+  --card-foreground: oklch(0.24 0.028 262);
   --popover: oklch(1 0 0);
-  --popover-foreground: oklch(0.145 0 0);
-  --primary: oklch(0.205 0 0);
-  --primary-foreground: oklch(0.985 0 0);
-  --secondary: oklch(0.97 0 0);
-  --secondary-foreground: oklch(0.205 0 0);
-  --muted: oklch(0.97 0 0);
-  --muted-foreground: oklch(0.556 0 0);
-  --accent: oklch(0.97 0 0);
-  --accent-foreground: oklch(0.205 0 0);
-  --destructive: oklch(0.577 0.245 27.325);
-  --destructive-foreground: oklch(0.577 0.245 27.325);
-  --border: oklch(0.922 0 0);
-  --input: oklch(0.922 0 0);
-  --ring: oklch(0.708 0 0);
+  --popover-foreground: oklch(0.24 0.028 262);
+  --primary: oklch(0.55 0.17 258);
+  --primary-foreground: oklch(0.99 0.005 255);
+  /* Secondary/accent are the active-segment and hover fills; they must separate clearly from the 0.985
+     background or the active lens and hovered controls read as flat. A faint blue chroma carries the
+     identity through the neutral fills. */
+  --secondary: oklch(0.925 0.009 258);
+  --secondary-foreground: oklch(0.30 0.03 262);
+  --muted: oklch(0.955 0.006 258);
+  --muted-foreground: oklch(0.50 0.022 260);
+  --accent: oklch(0.91 0.015 258);
+  --accent-foreground: oklch(0.30 0.04 262);
+  --destructive: oklch(0.55 0.22 27);
+  /* [LAW:types-are-the-program] Foreground is the INK that sits ON destructive, so it must contrast it —
+     near-white, not the destructive red itself. The old value was the same red, an unreadable state that
+     forced every consumer to hardcode text-white around it; with the token correct the literal is gone. */
+  --destructive-foreground: oklch(0.99 0.01 25);
+  /* The one warning hue. Dark enough to read as text on the light surface; consumers tint it for fills
+     (bg-warning/10) and borders (border-warning/50) via opacity, so one token serves all three uses. */
+  --warning: oklch(0.55 0.13 66);
+  --border: oklch(0.90 0.008 258);
+  --input: oklch(0.90 0.008 258);
+  --ring: oklch(0.55 0.17 258);
   --radius: 0.625rem;
 }
 
 .dark {
+  /* Dark register: the same language at low lightness. Neutrals carry 260-hue chroma; the blue identity
+     brightens to stay legible on the dark ground. */
   --background: oklch(0.13 0.015 260);
   --foreground: oklch(0.93 0.01 250);
   --card: oklch(0.17 0.017 260);
@@ -41,7 +61,10 @@
   --accent: oklch(0.24 0.02 260);
   --accent-foreground: oklch(0.93 0.01 250);
   --destructive: oklch(0.55 0.22 25);
-  --destructive-foreground: oklch(0.63 0.22 25);
+  /* [LAW:types-are-the-program] Same fix as light: ink that contrasts the destructive ground. */
+  --destructive-foreground: oklch(0.97 0.012 25);
+  /* Brighter amber so warning text/borders stay legible on the dark ground; same single-token role. */
+  --warning: oklch(0.80 0.12 80);
   --border: oklch(0.28 0.02 260);
   --input: oklch(0.25 0.02 260);
   --ring: oklch(0.70 0.15 250);
@@ -64,6 +87,7 @@
   --color-accent-foreground: var(--accent-foreground);
   --color-destructive: var(--destructive);
   --color-destructive-foreground: var(--destructive-foreground);
+  --color-warning: var(--warning);
   --color-border: var(--border);
   --color-input: var(--input);
   --color-ring: var(--ring);
@@ -71,6 +95,11 @@
   --radius-md: calc(var(--radius) - 2px);
   --radius-lg: var(--radius);
   --radius-xl: calc(var(--radius) + 4px);
+  /* [LAW:one-source-of-truth] The tiny step of the type scale, named once. The dense chrome (action
+     forms, variable rows, editor captions) previously spelled this as ad-hoc text-[10px]/text-[11px]
+     magic numbers; text-2xs is the single name those collapse onto so the rhythm is deliberate. */
+  --text-2xs: 0.6875rem;
+  --text-2xs--line-height: 1rem;
 }
 
 @layer base {
