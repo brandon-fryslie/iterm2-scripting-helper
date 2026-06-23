@@ -73,9 +73,16 @@ test('snippet re-fire crosses IPC and lands on the Activity spine without a conn
   await expect(snippet).toBeVisible();
   await snippet.locator('[data-testid^="snippet-fire-"]').click();
 
-  // The Activity spine is the Events lens now, not a co-present panel: fire on Console, then switch to
-  // Events to read what landed. A non-focal lens's store stays live, so the action recorded while on
-  // Console survives the switch and renders here.
+  // Cause/effect is one glance on the Console lens itself: the just-fired action surfaces in the inline
+  // Result panel WITHOUT switching to Events. This is the coupling under test — firing here reads the
+  // same spine snapshot the Events timeline does, so the event appears in place.
+  const consoleResult = win.getByTestId('console-result');
+  await expect(
+    consoleResult.locator('[data-testid^="activity-row-"][data-facet="action"]'),
+  ).toHaveCount(1, { timeout: 10_000 });
+
+  // The same spine, viewed in the Events lens: the action recorded while on Console survives the switch
+  // and renders identically there — one source of truth, two surfaces, never a second projection.
   await win.getByTestId('lens-events').click();
 
   // The event reaching the spine is the contract under test, not the action's success — with no
