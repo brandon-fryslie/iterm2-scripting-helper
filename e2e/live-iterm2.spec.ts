@@ -782,16 +782,18 @@ end tell'`,
       await win.getByTestId('arrangement-save').click();
       await expect(win.getByTestId('arrangement-last-result')).toContainText('ok');
 
-      // Save one window through the action channel — the windowId variant the Act bar carries.
-      const scopedSave = await win.evaluate(async (args) => {
-        return window.ipc.invoke('actions/saved-arrangement', {
-          entity: { kind: 'app' },
-          op: 'save',
-          name: args.nameOne,
-          windowId: args.windowIdA,
-        });
-      }, { nameOne, windowIdA });
-      expect(scopedSave.ok, `scoped save: ${scopedSave.error}`).toBe(true);
+      // Save one window through the viewer's own scope picker — the windowId variant now lives in
+      // the Build subject, not the Act bar, so the whole save verb is reachable here.
+      await win.getByTestId('arrangement-save-name').fill(nameOne);
+      await win.getByTestId('arrangement-save-scope').click();
+      // The picker is fed by the renderer's live layout; the option carries the window id in its
+      // label, so scoping the save to sessionA's window is a real UI gesture, not a raw IPC call.
+      await win.getByRole('option', { name: new RegExp(windowIdA) }).click();
+      await expect(win.getByTestId('arrangement-save')).toHaveText('Save this window');
+      await win.getByTestId('arrangement-save').click();
+      await expect(win.getByTestId('arrangement-last-result')).toContainText(
+        `save "${nameOne}": ok`,
+      );
 
       // Both names converge in both sources: listed by the engine AND readable from defaults
       // (no disagreement badges on their rows).

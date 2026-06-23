@@ -17,8 +17,9 @@ import type { AppSession } from '@shared/domain';
 // Visual session-to-domain editing over the live broadcast table. Two gestures — drag a chip onto
 // a domain, or arm a chip and click "Move here" — feed the one store seam
 // (moveBroadcastSession); the gesture is presentation, the move is the operation.
-// [LAW:dataflow-not-control-flow] Apply fires the same console action the Act bar's Broadcast form
-// uses, so every rewrite of the table lands on the event spine regardless of which surface asked.
+// [LAW:dataflow-not-control-flow] Apply fires the set-broadcast-domains console action directly, so
+// every rewrite of the table lands on the event spine — this editor is the whole subject (observe +
+// edit + apply), not a view that defers the act-verb to another surface.
 export const BroadcastDomainEditor = observer(function BroadcastDomainEditor() {
   const { workbench, console: consoleStore, monitor } = useStore();
   const [lastApply, setLastApply] = useState<ActionResult | null>(null);
