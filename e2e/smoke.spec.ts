@@ -25,11 +25,24 @@ test('Entity Workspace launches on a single Inspect lens and switches lenses on 
   await expect(win.getByTestId('live-context-strip')).toBeVisible();
   await expect(win.getByTestId('strip-connection')).toBeVisible();
 
+  // The screen is shell furniture stacked below the lens, not Inspect-only content: it is present on
+  // the Inspect launch and stays present when the focal subject swaps to Build.
+  await expect(win.getByTestId('facet-screen')).toBeVisible();
+
   // The lens switcher swaps the focal subject whole: Build replaces Inspect, not adds to it.
   await win.getByTestId('lens-build').click();
   await expect(win.getByTestId('facet-build')).toBeVisible();
   await expect(win.getByTestId('author-pane')).toBeVisible();
   await expect(win.getByTestId('facet-variables')).toHaveCount(0);
+  // The screen companion survives the lens swap — the observe pane is below every lens, not just Inspect.
+  await expect(win.getByTestId('facet-screen')).toBeVisible();
+
+  // The screen is togglable from the lens header: hiding it removes the pane (and its divider) so the
+  // lens fills the column; showing it stacks the pane back below.
+  await win.getByTestId('screen-toggle').click();
+  await expect(win.getByTestId('facet-screen')).toHaveCount(0);
+  await win.getByTestId('screen-toggle').click();
+  await expect(win.getByTestId('facet-screen')).toBeVisible();
 
   // The entity rail persists across every lens — it is navigation, not a lens.
   await expect(win.getByTestId('entity-spine-rail')).toBeVisible();

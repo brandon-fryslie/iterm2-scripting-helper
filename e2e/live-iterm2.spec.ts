@@ -562,7 +562,8 @@ test.describe('live iTerm2', () => {
         bytesHex: args.markerHex,
       });
     }, { sessionId: probe.sessionId, markerHex });
-    // The live screen is the Inspect lens's companion pane.
+    // The live screen is a shell companion stacked below every lens (shown by default); Inspect is one
+    // place it is visible.
     await selectLens(win, 'inspect');
     const screenPane = win.getByTestId('screen-pane');
     await expect(screenPane.locator('.xterm-rows')).toContainText(marker, { timeout: 10_000 });
@@ -1124,8 +1125,8 @@ end tell'`,
       (await firstSession.getAttribute('data-testid'))?.replace('layout-session-', '') ?? '';
     expect(sessionId).not.toBe('');
 
-    // The live screen is the Inspect lens's companion pane; it keeps a data-empty attribute until a
-    // snapshot for the focused session arrives.
+    // The live screen is a shell companion stacked below every lens (shown by default); it keeps a
+    // data-empty attribute until a snapshot for the focused session arrives.
     await selectLens(win, 'inspect');
     const screenPane = win.getByTestId('screen-pane');
     await expect(screenPane).toBeVisible({ timeout: 15_000 });
