@@ -13,6 +13,7 @@ import { SettingsOverlay } from './SettingsOverlay';
 import { ToastLayer } from './ToastLayer';
 import { FacetFrame } from './FacetFrame';
 import { LensSwitcher } from './LensSwitcher';
+import { LiveContextStrip } from './LiveContextStrip';
 import { usePersistedLayout } from './usePersistedLayout';
 
 const SEP_V = 'h-[2px] bg-border transition-colors hover:bg-primary';
@@ -181,6 +182,9 @@ export const EntityWorkspace = observer(function EntityWorkspace() {
           },
         ]}
       />
+      {/* [LAW:no-ambient-temporal-coupling] Mounted by the shell, outside the lens region, so the live
+          context survives a lens swap — the strip reads stores the shell keeps live for every lens. */}
+      <LiveContextStrip />
       {settingsOpen && <SettingsOverlay onClose={() => setSettingsOpen(false)} />}
       <ToastLayer />
     </div>

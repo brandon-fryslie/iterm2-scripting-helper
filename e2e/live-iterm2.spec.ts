@@ -1116,6 +1116,16 @@ end tell'`,
     await expect(screenPane).toBeVisible({ timeout: 15_000 });
     await expect(screenPane).not.toHaveAttribute('data-empty', /./, { timeout: 15_000 });
 
+    // The persistent context strip reads the same always-live stores as the panes: with a live
+    // connection and a focused session whose screen has rendered, it reports the connected state and a
+    // live screen readout — the observe loop's status is legible at the shell level, not buried in a lens.
+    await expect(win.getByTestId('strip-connection-badge')).toHaveAttribute('data-state', 'ready');
+    await expect(win.getByTestId('strip-screen')).toHaveAttribute(
+      'data-screen-status',
+      'live',
+      { timeout: 15_000 },
+    );
+
     // Inject a unique marker as terminal output and require it to surface as visible xterm
     // content — element presence alone can't prove the snapshot -> render path works.
     const marker = `screen-e2e-${Date.now()}`;

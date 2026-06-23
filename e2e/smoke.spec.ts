@@ -21,6 +21,10 @@ test('Entity Workspace launches on a single Inspect lens and switches lenses on 
   await expect(win.getByTestId('facet-console')).toHaveCount(0);
   await expect(win.getByTestId('facet-build')).toHaveCount(0);
 
+  // The live context strip is shell furniture, not lens content: it is present on the Inspect lens.
+  await expect(win.getByTestId('live-context-strip')).toBeVisible();
+  await expect(win.getByTestId('strip-connection')).toBeVisible();
+
   // The lens switcher swaps the focal subject whole: Build replaces Inspect, not adds to it.
   await win.getByTestId('lens-build').click();
   await expect(win.getByTestId('facet-build')).toBeVisible();
@@ -29,10 +33,13 @@ test('Entity Workspace launches on a single Inspect lens and switches lenses on 
 
   // The entity rail persists across every lens — it is navigation, not a lens.
   await expect(win.getByTestId('entity-spine-rail')).toBeVisible();
+  // And so does the context strip: switching lenses never tears down the observe loop's readout.
+  await expect(win.getByTestId('live-context-strip')).toBeVisible();
 
   await win.getByTestId('lens-inspect').click();
   await expect(win.getByTestId('facet-variables')).toBeVisible();
   await expect(win.getByTestId('facet-build')).toHaveCount(0);
+  await expect(win.getByTestId('live-context-strip')).toBeVisible();
 
   // Settings is a utility affordance reached from the rail's gear, not a peer lens.
   await win.getByTestId('settings-gear').click();

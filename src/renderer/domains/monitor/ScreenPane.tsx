@@ -7,52 +7,55 @@ import { WebLinksAddon } from '@xterm/addon-web-links';
 import '@xterm/xterm/css/xterm.css';
 import { useStore } from '@/stores/context';
 import { styledLinesToAnsi, cursorToViewport } from './screenToAnsi';
+import { screenContextForFocus } from './screenContext';
 import { Badge } from '@/components/ui/badge';
 
+// [LAW:dataflow-not-control-flow] The three render states are a switch over the shared screen-context
+// descriptor's discriminant, not ad-hoc `if (!focused)`/`if (mismatch)` guards re-derived here — the
+// same classifier feeds the live context strip, so the viewport and the strip can never disagree about
+// whether a session's screen is live. [LAW:one-source-of-truth]
 export const ScreenPane = observer(function ScreenPane() {
   const { entityFocus, monitor } = useStore();
-  const focused = entityFocus.sessionId;
-  const snap = monitor.screen;
+  const ctx = screenContextForFocus(entityFocus.sessionId, monitor.screen);
 
-  if (!focused) {
-    return (
-      <div
-        className="flex h-full items-center justify-center p-4 text-center text-xs text-muted-foreground"
-        data-testid="screen-pane"
-        data-empty="true"
-      >
-        Select a session in Layout to render its screen.
-      </div>
-    );
+  switch (ctx.status) {
+    case 'none':
+      return (
+        <div
+          className="flex h-full items-center justify-center p-4 text-center text-xs text-muted-foreground"
+          data-testid="screen-pane"
+          data-empty="true"
+        >
+          Select a session in Layout to render its screen.
+        </div>
+      );
+    case 'pending':
+      return (
+        <div
+          className="flex h-full items-center justify-center p-4 text-center text-xs text-muted-foreground"
+          data-testid="screen-pane"
+          data-empty="loading"
+        >
+          Rendering {ctx.sessionId.slice(0, 12)}…
+        </div>
+      );
+    case 'live':
+      return (
+        <div className="flex h-full flex-col" data-testid="screen-pane">
+          <div className="flex items-center gap-2 border-b px-3 py-1 text-xs">
+            <code className="text-muted-foreground">{ctx.sessionId.slice(0, 12)}…</code>
+            <Badge variant="secondary">{ctx.lineCount} lines</Badge>
+            {ctx.cursor && (
+              <Badge variant="outline">
+                cursor ({ctx.cursor.x}, {ctx.cursor.y})
+              </Badge>
+            )}
+            <Badge variant="outline">updates: {monitor.screen.updatesReceived}</Badge>
+          </div>
+          <XTermScreen />
+        </div>
+      );
   }
-
-  if (snap.sessionId !== focused || snap.lines.length === 0) {
-    return (
-      <div
-        className="flex h-full items-center justify-center p-4 text-center text-xs text-muted-foreground"
-        data-testid="screen-pane"
-        data-empty="loading"
-      >
-        Rendering {focused.slice(0, 12)}…
-      </div>
-    );
-  }
-
-  return (
-    <div className="flex h-full flex-col" data-testid="screen-pane">
-      <div className="flex items-center gap-2 border-b px-3 py-1 text-xs">
-        <code className="text-muted-foreground">{focused.slice(0, 12)}…</code>
-        <Badge variant="secondary">{snap.lines.length} lines</Badge>
-        {snap.cursor && (
-          <Badge variant="outline">
-            cursor ({snap.cursor.x}, {snap.cursor.y})
-          </Badge>
-        )}
-        <Badge variant="outline">updates: {snap.updatesReceived}</Badge>
-      </div>
-      <XTermScreen />
-    </div>
-  );
 });
 
 const XTermScreen = observer(function XTermScreen() {
