@@ -25,7 +25,10 @@ test('a recorded wire-log fixture replays against the disconnected timeline', as
   // The IPC reports exactly what was restored — the wire-log span, against no connection.
   expect(replay).toEqual({ ok: true, path: SAMPLE_FIXTURE, eventCount: 5 });
 
-  // The disconnected timeline projects the recorded frames; the polling timeline picks them up.
+  // The disconnected timeline projects the recorded frames; the polling timeline picks them up. The
+  // timeline lives in the Events lens, so focus it before reading the spine — the fixture was replayed
+  // into the live store regardless of which lens was focal.
+  await win.getByTestId('lens-events').click();
   const frameRows = win.locator('[data-testid^="activity-row-"][data-facet="frame"]');
   await expect(frameRows).toHaveCount(4, { timeout: 10_000 });
   await expect(

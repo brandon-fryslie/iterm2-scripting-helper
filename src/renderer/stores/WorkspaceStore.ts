@@ -32,6 +32,18 @@ function loadLens(): LensId {
   }
 }
 
+// [LAW:effects-at-boundaries] The write half of the same localStorage boundary as loadLens. It is
+// guarded symmetrically: outside a renderer (unit tests in the node env, SSR) there is no window to
+// persist into, so persistence is a no-op rather than an uncaught reaction throw. This is not a
+// swallowed failure — absence of a persistence home is the same legitimate boundary the read accepts.
+function saveLens(id: LensId): void {
+  try {
+    window.localStorage.setItem(STORAGE_KEY, id);
+  } catch {
+    // No window/localStorage in this environment; nothing to persist into.
+  }
+}
+
 // [LAW:no-shared-mutable-globals] The single owner of which lens is focal. Visibility is one observable
 // value (the active lens id), persisted to localStorage the same way region sizes are.
 export class WorkspaceStore {
@@ -43,7 +55,7 @@ export class WorkspaceStore {
     // to this boundary reaction rather than fired from inside setLens().
     reaction(
       () => this.activeLens,
-      (id) => window.localStorage.setItem(STORAGE_KEY, id),
+      (id) => saveLens(id),
     );
   }
 

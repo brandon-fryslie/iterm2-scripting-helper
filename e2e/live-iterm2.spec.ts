@@ -28,8 +28,9 @@ async function closeSettings(win: Page): Promise<void> {
 }
 
 // The workspace shows exactly one focal lens at a time; a subject's panes are mounted only while its
-// lens is focal. The persisted active-lens leaks across app launches (shared userData), so every test
-// explicitly selects each lens it drives rather than trusting the default — [LAW:no-ambient-temporal-coupling].
+// lens is focal. Each launch gets an isolated userData dir (launch-app), so the persisted lens cannot
+// leak between launches — every test still selects the lens it drives because that subject's panes are
+// only mounted when its lens is focal, not because of any cross-launch carryover.
 type Lens = 'inspect' | 'events' | 'console' | 'build';
 async function selectLens(win: Page, lens: Lens): Promise<void> {
   await win.getByTestId(`lens-${lens}`).click();

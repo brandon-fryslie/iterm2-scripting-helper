@@ -66,6 +66,11 @@ test('snippet re-fire crosses IPC and lands on the Activity spine without a conn
   await expect(snippet).toBeVisible();
   await snippet.locator('[data-testid^="snippet-fire-"]').click();
 
+  // The Activity spine is the Events lens now, not a co-present panel: fire on Console, then switch to
+  // Events to read what landed. A non-focal lens's store stays live, so the action recorded while on
+  // Console survives the switch and renders here.
+  await win.getByTestId('lens-events').click();
+
   // The event reaching the spine is the contract under test, not the action's success — with no
   // connection the result is a loud ✗, which is exactly the honest shape.
   const actionRows = win.locator('[data-testid^="activity-row-"][data-facet="action"]');
