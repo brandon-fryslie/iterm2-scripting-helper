@@ -69,36 +69,13 @@ function ResizableStack({
 // (observe + act + author fused), not a verb: Inspect = the focused entity's live state; Events = what
 // iTerm2 emits over time; Console = experiment; Build = durable artifacts and static config.
 const LENS_CONTENT: Record<LensId, () => ReactNode> = {
+  // Variables + probe are the whole focal material of the Inspect lens. The screen is no longer Inspect's
+  // companion — it is shell furniture stacked below every lens (see the lens column), so Inspect owns the
+  // full focal area instead of splitting it.
   inspect: () => (
-    <ResizableStack
-      groupId="lens-inspect"
-      orientation="horizontal"
-      className="h-full"
-      items={[
-        {
-          // Variables + probe are the focal material of the Inspect lens; the screen is its companion,
-          // so the default split seats the focus here and gives the companion the smaller share.
-          id: 'inspect-variables',
-          defaultSize: '62%',
-          minSize: '35%',
-          node: (
-            <FacetFrame title="Variables" testId="facet-variables">
-              <VariablesPane />
-            </FacetFrame>
-          ),
-        },
-        {
-          id: 'inspect-screen',
-          defaultSize: '38%',
-          minSize: '22%',
-          node: (
-            <FacetFrame title="Screen" testId="facet-screen">
-              <ScreenPane />
-            </FacetFrame>
-          ),
-        },
-      ]}
-    />
+    <FacetFrame title="Variables" testId="facet-variables">
+      <VariablesPane />
+    </FacetFrame>
   ),
   events: () => (
     <FacetFrame title="Events" testId="facet-events">
@@ -174,8 +151,44 @@ export const EntityWorkspace = observer(function EntityWorkspace() {
             node: (
               <div className="flex h-full flex-col overflow-hidden rounded border">
                 <LensSwitcher />
-                <div className="min-h-0 flex-1 p-2" data-testid="lens-content">
-                  {LENS_CONTENT[workspace.activeLens]()}
+                {/* [LAW:dataflow-not-control-flow] The screen companion's presence is a VALUE — an item
+                    in the stack iff workspace.screenVisible — not a branch that mounts a different tree.
+                    The same vertical stack renders every frame: lens on top, screen on the bottom. When
+                    the screen is hidden the list has one item, so ResizableStack draws no divider and the
+                    lens fills the column. [LAW:one-source-of-truth] the screen is shell furniture beside
+                    every lens, mounted once here, not re-homed per lens. */}
+                <div className="min-h-0 flex-1 p-2">
+                  <ResizableStack
+                    groupId="lens-screen"
+                    orientation="vertical"
+                    className="h-full"
+                    items={[
+                      {
+                        id: 'lens-active',
+                        defaultSize: '62%',
+                        minSize: '30%',
+                        node: (
+                          <div className="h-full" data-testid="lens-content">
+                            {LENS_CONTENT[workspace.activeLens]()}
+                          </div>
+                        ),
+                      },
+                      ...(workspace.screenVisible
+                        ? [
+                            {
+                              id: 'lens-screen-companion',
+                              defaultSize: '38%',
+                              minSize: '15%',
+                              node: (
+                                <FacetFrame title="Screen" testId="facet-screen">
+                                  <ScreenPane />
+                                </FacetFrame>
+                              ),
+                            },
+                          ]
+                        : []),
+                    ]}
+                  />
                 </div>
               </div>
             ),
