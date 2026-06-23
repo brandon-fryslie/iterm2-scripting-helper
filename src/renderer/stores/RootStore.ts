@@ -9,6 +9,7 @@ import { TmuxStore } from './TmuxStore';
 import { ColorPresetStore } from './ColorPresetStore';
 import { ErrorStore } from './ErrorStore';
 import { WorkspaceStore } from './WorkspaceStore';
+import { ThemeStore } from './ThemeStore';
 import {
   APP_ENTITY,
   appEntityExistsInLayout,
@@ -27,6 +28,7 @@ export class RootStore {
   readonly colorPresets: ColorPresetStore;
   readonly errors: ErrorStore;
   readonly workspace: WorkspaceStore;
+  readonly theme: ThemeStore;
   private focusRequestSeq = 0;
 
   constructor() {
@@ -46,6 +48,7 @@ export class RootStore {
     this.tmux = new TmuxStore();
     this.colorPresets = new ColorPresetStore();
     this.workspace = new WorkspaceStore();
+    this.theme = new ThemeStore();
     makeAutoObservable(this, {
       connection: false,
       entityFocus: false,
@@ -57,6 +60,7 @@ export class RootStore {
       colorPresets: false,
       errors: false,
       workspace: false,
+      theme: false,
     });
   }
 

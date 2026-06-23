@@ -361,7 +361,7 @@ export const SetBroadcastDomainsForm = observer(function SetBroadcastDomainsForm
           data-testid="set-broadcast-domains-text"
         />
       </Field>
-      <p className="text-[10px] text-muted-foreground">
+      <p className="text-2xs text-muted-foreground">
         Replaces the entire broadcast table. The Workbench's Broadcast Domains editor offers
         the same action with drag-and-drop.
       </p>
@@ -401,7 +401,7 @@ export const GetSelectionForm = observer(function GetSelectionForm() {
           data-testid="get-selection-session"
         />
       </Field>
-      <p className="text-[10px] text-muted-foreground">
+      <p className="text-2xs text-muted-foreground">
         Returns the current selection for the session. Copy the <code>selectionJson</code> payload from the
         activity log to paste into Set Selection.
       </p>
@@ -432,7 +432,7 @@ export const SetSelectionForm = observer(function SetSelectionForm() {
           data-testid="set-selection-json"
         />
       </Field>
-      <p className="text-[10px] text-muted-foreground">
+      <p className="text-2xs text-muted-foreground">
         JSON-encoded <code>iterm2.Selection</code> proto. Use <code>{'{}'}</code> or{' '}
         <code>{'{"subSelections":[]}'}</code> to clear. Paste Get Selection output to restore a
         captured selection.
@@ -460,7 +460,7 @@ export const TransactionForm = observer(function TransactionForm() {
           </SelectContent>
         </Select>
       </Field>
-      <p className="text-[10px] text-muted-foreground">
+      <p className="text-2xs text-muted-foreground">
         Freezes iTerm2&apos;s main loop while in a transaction. Always end the transaction —
         leaving it open locks the app until it times out.
       </p>
@@ -676,9 +676,9 @@ export const OsascriptForm = observer(function OsascriptForm() {
             <div key={tpl.name} className="rounded border p-2 text-xs">
               <div className="flex items-center justify-between gap-2 mb-1">
                 <span className="font-medium">{tpl.name}</span>
-                <span className="text-[10px] text-muted-foreground">{tpl.language}</span>
+                <span className="text-2xs text-muted-foreground">{tpl.language}</span>
                 <button
-                  className="rounded bg-primary px-2 py-0.5 text-[10px] text-primary-foreground hover:bg-primary/90"
+                  className="rounded bg-primary px-2 py-0.5 text-2xs text-primary-foreground hover:bg-primary/90"
                   onClick={() =>
                     c.updateForm('osascript', { script: tpl.script, language: tpl.language })
                   }
@@ -687,14 +687,14 @@ export const OsascriptForm = observer(function OsascriptForm() {
                   Use
                 </button>
               </div>
-              <pre className="mb-1 overflow-x-auto rounded bg-muted px-2 py-1 font-mono text-[10px] leading-relaxed whitespace-pre-wrap">
+              <pre className="mb-1 overflow-x-auto rounded bg-muted px-2 py-1 font-mono text-2xs leading-relaxed whitespace-pre-wrap">
                 {tpl.script}
               </pre>
               {tpl.protoNote && (
-                <p className="text-[10px] text-muted-foreground">
+                <p className="text-2xs text-muted-foreground">
                   Proto equivalent: {tpl.protoNote}
                   {tpl.protoExample && (
-                    <pre className="mt-0.5 overflow-x-auto rounded bg-muted px-2 py-1 font-mono text-[10px] whitespace-pre-wrap">
+                    <pre className="mt-0.5 overflow-x-auto rounded bg-muted px-2 py-1 font-mono text-2xs whitespace-pre-wrap">
                       {tpl.protoExample}
                     </pre>
                   )}
@@ -717,10 +717,10 @@ export const OsascriptForm = observer(function OsascriptForm() {
         </summary>
         <div className="mt-2">
           {sdefState.status === 'error' && (
-            <p className="text-[10px] text-destructive">{sdefState.message}</p>
+            <p className="text-2xs text-destructive">{sdefState.message}</p>
           )}
           {sdefState.status === 'loading' && (
-            <p className="text-[10px] text-muted-foreground">Loading…</p>
+            <p className="text-2xs text-muted-foreground">Loading…</p>
           )}
           {sdefState.status === 'ok' && (
             <>
@@ -734,13 +734,13 @@ export const OsascriptForm = observer(function OsascriptForm() {
               <div className="max-h-56 overflow-y-auto text-xs space-y-1">
                 {filteredClasses.length > 0 && (
                   <div>
-                    <p className="font-semibold text-[10px] uppercase text-muted-foreground mb-0.5">Classes</p>
+                    <p className="font-semibold text-2xs uppercase text-muted-foreground mb-0.5">Classes</p>
                     {filteredClasses.map((cl) => (
                       <details key={cl.name} className="mb-0.5">
                         <summary className="cursor-pointer font-mono font-medium">
                           {cl.name}
                           {cl.description && (
-                            <span className="ml-2 font-sans font-normal text-muted-foreground text-[10px]">
+                            <span className="ml-2 font-sans font-normal text-muted-foreground text-2xs">
                               {cl.description}
                             </span>
                           )}
@@ -748,7 +748,7 @@ export const OsascriptForm = observer(function OsascriptForm() {
                         {cl.properties.length > 0 && (
                           <ul className="ml-3 mt-0.5 space-y-0.5">
                             {cl.properties.map((p) => (
-                              <li key={p.name} className="font-mono text-[10px]">
+                              <li key={p.name} className="font-mono text-2xs">
                                 <span className="text-primary">{p.name}</span>
                                 {p.type && <span className="text-muted-foreground"> : {p.type}</span>}
                                 {p.description && (
@@ -764,9 +764,9 @@ export const OsascriptForm = observer(function OsascriptForm() {
                 )}
                 {filteredCommands.length > 0 && (
                   <div>
-                    <p className="font-semibold text-[10px] uppercase text-muted-foreground mb-0.5">Commands</p>
+                    <p className="font-semibold text-2xs uppercase text-muted-foreground mb-0.5">Commands</p>
                     {filteredCommands.map((cmd) => (
-                      <div key={cmd.name} className="font-mono text-[10px]">
+                      <div key={cmd.name} className="font-mono text-2xs">
                         <span className="text-primary">{cmd.name}</span>
                         {cmd.description && (
                           <span className="text-muted-foreground font-sans ml-2">{cmd.description}</span>
@@ -815,7 +815,7 @@ const TmuxConnectionField = observer(function TmuxConnectionField({
             data-testid="tmux-connection-input"
           />
           <button
-            className="shrink-0 rounded border px-2 py-1 text-[10px] hover:bg-muted"
+            className="shrink-0 rounded border px-2 py-1 text-2xs hover:bg-muted"
             onClick={() => tmux.refresh()}
             data-testid="tmux-connection-refresh"
           >
@@ -823,22 +823,22 @@ const TmuxConnectionField = observer(function TmuxConnectionField({
           </button>
         </div>
         {s.status === 'loading' && (
-          <p className="text-[10px] text-muted-foreground">Loading connections…</p>
+          <p className="text-2xs text-muted-foreground">Loading connections…</p>
         )}
         {s.status === 'error' && (
-          <p className="text-[10px] text-destructive" data-testid="tmux-connection-error">
+          <p className="text-2xs text-destructive" data-testid="tmux-connection-error">
             {s.message}
           </p>
         )}
         {s.status === 'ok' && s.connections.length === 0 && (
-          <p className="text-[10px] text-muted-foreground">No tmux connections.</p>
+          <p className="text-2xs text-muted-foreground">No tmux connections.</p>
         )}
         {s.status === 'ok' && s.connections.length > 0 && (
           <div className="flex flex-wrap gap-1">
             {s.connections.map((conn) => (
               <button
                 key={conn.connectionId}
-                className={`rounded border px-2 py-0.5 text-[10px] ${
+                className={`rounded border px-2 py-0.5 text-2xs ${
                   value === conn.connectionId ? 'bg-primary text-primary-foreground' : 'hover:bg-muted'
                 }`}
                 onClick={() => onPick(conn.connectionId)}
@@ -875,7 +875,7 @@ export const TmuxSendCommandForm = observer(function TmuxSendCommandForm() {
           data-testid="tmux-send-command-input"
         />
       </Field>
-      <p className="text-[10px] text-muted-foreground">
+      <p className="text-2xs text-muted-foreground">
         Sends a raw tmux command over the control connection. The command output (if any) appears on
         the action result in Activity.
       </p>
@@ -900,7 +900,7 @@ export const TmuxCreateWindowForm = observer(function TmuxCreateWindowForm() {
           data-testid="tmux-create-window-affinity"
         />
       </Field>
-      <p className="text-[10px] text-muted-foreground">
+      <p className="text-2xs text-muted-foreground">
         Creates a native iTerm2 tab backed by a new tmux window. Affinity hints which existing tmux
         window the new one should sit beside; leave blank for none.
       </p>
@@ -932,7 +932,7 @@ export const TmuxSetWindowVisibleForm = observer(function TmuxSetWindowVisibleFo
           testId="tmux-set-window-visible-visible"
         />
       </Field>
-      <p className="text-[10px] text-muted-foreground">
+      <p className="text-2xs text-muted-foreground">
         Opens (visible) or hides a tmux window as an iTerm2 tab without killing it in tmux.
       </p>
     </div>
@@ -953,7 +953,7 @@ export const GetPreferenceForm = observer(function GetPreferenceForm() {
           data-testid="get-preference-key"
         />
       </Field>
-      <p className="text-[10px] text-muted-foreground">
+      <p className="text-2xs text-muted-foreground">
         Reads the raw stored JSON for an iTerm2 preference key. An empty <code>jsonValue</code> on the
         result means the key has no value set. iTerm2 Settings edits known preferences but never
         exposes a key&apos;s raw value.
@@ -993,7 +993,7 @@ const ColorPresetField = observer(function ColorPresetField({
             data-testid="color-preset-input"
           />
           <button
-            className="shrink-0 rounded border px-2 py-1 text-[10px] hover:bg-muted"
+            className="shrink-0 rounded border px-2 py-1 text-2xs hover:bg-muted"
             onClick={() => colorPresets.refresh()}
             data-testid="color-preset-refresh"
           >
@@ -1001,22 +1001,22 @@ const ColorPresetField = observer(function ColorPresetField({
           </button>
         </div>
         {s.status === 'loading' && (
-          <p className="text-[10px] text-muted-foreground">Loading presets…</p>
+          <p className="text-2xs text-muted-foreground">Loading presets…</p>
         )}
         {s.status === 'error' && (
-          <p className="text-[10px] text-destructive" data-testid="color-preset-error">
+          <p className="text-2xs text-destructive" data-testid="color-preset-error">
             {s.message}
           </p>
         )}
         {s.status === 'ok' && s.presets.length === 0 && (
-          <p className="text-[10px] text-muted-foreground">No color presets.</p>
+          <p className="text-2xs text-muted-foreground">No color presets.</p>
         )}
         {s.status === 'ok' && s.presets.length > 0 && (
           <div className="flex flex-wrap gap-1">
             {s.presets.map((name) => (
               <button
                 key={name}
-                className={`rounded border px-2 py-0.5 text-[10px] ${
+                className={`rounded border px-2 py-0.5 text-2xs ${
                   value === name ? 'bg-primary text-primary-foreground' : 'hover:bg-muted'
                 }`}
                 onClick={() => onPick(name)}
@@ -1051,7 +1051,7 @@ export const ApplyColorPresetForm = observer(function ApplyColorPresetForm() {
           data-testid="apply-color-preset-guids"
         />
       </Field>
-      <p className="text-[10px] text-muted-foreground">
+      <p className="text-2xs text-muted-foreground">
         Reads the preset&apos;s colors and writes them to every listed profile at once — the bulk apply
         iTerm2 Settings has no UI for. Settings can still set a preset on one profile at a time.
       </p>

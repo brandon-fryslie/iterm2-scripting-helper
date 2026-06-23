@@ -341,7 +341,7 @@ export const RegistrationEditor = observer(function RegistrationEditor() {
           </Field>
           <Field label="Preview">
             <pre
-              className="max-h-48 overflow-auto rounded bg-muted p-2 font-mono text-[10px]"
+              className="max-h-48 overflow-auto rounded bg-muted p-2 font-mono text-2xs"
               data-testid="registration-preview"
             >
               {JSON.stringify(workbench.registrationDraft, null, 2)}

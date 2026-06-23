@@ -1,4 +1,4 @@
-import { Settings } from 'lucide-react';
+import { Moon, Settings, Sun } from 'lucide-react';
 import { observer } from 'mobx-react-lite';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -13,21 +13,38 @@ export const EntitySpineRail = observer(function EntitySpineRail({
 }: {
   onOpenSettings: () => void;
 }) {
-  const { entityFocus } = useStore();
+  const { entityFocus, theme } = useStore();
+  const isDark = theme.isActive('dark');
 
   return (
     <div className="flex h-full flex-col overflow-hidden rounded border" data-testid="entity-spine-rail">
       <header className="flex items-center justify-between gap-2 border-b bg-muted px-3 py-1">
         <span className="text-xs font-semibold uppercase tracking-wide">Entity</span>
-        <Button
-          variant="ghost"
-          size="icon-xs"
-          aria-label="Open settings"
-          data-testid="settings-gear"
-          onClick={onOpenSettings}
-        >
-          <Settings className="text-muted-foreground" />
-        </Button>
+        <div className="flex items-center gap-1">
+          <Button
+            variant="ghost"
+            size="icon-xs"
+            aria-label={isDark ? 'Switch to light theme' : 'Switch to dark theme'}
+            data-testid="theme-toggle"
+            data-theme={theme.theme}
+            onClick={theme.toggle}
+          >
+            {isDark ? (
+              <Sun className="text-muted-foreground" />
+            ) : (
+              <Moon className="text-muted-foreground" />
+            )}
+          </Button>
+          <Button
+            variant="ghost"
+            size="icon-xs"
+            aria-label="Open settings"
+            data-testid="settings-gear"
+            onClick={onOpenSettings}
+          >
+            <Settings className="text-muted-foreground" />
+          </Button>
+        </div>
       </header>
       <div
         className="flex items-center gap-2 border-b px-3 py-2 text-xs"

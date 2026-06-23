@@ -245,7 +245,7 @@ export const ArrangementViewer = observer(function ArrangementViewer() {
               </p>
             ) : (
               <pre
-                className="max-h-96 overflow-auto whitespace-pre-wrap font-mono text-[10px]"
+                className="max-h-96 overflow-auto whitespace-pre-wrap font-mono text-2xs"
                 data-testid="arrangement-json"
               >
                 {JSON.stringify(contentsOf(inspected), null, 2)}
@@ -297,7 +297,7 @@ function ArrangementDiff({
     );
   }
   return (
-    <ul className="grid gap-1 font-mono text-[10px]" data-testid="arrangement-diff-entries">
+    <ul className="grid gap-1 font-mono text-2xs" data-testid="arrangement-diff-entries">
       {entries.map((entry, idx) => (
         <li key={idx} className="break-all">
           <Badge

@@ -121,7 +121,7 @@ export const TriggersViewer = observer(function TriggersViewer() {
               <CardTitle className="text-base">Dry run</CardTitle>
             </CardHeader>
             <CardContent className="grid gap-2">
-              <p className="text-xs text-amber-600" data-testid="triggers-engine-caveat">
+              <p className="text-xs text-warning" data-testid="triggers-engine-caveat">
                 Engine caveat: this tester runs JavaScript RegExp; iTerm2 evaluates
                 trigger regexes with the ICU engine. Patterns using constructs the two
                 engines disagree on are flagged "cannot test" instead of being
@@ -318,14 +318,14 @@ function TriggerResultDetail({
   switch (result.kind) {
     case 'fired':
       return (
-        <p className="mt-1 text-[10px] text-muted-foreground">
+        <p className="mt-1 text-2xs text-muted-foreground">
           would run <code>{action ?? '(no action)'}</code> on line {result.lineIndex + 1}:{' '}
           <code className="break-all">{result.lineText.slice(0, 80)}</code>
         </p>
       );
     case 'untestable':
       return (
-        <ul className="mt-1 list-disc pl-4 text-[10px] text-muted-foreground">
+        <ul className="mt-1 list-disc pl-4 text-2xs text-muted-foreground">
           {result.constructs.map((c) => (
             <li key={c}>{c}</li>
           ))}
@@ -333,7 +333,7 @@ function TriggerResultDetail({
       );
     case 'js-invalid':
       return (
-        <p className="mt-1 text-[10px] text-muted-foreground">
+        <p className="mt-1 text-2xs text-muted-foreground">
           {result.error} — the pattern may still be valid ICU; iTerm2 is the only honest
           judge here.
         </p>

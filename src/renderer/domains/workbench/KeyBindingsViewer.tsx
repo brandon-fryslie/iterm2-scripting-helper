@@ -153,7 +153,7 @@ function KeystrokeEncoder() {
           )}
         </div>
         {captured && (
-          <div className="grid grid-cols-2 gap-x-4 gap-y-1 font-mono text-[10px] text-muted-foreground">
+          <div className="grid grid-cols-2 gap-x-4 gap-y-1 font-mono text-2xs text-muted-foreground">
             <span>char</span>
             <span>
               {captured.decoded.hexChar} — {captured.decoded.key}
@@ -244,7 +244,7 @@ function KeyBindingRow({ entry }: { entry: KeyBindingEntry }) {
   const decoded = decodeBindingKey(entry.key);
   return (
     <li
-      className="flex flex-wrap items-center gap-2 rounded border px-2 py-1.5 font-mono text-[10px]"
+      className="flex flex-wrap items-center gap-2 rounded border px-2 py-1.5 font-mono text-2xs"
       data-testid={`key-binding-${entry.key}`}
     >
       <span className="min-w-[120px] font-bold">
@@ -318,13 +318,13 @@ function SnippetsCard({ snippets }: { snippets: SnippetEntry[] }) {
                 {s.tags.length > 0 && (
                   <div className="flex flex-wrap gap-1">
                     {s.tags.map((t) => (
-                      <Badge key={t} variant="secondary" className="text-[10px]">
+                      <Badge key={t} variant="secondary" className="text-2xs">
                         {t}
                       </Badge>
                     ))}
                   </div>
                 )}
-                <span className="w-full font-mono text-[10px] text-muted-foreground truncate">
+                <span className="w-full font-mono text-2xs text-muted-foreground truncate">
                   {s.value}
                 </span>
               </li>
@@ -348,7 +348,7 @@ function PasteConfigCard({ config }: { config: Record<string, unknown> }) {
           Special" key actions behave and are readable via the Preferences API
           (<code>PreferencesRequest.GetPreference</code>).
         </p>
-        <ul className="grid gap-1 font-mono text-[10px]" data-testid="paste-config-list">
+        <ul className="grid gap-1 font-mono text-2xs" data-testid="paste-config-list">
           {Object.entries(config).map(([key, value]) => (
             <li key={key} className="flex gap-2 rounded border px-2 py-1">
               <span className="shrink-0 text-muted-foreground">{key}</span>

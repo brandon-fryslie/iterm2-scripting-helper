@@ -22,7 +22,7 @@ export const CapabilityPanel = observer(function CapabilityPanel() {
       <CardContent className="space-y-2 text-sm">
         {drift.kind === 'server-newer' && (
           <p
-            className="rounded border border-yellow-500/50 bg-yellow-500/10 px-3 py-2 text-yellow-700 dark:text-yellow-400"
+            className="rounded border border-warning/50 bg-warning/10 px-3 py-2 text-warning"
             role="status"
             data-testid="protocol-drift-banner"
           >
