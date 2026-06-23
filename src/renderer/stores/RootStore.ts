@@ -79,6 +79,15 @@ export class RootStore {
     }
   }
 
+  // [LAW:single-enforcer] The one place the Console inline result escalates to the full Events lens.
+  // The just-fired event's `seq` is the single spine identity, so "open this in Events" is setLens +
+  // select — never a re-derivation of which event to show. Mirrors navigateToDoc: a destination that
+  // lives in a non-focal lens brings that lens into focus, so the selection is never off-screen.
+  inspectEventInEvents(seq: number): void {
+    this.workspace.setLens('events');
+    this.activity.select(seq);
+  }
+
   async selectEntityFocus(entity: AppEntityRef): Promise<void> {
     const seq = ++this.focusRequestSeq;
     this.entityFocus.select(this.validEntityOrApp(entity));

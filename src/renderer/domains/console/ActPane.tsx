@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { observer } from 'mobx-react-lite';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -7,6 +7,7 @@ import { Input } from '@/components/ui/input';
 import { Separator } from '@/components/ui/separator';
 import { useStore } from '@/stores/context';
 import { FocusTarget } from './FocusTarget';
+import { FiredResult } from './FiredResult';
 import type { ActionKind } from '@/stores/ConsoleStore';
 import {
   SendTextForm,
@@ -75,10 +76,30 @@ const FORM_COMPONENTS: Record<ActionKind, React.ComponentType> = {
 };
 
 // Act: the contextual action bar over the focused entity. Firing an action produces an AppEvent on the
-// spine, so there is no Act-local transcript — the result surfaces in the Activity facet.
+// shared spine; the FiredResult panel below surfaces that just-fired event and its provenance inline,
+// so cause/effect is one glance here instead of a switch to the Events lens.
+//
+// [LAW:no-ambient-temporal-coupling] This pane is the Console lens's spine-refresh owner: it hydrates
+// the ActivityStore once on mount (the shell keeps it live for the Events lens but does not poll it
+// here) and again right after each fire, so the inline result reads a snapshot that provably includes
+// the event the fire just appended.
 export const ActPane = observer(function ActPane() {
-  const { console: consoleStore } = useStore();
+  const { console: consoleStore, activity } = useStore();
   const [snippetName, setSnippetName] = useState('');
+
+  useEffect(() => {
+    void activity.hydrate();
+  }, [activity]);
+
+  const fireAction = async (action: ActionKind) => {
+    await consoleStore.fire(action);
+    await activity.hydrate();
+  };
+
+  const fireSnippet = async (id: string) => {
+    await consoleStore.fireSnippet(id);
+    await activity.hydrate();
+  };
 
   const Form = FORM_COMPONENTS[consoleStore.selectedAction];
 
@@ -108,7 +129,7 @@ export const ActPane = observer(function ActPane() {
           <Separator className="my-3" />
           <div className="flex items-center gap-2">
             <Button
-              onClick={() => void consoleStore.fire(consoleStore.selectedAction)}
+              onClick={() => void fireAction(consoleStore.selectedAction)}
               data-testid="action-fire"
             >
               Fire
@@ -134,6 +155,8 @@ export const ActPane = observer(function ActPane() {
         </CardContent>
       </Card>
 
+      <FiredResult />
+
       {consoleStore.snippets.length > 0 && (
         <Card>
           <CardHeader className="pb-2">
@@ -151,7 +174,7 @@ export const ActPane = observer(function ActPane() {
                   <span className="flex-1 truncate">{s.name}</span>
                   <Button
                     size="sm"
-                    onClick={() => void consoleStore.fireSnippet(s.id)}
+                    onClick={() => void fireSnippet(s.id)}
                     data-testid={`snippet-fire-${s.id}`}
                   >
                     Fire

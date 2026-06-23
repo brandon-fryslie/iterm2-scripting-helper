@@ -1,22 +1,9 @@
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import {
-  eventFacet,
-  eventSummary,
-  eventProvenance,
-  type ProvenanceLink,
-  type ProvenanceRelation,
-} from '@shared/activity';
+import { eventFacet } from '@shared/activity';
 import { eventFrameSeq, type AppEvent, type AppEventLogSnapshot } from '@shared/domain';
 import { FACET_LABEL, formatTime } from './facetMeta';
-
-const RELATION_LABEL: Record<ProvenanceRelation, string> = {
-  'frame-sibling': 'same frame',
-  cause: 'caused by',
-  effect: 'caused',
-  'request-frame': 'request/response frame',
-  'request-origin': 'fired by action',
-};
+import { ProvenanceList } from './ProvenanceList';
 
 // The Detail inspector: raw payload + the walkable provenance chain. Selecting an event here is the
 // deepest zoom in the timeline — there is no separate Wire/Console/Registration destination.
@@ -33,7 +20,6 @@ export function EventDetail({
 }) {
   const facet = eventFacet(event);
   const frameSeq = eventFrameSeq(event);
-  const links = eventProvenance(snapshot, event);
 
   return (
     <div className="flex h-full flex-col" data-testid="activity-detail">
@@ -48,20 +34,7 @@ export function EventDetail({
       </div>
 
       <div className="flex-1 space-y-3 overflow-auto px-3 py-2 text-xs">
-        <section>
-          <h4 className="mb-1 font-semibold uppercase tracking-wide text-muted-foreground">
-            Provenance
-          </h4>
-          {links.length === 0 ? (
-            <p className="text-muted-foreground">No linked events in the retained window.</p>
-          ) : (
-            <ul className="grid gap-1">
-              {links.map((link, i) => (
-                <ProvenanceRow key={i} link={link} onNavigate={onNavigate} />
-              ))}
-            </ul>
-          )}
-        </section>
+        <ProvenanceList snapshot={snapshot} event={event} onNavigate={onNavigate} />
 
         <section>
           <h4 className="mb-1 font-semibold uppercase tracking-wide text-muted-foreground">
@@ -73,46 +46,5 @@ export function EventDetail({
         </section>
       </div>
     </div>
-  );
-}
-
-function ProvenanceRow({
-  link,
-  onNavigate,
-}: {
-  link: ProvenanceLink;
-  onNavigate: (seq: number) => void;
-}) {
-  const relation = RELATION_LABEL[link.relation];
-  if (link.target.status === 'found') {
-    const target = link.target.event;
-    return (
-      <li className="flex items-center gap-2" data-testid={`provenance-${link.relation}`}>
-        <span className="w-32 shrink-0 text-muted-foreground">{relation}</span>
-        <Button
-          size="sm"
-          variant="outline"
-          className="h-auto justify-start gap-2 py-1 text-left font-normal"
-          onClick={() => onNavigate(target.seq)}
-          data-testid={`provenance-link-${target.seq}`}
-        >
-          <Badge variant="outline" className="shrink-0">
-            {FACET_LABEL[eventFacet(target)]}
-          </Badge>
-          <span className="text-muted-foreground">#{target.seq}</span>
-          <span className="truncate">{eventSummary(target)}</span>
-        </Button>
-      </li>
-    );
-  }
-
-  // [LAW:no-silent-failure] A reference that scrolled out of the ring renders loudly, never silently.
-  return (
-    <li className="flex items-center gap-2" data-testid={`provenance-${link.relation}`}>
-      <span className="w-32 shrink-0 text-muted-foreground">{relation}</span>
-      <Badge variant="destructive" data-testid={`provenance-${link.target.status}`}>
-        {link.target.status === 'evicted' ? 'evicted' : 'unknown'} ({link.target.ref})
-      </Badge>
-    </li>
   );
 }

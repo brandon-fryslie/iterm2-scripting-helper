@@ -1074,9 +1074,22 @@ end tell'`,
     await expect(snippet).toBeVisible();
     await snippet.locator('[data-testid^="snippet-fire-"]').click();
 
-    // Actions feed the Events lens's spine (no Console-local transcript). The three fires surface as
-    // three action events there, and every one succeeded (no ✗ in its summary). Switching lenses
-    // never drops the events — the firing store stays live behind the non-focal lens.
+    // Cause/effect surfaces inline on the Console lens: the three fires appear in the Result panel
+    // without leaving Console, read from the same spine snapshot the Events timeline projects. Every
+    // one succeeded against the live connection (no ✗ in its summary).
+    const consoleRows = win
+      .getByTestId('console-result')
+      .locator('[data-testid^="activity-row-"][data-facet="action"]');
+    await expect(consoleRows).toHaveCount(3, { timeout: 10_000 });
+    await expect(consoleRows.filter({ hasText: '✗' })).toHaveCount(0);
+    // The just-fired action carries provenance inline — at minimum the request/response wire frames it
+    // put on the wire — so the user sees what it produced without opening the Events detail.
+    await expect(
+      win.getByTestId('console-result').getByTestId('provenance-request-frame').first(),
+    ).toBeVisible({ timeout: 10_000 });
+
+    // The same spine, viewed in the Events lens: the three fires surface identically there, and
+    // switching lenses never drops the events — the firing store stays live behind the non-focal lens.
     await selectLens(win, 'events');
     const actionRows = win.locator(
       '[data-testid^="activity-row-"][data-facet="action"]',

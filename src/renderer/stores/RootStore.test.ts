@@ -29,3 +29,20 @@ describe('RootStore.navigateToDoc', () => {
     expect(store.workspace.activeLens).toBe('console');
   });
 });
+
+// The escalation seam from the Console inline result to the full Events lens: the just-fired event's
+// seq is the single spine identity, so "open this in Events" is purely setLens + select.
+describe('RootStore.inspectEventInEvents', () => {
+  let store: RootStore;
+
+  beforeEach(() => {
+    store = new RootStore();
+  });
+
+  it('focuses the Events lens and selects the given spine seq', () => {
+    store.workspace.setLens('console');
+    store.inspectEventInEvents(42);
+    expect(store.workspace.activeLens).toBe('events');
+    expect(store.activity.selectedSeq).toBe(42);
+  });
+});
