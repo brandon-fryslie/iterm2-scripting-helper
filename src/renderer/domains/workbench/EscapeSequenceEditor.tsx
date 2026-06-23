@@ -90,7 +90,7 @@ export const EscapeSequenceEditor = observer(function EscapeSequenceEditor() {
             <label key={f.name} className="grid grid-cols-[8rem_1fr] items-start gap-2">
               <span className="pt-2 text-xs text-muted-foreground">
                 {f.name}
-                {f.help && <span className="mt-0.5 block text-[10px] opacity-70">{f.help}</span>}
+                {f.help && <span className="mt-0.5 block text-2xs opacity-70">{f.help}</span>}
               </span>
               <EscapeFieldInput
                 field={f}

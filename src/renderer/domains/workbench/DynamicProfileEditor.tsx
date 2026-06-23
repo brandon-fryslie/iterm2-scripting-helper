@@ -26,7 +26,7 @@ const NEW_PROFILE_TEMPLATE = `{
 }
 `;
 
-const WARN_TEXT = 'text-amber-700 dark:text-amber-400';
+const WARN_TEXT = 'text-warning';
 
 function fileBadge(analysis: DynamicProfileAnalysis): {
   label: string;
@@ -136,7 +136,7 @@ const AnalysisPanel = observer(function AnalysisPanel() {
             >
               <div className="flex items-center gap-2">
                 <span className="font-medium">{entry.name ?? '(no name)'}</span>
-                <span className="font-mono text-[10px] text-muted-foreground">
+                <span className="font-mono text-2xs text-muted-foreground">
                   {entry.guid ?? '(no guid)'}
                 </span>
               </div>
@@ -217,7 +217,7 @@ export const DynamicProfileEditor = observer(function DynamicProfileEditor() {
                       {badge && (
                         <div
                           className={cn(
-                            'text-[10px]',
+                            'text-2xs',
                             badge.variant === 'destructive'
                               ? 'text-destructive'
                               : 'text-muted-foreground',

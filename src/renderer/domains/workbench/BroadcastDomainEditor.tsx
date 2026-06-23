@@ -67,7 +67,7 @@ export const BroadcastDomainEditor = observer(function BroadcastDomainEditor() {
         draggable
         onDragStart={(e) => e.dataTransfer.setData('text/plain', sessionId)}
         onClick={() => workbench.armBroadcastSession(isArmed ? null : sessionId)}
-        className={`flex max-w-full items-center gap-1 rounded border px-2 py-1 text-left font-mono text-[10px] ${
+        className={`flex max-w-full items-center gap-1 rounded border px-2 py-1 text-left font-mono text-2xs ${
           isArmed ? 'border-primary ring-1 ring-primary' : ''
         } ${session ? '' : 'border-destructive text-destructive'}`}
         title={session ? `${session.title} (${sessionId})` : `${sessionId} — not in the current layout`}
@@ -186,7 +186,7 @@ export const BroadcastDomainEditor = observer(function BroadcastDomainEditor() {
                 </CardHeader>
                 <CardContent className="flex min-h-12 flex-wrap gap-1">
                   {domain.length === 0 ? (
-                    <span className="text-[10px] text-muted-foreground">
+                    <span className="text-2xs text-muted-foreground">
                       Empty — drop sessions here (won't be applied while empty).
                     </span>
                   ) : (
@@ -229,12 +229,12 @@ export const BroadcastDomainEditor = observer(function BroadcastDomainEditor() {
               )}
               {pool.map((w) => (
                 <div key={w.windowId} className="grid gap-1">
-                  <span className="text-[10px] text-muted-foreground">
+                  <span className="text-2xs text-muted-foreground">
                     Window {w.windowNumber} ({w.windowId})
                   </span>
                   <div className="flex flex-wrap gap-1">
                     {w.sessions.filter((s) => !assigned.has(s.sessionId)).length === 0 ? (
-                      <span className="text-[10px] text-muted-foreground">
+                      <span className="text-2xs text-muted-foreground">
                         all sessions assigned
                       </span>
                     ) : (
@@ -246,7 +246,7 @@ export const BroadcastDomainEditor = observer(function BroadcastDomainEditor() {
                 </div>
               ))}
               {stale.size > 0 && (
-                <p className="text-[10px] text-destructive" data-testid="broadcast-stale-note">
+                <p className="text-2xs text-destructive" data-testid="broadcast-stale-note">
                   {stale.size} session(s) in the draft no longer exist in the layout; applying
                   will be refused until they are removed.
                 </p>

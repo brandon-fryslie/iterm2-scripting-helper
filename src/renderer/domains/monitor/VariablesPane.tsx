@@ -69,7 +69,7 @@ export const VariablesPane = observer(function VariablesPane() {
         <div className="mb-2 flex items-center justify-between gap-2">
           <div className="min-w-0">
             <div className="font-medium capitalize">{entityFocus.kind} variables</div>
-            <div className="truncate font-mono text-[11px] text-muted-foreground">
+            <div className="truncate font-mono text-2xs text-muted-foreground">
               {entityFocus.key}
             </div>
           </div>
@@ -189,11 +189,11 @@ function UnobservedWatchRow({
       data-testid={`watched-variable-${name}`}
       data-observed="false"
     >
-      <code className="min-w-0 truncate text-[11px] font-semibold text-muted-foreground">
+      <code className="min-w-0 truncate text-2xs font-semibold text-muted-foreground">
         {name}
       </code>
       <div className="flex items-center gap-1">
-        <span className="text-[11px] text-muted-foreground">not present in focus</span>
+        <span className="text-2xs text-muted-foreground">not present in focus</span>
         <WatchToggle name={name} watched onToggleWatched={onToggleWatched} />
       </div>
     </div>
@@ -263,7 +263,7 @@ function VariableRow({
       data-watched={watched ? 'true' : 'false'}
     >
       <div className="flex min-w-0 items-center justify-between gap-2">
-        <code className="min-w-0 truncate text-[11px] font-semibold">{variable.name}</code>
+        <code className="min-w-0 truncate text-2xs font-semibold">{variable.name}</code>
         <div className="flex items-center gap-1">
           <Badge variant="secondary">{variable.scope}</Badge>
           <Badge variant={variable.live ? 'default' : 'outline'}>
@@ -288,7 +288,7 @@ function VariableRow({
       </div>
       <ValueLine label="current" value={variable.value} />
       <ValueLine label="previous" value={variable.previousValue ?? '-'} muted />
-      <div className="text-[11px] text-muted-foreground">
+      <div className="text-2xs text-muted-foreground">
         Changed {formatRelativeTime(variable.updatedAt)}
       </div>
       <VariableHistory name={variable.name} history={variable.history} />
@@ -336,7 +336,7 @@ function VariableHistory({
   if (priorChanges.length === 0) return null;
 
   return (
-    <details className="text-[11px]" data-testid={`variable-history-${name}`}>
+    <details className="text-2xs" data-testid={`variable-history-${name}`}>
       <summary className="cursor-pointer select-none text-muted-foreground">
         {priorChanges.length} prior {priorChanges.length === 1 ? 'change' : 'changes'}
       </summary>
@@ -371,7 +371,7 @@ function ValueLine({
       <span className="text-muted-foreground">{label}</span>
       <code
         className={cn(
-          'min-w-0 break-words rounded bg-muted px-1.5 py-1 text-[11px]',
+          'min-w-0 break-words rounded bg-muted px-1.5 py-1 text-2xs',
           muted && 'text-muted-foreground',
         )}
       >

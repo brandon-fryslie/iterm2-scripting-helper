@@ -34,7 +34,7 @@ export const ExpressionProbe = observer(function ExpressionProbe() {
         <span className="font-semibold uppercase tracking-wide text-muted-foreground">
           Probe
         </span>
-        <span className="truncate text-[11px] text-muted-foreground">
+        <span className="truncate text-2xs text-muted-foreground">
           evaluate live against <code className="font-mono">{entityFocus.kind}</code>
         </span>
       </div>
@@ -69,14 +69,14 @@ function ProbeResultLine({ result }: { result: AppProbeResult }) {
       data-testid="variable-probe-result"
       data-outcome={result.outcome}
     >
-      <div className="flex items-center gap-2 text-[11px] text-muted-foreground">
+      <div className="flex items-center gap-2 text-2xs text-muted-foreground">
         <code className="min-w-0 truncate font-semibold">{result.expression}</code>
         <Badge variant="outline">{appEntityKey(result.entity)}</Badge>
       </div>
       <code
         data-testid="variable-probe-value"
         className={cn(
-          'block min-w-0 break-words rounded px-1.5 py-1 text-[11px]',
+          'block min-w-0 break-words rounded px-1.5 py-1 text-2xs',
           result.outcome === 'value'
             ? 'bg-muted'
             : 'bg-destructive/10 text-destructive',

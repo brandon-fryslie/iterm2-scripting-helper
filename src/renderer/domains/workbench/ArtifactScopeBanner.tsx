@@ -25,7 +25,7 @@ export const ArtifactScopeBanner = observer(function ArtifactScopeBanner({
     <div
       className={cn(
         'flex flex-wrap items-center gap-2 rounded border px-3 py-2 text-xs',
-        focusMismatch ? 'border-amber-500/50 bg-amber-500/10' : 'bg-muted',
+        focusMismatch ? 'border-warning/50 bg-warning/10' : 'bg-muted',
       )}
       data-testid="artifact-scope-banner"
       data-scope={scope.kind}
@@ -40,7 +40,7 @@ export const ArtifactScopeBanner = observer(function ArtifactScopeBanner({
         </span>
       ) : null}
       {focusMismatch ? (
-        <span className="ml-auto text-amber-700 dark:text-amber-400">
+        <span className="ml-auto text-warning">
           Focus a session (or override the target below) to act.
         </span>
       ) : null}
