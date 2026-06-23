@@ -5,31 +5,16 @@ import { Badge } from '@/components/ui/badge';
 import { Separator } from '@/components/ui/separator';
 import { useStore } from '@/stores/context';
 import { flatSessions } from '@shared/domain';
-import type { ConnectionSnapshot } from '@shared/rpc';
-
-type State = ConnectionSnapshot['state'];
-
-const STATE_LABEL: Record<State, string> = {
-  idle: 'Idle',
-  detecting: 'Detecting socket',
-  'requesting-cookie': 'Requesting cookie',
-  connecting: 'Connecting',
-  ready: 'Connected',
-  reconnecting: 'Reconnecting…',
-  error: 'Error',
-};
-
-function stateVariant(state: State): 'default' | 'secondary' | 'destructive' | 'outline' {
-  if (state === 'ready') return 'default';
-  if (state === 'error') return 'destructive';
-  if (state === 'idle') return 'outline';
-  return 'secondary';
-}
+import {
+  CONNECTION_STATE_LABEL,
+  connectionStateVariant,
+  type ConnectionStateId,
+} from './connectionState';
 
 export const ConnectionPanel = observer(function ConnectionPanel() {
   const { connection } = useStore();
   const snap = connection.snapshot;
-  const state: State = snap?.state ?? 'idle';
+  const state: ConnectionStateId = snap?.state ?? 'idle';
 
   return (
     <Card data-testid="settings-connection-panel">
@@ -37,11 +22,11 @@ export const ConnectionPanel = observer(function ConnectionPanel() {
         <CardTitle className="flex items-center gap-2">
           Connection
           <Badge
-            variant={stateVariant(state)}
+            variant={connectionStateVariant(state)}
             data-testid="connection-state-badge"
             data-state={state}
           >
-            {STATE_LABEL[state]}
+            {CONNECTION_STATE_LABEL[state]}
           </Badge>
         </CardTitle>
       </CardHeader>
