@@ -31,6 +31,11 @@ export class MonitorStore {
   variables: VariableSnapshot = EMPTY_VARIABLES;
   watchlist: WatchlistSnapshot = EMPTY_WATCHLIST;
   screen: ScreenSnapshot = EMPTY_SCREEN;
+  // [LAW:one-source-of-truth] The probe's whole state lives here — the in-progress draft alongside the
+  // result and pending flag — so the input field and a variable row that inserts into it write one
+  // authority instead of a private copy each. Stranding the draft in component state was the split
+  // that made "a row feeds the probe" unrepresentable; unified, it is just another value.
+  probeDraft = '';
   // [LAW:one-source-of-truth] The result is self-describing (carries the entity + expression it was
   // evaluated against), so it stays accurate even after focus moves; no parallel "what was probed".
   probeResult: AppProbeResult | null = null;
@@ -101,6 +106,21 @@ export class MonitorStore {
   async loadVariableFocus(entity: AppEntityRef): Promise<void> {
     const snap = await window.ipc.invoke('monitor/focus-variables', { entity });
     runInAction(() => this.applyVariables(snap));
+  }
+
+  setProbeDraft(value: string): void {
+    this.probeDraft = value;
+  }
+
+  // [LAW:dataflow-not-control-flow] Appends the variable's interpolation reference to the draft as a
+  // value; the probe input always renders probeDraft, so a row inserting is the same operation as the
+  // user typing. `name` is already iTerm2's full reference — bare for session-local variables
+  // (`hostname`) and prefixed for cross-scope frames it surfaces (`tab.title`, `user.foo`) — so it is
+  // wrapped exactly once into `\(…)`. Prepending `scope` would emit `\(tab.tab.title)` and fail to
+  // resolve; a single full-wrap resolves to the exact path, and successive inserts concatenate into a
+  // valid interpolated template the probe evaluates whole.
+  insertProbeReference(name: string): void {
+    this.probeDraft = `${this.probeDraft}\\(${name})`;
   }
 
   async runProbe(entity: AppEntityRef, expression: string): Promise<void> {
