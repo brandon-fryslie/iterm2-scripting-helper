@@ -1,0 +1,24 @@
+/* [LAW:one-source-of-truth] THE declaration of the bundled terminal font. The family name
+   "JetBrainsMono Nerd Font" is minted here and nowhere else; every surface that wants this font
+   references it through the `--font-mono` token (globals.css), never by re-typing the literal.
+   Two faces, one family: regular (400) and bold (700) so xterm can render bold cells in the same
+   typeface instead of falling back to a synthesized/substitute bold.
+
+   Mono variant: forces the wide Nerd Font icons into a single fixed cell — a terminal grid requires it.
+   See ./../assets/fonts/README.md + OFL.txt for provenance and license (SIL OFL 1.1 / Nerd Fonts MIT). */
+
+@font-face {
+  font-family: 'JetBrainsMono Nerd Font';
+  font-style: normal;
+  font-weight: 400;
+  font-display: block;
+  src: url('../assets/fonts/JetBrainsMonoNerdFontMono-Regular.woff2') format('woff2');
+}
+
+@font-face {
+  font-family: 'JetBrainsMono Nerd Font';
+  font-style: normal;
+  font-weight: 700;
+  font-display: block;
+  src: url('../assets/fonts/JetBrainsMonoNerdFontMono-Bold.woff2') format('woff2');
+}

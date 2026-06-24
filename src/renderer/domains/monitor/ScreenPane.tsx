@@ -58,6 +58,27 @@ export const ScreenPane = observer(function ScreenPane() {
   }
 });
 
+const FONT_SIZE = 13;
+
+// [LAW:one-source-of-truth] The terminal font stack lives once, in the `--font-terminal` token
+// (globals.css). Read it here rather than re-typing the family literal, so the viewport and the stylesheet
+// can never name different fonts. [LAW:no-silent-failure] An empty token means the renderer stylesheet
+// failed to load; xterm would otherwise fall back to a default monospace and tofu every powerline/devicon
+// glyph — fail loudly instead of rendering the wrong font in silence.
+function readTerminalFontStack(): string {
+  const stack = getComputedStyle(document.documentElement).getPropertyValue('--font-terminal').trim();
+  if (!stack) {
+    throw new Error('--font-terminal is undefined; renderer stylesheet did not load before the Screen viewport');
+  }
+  return stack;
+}
+
+// The first family in the stack is the bundled face we must wait on before xterm measures cells; the
+// rest are always-available system fallbacks. Strip the quotes so document.fonts.load gets a bare name.
+function primaryFamily(stack: string): string {
+  return stack.split(',')[0].trim().replace(/^['"]|['"]$/g, '');
+}
+
 const XTermScreen = observer(function XTermScreen() {
   const { entityFocus, monitor } = useStore();
   const containerRef = useRef<HTMLDivElement>(null);
@@ -66,9 +87,11 @@ const XTermScreen = observer(function XTermScreen() {
     const container = containerRef.current;
     if (!container) return;
 
+    const fontStack = readTerminalFontStack();
+
     const term = new Terminal({
-      fontSize: 13,
-      fontFamily: "Menlo, Monaco, 'Courier New', monospace",
+      fontSize: FONT_SIZE,
+      fontFamily: fontStack,
       convertEol: true,
       scrollback: 1000,
       cursorBlink: true,
@@ -83,21 +106,6 @@ const XTermScreen = observer(function XTermScreen() {
     const fitAddon = new FitAddon();
     term.loadAddon(fitAddon);
     term.loadAddon(new WebLinksAddon());
-    term.open(container);
-    fitAddon.fit();
-
-    const observer = new ResizeObserver(() => fitAddon.fit());
-    observer.observe(container);
-
-    const dataDisposable = term.onData((data) => {
-      const sessionId = entityFocus.sessionId;
-      if (!sessionId) return;
-      void window.ipc.invoke('actions/send-text', {
-        entity: entityFocus.selected,
-        sessionId,
-        text: data,
-      });
-    });
 
     let lastSessionId: string | null = null;
     let lastUpdatesReceived = -1;
@@ -132,23 +140,75 @@ const XTermScreen = observer(function XTermScreen() {
       });
     };
 
-    const dispose = autorun(() => {
-      const snap = monitor.screen;
-      if (!snap.sessionId) return;
+    // [LAW:no-ambient-temporal-coupling] xterm measures the character cell at open()/fit() time. If the
+    // bundled web font is still loading then, the grid is sized against fallback metrics and stays wrong
+    // until a resize. So the open→fit→wire sequence is owned by `start`, fired only once the font is
+    // resolved — first paint is measured against the real glyph metrics, deterministically, not racing
+    // the disk load. Idempotent collection of teardown so cleanup works whether or not start() ran.
+    let disposed = false;
+    const disposers: Array<() => void> = [];
 
-      const isSessionChange = lastSessionId !== snap.sessionId;
-      if (!isSessionChange && snap.updatesReceived === lastUpdatesReceived) return;
+    const start = () => {
+      if (disposed || !containerRef.current) return;
 
-      lastUpdatesReceived = snap.updatesReceived;
-      lastSessionId = snap.sessionId;
+      term.open(container);
+      fitAddon.fit();
 
-      render(isSessionChange);
-    });
+      const observer = new ResizeObserver(() => fitAddon.fit());
+      observer.observe(container);
+      disposers.push(() => observer.disconnect());
+
+      const dataDisposable = term.onData((data) => {
+        const sessionId = entityFocus.sessionId;
+        if (!sessionId) return;
+        void window.ipc.invoke('actions/send-text', {
+          entity: entityFocus.selected,
+          sessionId,
+          text: data,
+        });
+      });
+      disposers.push(() => dataDisposable.dispose());
+
+      const dispose = autorun(() => {
+        const snap = monitor.screen;
+        if (!snap.sessionId) return;
+
+        const isSessionChange = lastSessionId !== snap.sessionId;
+        if (!isSessionChange && snap.updatesReceived === lastUpdatesReceived) return;
+
+        lastUpdatesReceived = snap.updatesReceived;
+        lastSessionId = snap.sessionId;
+
+        render(isSessionChange);
+      });
+      disposers.push(dispose);
+    };
+
+    // Wait on both faces (regular + bold) of the bundled family before opening. document.fonts.load
+    // resolves with the faces it matched; an empty result means the asset didn't package or the family
+    // name drifted — text still renders via the fallback stack, but glyphs tofu, so say so loudly rather
+    // than silently shipping the wrong font. [LAW:no-silent-failure] A rejection (load error) likewise
+    // degrades to the fallback with a warning, never a blank viewport.
+    const primary = primaryFamily(fontStack);
+    void Promise.all([
+      document.fonts.load(`400 ${FONT_SIZE}px '${primary}'`),
+      document.fonts.load(`700 ${FONT_SIZE}px '${primary}'`),
+    ]).then(
+      (faces) => {
+        if (faces.flat().length === 0) {
+          console.warn(`[ScreenPane] bundled font "${primary}" did not load; powerline/devicon glyphs may render as tofu`);
+        }
+        start();
+      },
+      (err) => {
+        console.warn(`[ScreenPane] bundled font "${primary}" failed to load; using fallback stack`, err);
+        start();
+      },
+    );
 
     return () => {
-      dispose();
-      dataDisposable.dispose();
-      observer.disconnect();
+      disposed = true;
+      disposers.forEach((d) => d());
       term.dispose();
     };
   }, [entityFocus, monitor]);
