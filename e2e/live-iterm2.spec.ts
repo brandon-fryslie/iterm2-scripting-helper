@@ -37,6 +37,54 @@ async function selectLens(win: Page, lens: Lens): Promise<void> {
   await expect(win.getByTestId(`facet-${lens === 'inspect' ? 'variables' : lens}`)).toBeVisible();
 }
 
+// [LAW:no-ambient-temporal-coupling] A test that injects terminal output must OWN the session it writes
+// to. Borrowing the user's focused session corrupts their working shell and races their redraws (a
+// full-screen TUI overdraws the marker within a frame). Each dedicated session is a fresh iTerm2 window
+// created here; the caller force-closes it in a finally, so the test is the single owner of that
+// session's lifecycle and nothing it does leaks into the user's environment. [LAW:one-source-of-truth]
+// this is the one definition of "a session the test owns" — the callers stop hand-rolling osascript.
+function createDedicatedSession(): string {
+  const sessionId = execSync(
+    `osascript -e 'tell application "iTerm2"
+set w to (create window with default profile)
+return unique ID of current session of w
+end tell'`,
+    { encoding: 'utf8' },
+  ).trim();
+  expect(sessionId).toMatch(/^[0-9A-F-]{36}$/);
+  return sessionId;
+}
+
+// Force-close skips iTerm2's close-confirmation modal, which otherwise hangs AppleScript teardown.
+// Soft so a teardown failure never masks the test's own assertion. [LAW:no-silent-failure]
+async function closeDedicatedSession(win: Page, sessionId: string): Promise<void> {
+  const res = await win.evaluate(async (id) => {
+    return window.ipc.invoke('actions/close', {
+      entity: { kind: 'session', windowId: '', tabId: '', sessionId: id },
+      kind: 'sessions',
+      ids: [id],
+      force: true,
+    });
+  }, sessionId);
+  expect.soft(res.ok).toBe(true);
+}
+
+// Run a shell command in a session the test owns: send-text types it, the trailing newline runs it.
+// suppressBroadcast keeps the keystrokes on this session even if the user has broadcast enabled — the
+// test must never type into the user's other terminals. Command output lands in scrollback above the
+// prompt and survives the prompt's periodic redraw, unlike injected screen output an active prompt
+// overdraws. [LAW:no-ambient-temporal-coupling]
+async function runCommand(win: Page, sessionId: string, command: string): Promise<void> {
+  await win.evaluate(async (args) => {
+    return window.ipc.invoke('actions/send-text', {
+      entity: { kind: 'session', windowId: '', tabId: '', sessionId: args.sessionId },
+      sessionId: args.sessionId,
+      text: `${args.command}\n`,
+      suppressBroadcast: true,
+    });
+  }, { sessionId, command });
+}
+
 test.describe('live iTerm2', () => {
   test.beforeEach(() => {
     test.skip(
@@ -523,8 +571,12 @@ test.describe('live iTerm2', () => {
 
     // Escape Sequence: build the Inline Image (File) template through the real editor UI and
     // emit it to the focused session (epic 449.1 acceptance: the File template emits a valid
-    // sequence that renders in the target session).
-    await win.getByTestId(`layout-session-${probe.sessionId}`).click();
+    // sequence that renders in the target session). [LAW:no-ambient-temporal-coupling] emit into a
+    // session the test owns — not the user's focused shell — created here and closed in finally.
+    const escSessionId = createDedicatedSession();
+    try {
+    await expect(win.getByTestId(`layout-session-${escSessionId}`)).toBeVisible({ timeout: 10_000 });
+    await win.getByTestId(`layout-session-${escSessionId}`).click();
     await win.getByTestId('workbench-rail-escape-sequence').click();
     // Entity-scoped artifact: banner says so, and the editor anchors its target to focus.
     await expect(win.getByTestId('artifact-scope-banner')).toHaveAttribute(
@@ -543,32 +595,28 @@ test.describe('live iTerm2', () => {
     await expect(win.getByTestId('escape-sequence-hex')).not.toBeEmpty();
     await expect(win.getByTestId('escape-effective-target')).toHaveAttribute(
       'data-target',
-      probe.sessionId,
+      escSessionId,
     );
 
     await win.getByTestId('escape-send').click();
     await expect(win.getByTestId('escape-last-result')).toHaveAttribute('data-ok', 'true');
 
-    // The terminal must keep rendering after consuming the image sequence: inject a marker as
+    // The terminal must keep rendering after consuming the image sequence: print a marker as command
     // output and require it to surface as visible screen content below the image.
     const marker = `escape-e2e-${Date.now()}`;
-    const markerHex = Array.from(new TextEncoder().encode(`\r\n${marker}\r\n`))
-      .map((b) => b.toString(16).padStart(2, '0'))
-      .join('');
-    await win.evaluate(async (args) => {
-      return window.ipc.invoke('actions/inject', {
-        entity: { kind: 'session', windowId: '', tabId: '', sessionId: args.sessionId },
-        sessionIds: [args.sessionId],
-        bytesHex: args.markerHex,
-      });
-    }, { sessionId: probe.sessionId, markerHex });
     // The live screen is a shell companion stacked below every lens (shown by default); Inspect is one
     // place it is visible.
     await selectLens(win, 'inspect');
     const screenPane = win.getByTestId('screen-pane');
-    await expect(screenPane.locator('.xterm-rows')).toContainText(marker, { timeout: 10_000 });
-
-    await app.close();
+    await runCommand(win, escSessionId, `printf '%s\\n' ${marker}`);
+    await expect(async () => {
+      const text = await screenPane.locator('.xterm-rows').textContent();
+      expect(text ?? '').toContain(marker);
+    }).toPass({ timeout: 15_000, intervals: [500, 1000, 2000, 3000] });
+    } finally {
+      await closeDedicatedSession(win, escSessionId);
+      await app.close();
+    }
   });
 
   test('Author: triggers view is read-only, engine-truthful, and dry-runs against captured session output', async () => {
@@ -580,15 +628,8 @@ test.describe('live iTerm2', () => {
     // The dry run reads the FOCUSED session's captured screen. Borrowing whatever session the
     // user is working in races their redraws (a full-screen TUI overdraws the injected marker
     // within one frame). [LAW:no-ambient-temporal-coupling] the test owns its terminal: a
-    // dedicated iTerm2 window, created and closed here.
-    const testSessionId = execSync(
-      `osascript -e 'tell application "iTerm2"
-set w to (create window with default profile)
-return unique ID of current session of w
-end tell'`,
-      { encoding: 'utf8' },
-    ).trim();
-    expect(testSessionId).toMatch(/^[0-9A-F-]{36}$/);
+    // dedicated iTerm2 window, created here and closed in finally.
+    const testSessionId = createDedicatedSession();
 
     // From here real iTerm2 state exists (a window, then a dynamic profile): every exit path
     // must tear both down, or a failed assertion leaks them into the user's environment.
@@ -637,20 +678,14 @@ end tell'`,
       timeout: 10_000,
     });
     await win.getByTestId(`layout-session-${testSessionId}`).click();
-    const markerHex = Array.from(new TextEncoder().encode(`\r\n${marker}\r\n`))
-      .map((b) => b.toString(16).padStart(2, '0'))
-      .join('');
-    await win.evaluate(async (args) => {
-      return window.ipc.invoke('actions/inject', {
-        entity: { kind: 'session', windowId: '', tabId: '', sessionId: args.sessionId },
-        sessionIds: [args.sessionId],
-        bytesHex: args.markerHex,
-      });
-    }, { sessionId: testSessionId, markerHex });
-    await expect(win.getByTestId('screen-pane').locator('.xterm-rows')).toContainText(
-      marker,
-      { timeout: 10_000 },
-    );
+    // [LAW:no-ambient-temporal-coupling] Print the marker as command output (lands in scrollback above
+    // the prompt and persists) rather than injecting it as screen output a live prompt overdraws. Retry
+    // the read until it surfaces — the observable presence is the settle signal, not a guessed delay.
+    await runCommand(win, testSessionId, `printf '%s\\n' ${marker}`);
+    await expect(async () => {
+      const text = await win.getByTestId('screen-pane').locator('.xterm-rows').textContent();
+      expect(text ?? '').toContain(marker);
+    }).toPass({ timeout: 15_000, intervals: [500, 1000, 2000, 3000] });
 
     await selectLens(win, 'build');
     await win.getByTestId('workbench-rail-triggers').click();
@@ -691,18 +726,9 @@ end tell'`,
     expect(clipboard).toContain(marker);
 
     } finally {
-      // Teardown through the app's own typed channel: force-closing the session skips iTerm2's
-      // close-confirmation modal, which makes AppleScript window closing hang. Soft assertions
-      // keep every teardown step running even when one fails. [LAW:no-silent-failure]
-      const closeRes = await win.evaluate(async (args) => {
-        return window.ipc.invoke('actions/close', {
-          entity: { kind: 'session', windowId: '', tabId: '', sessionId: args.sessionId },
-          kind: 'sessions',
-          ids: [args.sessionId],
-          force: true,
-        });
-      }, { sessionId: testSessionId });
-      expect.soft(closeRes.ok).toBe(true);
+      // Teardown through the app's own typed channel (closeDedicatedSession force-closes past iTerm2's
+      // confirmation modal); soft so a teardown miss never masks the test's assertion.
+      await closeDedicatedSession(win, testSessionId);
       const del = await win.evaluate(async (args) => {
         return window.ipc.invoke('workbench/delete-dynamic-profile', {
           basename: args.basename,
@@ -722,18 +748,8 @@ end tell'`,
     // The save/restore verbs act on real iTerm2 windows; the test owns its own windows rather
     // than capturing/restoring over the user's. Two windows so the scoped save (one window) and
     // the unscoped save (all windows) are guaranteed to differ for the diff assertion.
-    const mkWindow = () =>
-      execSync(
-        `osascript -e 'tell application "iTerm2"
-set w to (create window with default profile)
-return unique ID of current session of w
-end tell'`,
-        { encoding: 'utf8' },
-      ).trim();
-    const sessionA = mkWindow();
-    const sessionB = mkWindow();
-    expect(sessionA).toMatch(/^[0-9A-F-]{36}$/);
-    expect(sessionB).toMatch(/^[0-9A-F-]{36}$/);
+    const sessionA = createDedicatedSession();
+    const sessionB = createDedicatedSession();
 
     // The SavedArrangement wire message has no DELETE verb (only iTerm2's Window > Edit Window
     // Arrangements can remove one), so fixed names make reruns overwrite instead of accumulate.
@@ -1117,48 +1133,69 @@ end tell'`,
     await expect(win.getByTestId('activity-facet-prompt')).toBeVisible();
     await expect(win.getByTestId('activity-facet-focus')).toBeVisible();
 
-    const firstSession = win.locator('[data-testid^="layout-session-"]').first();
-    await expect(firstSession).toBeVisible({ timeout: 10_000 });
-    await firstSession.click();
+    // [LAW:no-ambient-temporal-coupling] Own the session we inject into — never the user's focused
+    // shell. Created here; force-closed in finally so a failed assertion can't leak the window.
+    const sessionId = createDedicatedSession();
+    try {
+      // The live screen is a shell companion stacked below every lens (shown by default); it keeps a
+      // data-empty attribute until a snapshot for the focused session arrives. Focus the dedicated
+      // session so its captured screen is the one the Screen pane renders.
+      await selectLens(win, 'inspect');
+      await expect(win.getByTestId(`layout-session-${sessionId}`)).toBeVisible({ timeout: 10_000 });
+      await win.getByTestId(`layout-session-${sessionId}`).click();
 
-    const sessionId =
-      (await firstSession.getAttribute('data-testid'))?.replace('layout-session-', '') ?? '';
-    expect(sessionId).not.toBe('');
+      const screenPane = win.getByTestId('screen-pane');
+      await expect(screenPane).toBeVisible({ timeout: 15_000 });
+      await expect(screenPane).not.toHaveAttribute('data-empty', /./, { timeout: 15_000 });
 
-    // The live screen is a shell companion stacked below every lens (shown by default); it keeps a
-    // data-empty attribute until a snapshot for the focused session arrives.
-    await selectLens(win, 'inspect');
-    const screenPane = win.getByTestId('screen-pane');
-    await expect(screenPane).toBeVisible({ timeout: 15_000 });
-    await expect(screenPane).not.toHaveAttribute('data-empty', /./, { timeout: 15_000 });
+      // The persistent context strip reads the same always-live stores as the panes: with a live
+      // connection and a focused session whose screen has rendered, it reports the connected state and a
+      // live screen readout — the observe loop's status is legible at the shell level, not buried in a lens.
+      await expect(win.getByTestId('strip-connection-badge')).toHaveAttribute('data-state', 'ready');
+      await expect(win.getByTestId('strip-screen')).toHaveAttribute(
+        'data-screen-status',
+        'live',
+        { timeout: 15_000 },
+      );
 
-    // The persistent context strip reads the same always-live stores as the panes: with a live
-    // connection and a focused session whose screen has rendered, it reports the connected state and a
-    // live screen readout — the observe loop's status is legible at the shell level, not buried in a lens.
-    await expect(win.getByTestId('strip-connection-badge')).toHaveAttribute('data-state', 'ready');
-    await expect(win.getByTestId('strip-screen')).toHaveAttribute(
-      'data-screen-status',
-      'live',
-      { timeout: 15_000 },
-    );
+      // [LAW:verifiable-goals] Guards iterm2-screen-colors-0k1: colored cells rendered monochrome
+      // because the cell-color oneof conversion dropped every non-RGB / non-ANSI-16 case to null.
+      // Inject a 256-palette colored run and require BOTH that the text surfaces AND that the run
+      // renders a foreground distinct from the viewport default — proof an SGR was emitted and color
+      // survived the GetBuffer → convert → xterm path end to end. Text presence alone (the prior bar)
+      // could not catch the monochrome bug, so the same snapshot is checked for both.
+      const marker = `screen-e2e-${Date.now()}`;
+      const colored = `colored-${marker}`;
 
-    // Inject a unique marker as terminal output and require it to surface as visible xterm
-    // content — element presence alone can't prove the snapshot -> render path works.
-    const marker = `screen-e2e-${Date.now()}`;
-    const bytesHex = Array.from(new TextEncoder().encode(`\r\n${marker}\r\n`))
-      .map((b) => b.toString(16).padStart(2, '0'))
-      .join('');
-    await win.evaluate(async (args) => {
-      return window.ipc.invoke('actions/inject', {
-        entity: { kind: 'session', windowId: '', tabId: '', sessionId: args.sessionId },
-        sessionIds: [args.sessionId],
-        bytesHex: args.bytesHex,
-      });
-    }, { sessionId, bytesHex });
-    await expect(screenPane.locator('.xterm-rows')).toContainText(marker, {
-      timeout: 10_000,
-    });
+      // Print a 256-palette colored line as command output — the real-world shape of this bug
+      // (`ls --color`, a colored prompt). printf interprets \033 octal escapes; index 208 is orange,
+      // \033[0m resets. The output lands above the prompt and persists, where injected screen output
+      // would be overdrawn by the prompt's periodic redraw.
+      await runCommand(win, sessionId, `printf '\\033[38;5;208m%s\\033[0m\\n' ${colored}`);
 
-    await app.close();
+      // The xterm DOM renderer wraps each styled run in a span carrying an inline color; the theme
+      // default foreground is #e6edf3 = rgb(230, 237, 243), so a resolved 256-palette color must differ.
+      // Before the fix the run fell back to that default — the monochrome wall. The command echo carries
+      // the same token in a default-colored span, so requiring *some* token-bearing run to be colored is
+      // the honest check: the printf output is the colored one. [LAW:verifiable-goals] text presence
+      // alone (the prior bar) could not have caught the monochrome bug.
+      await expect(async () => {
+        const seen = await win.evaluate((needle) => {
+          const rows = document.querySelector('.xterm-rows');
+          const colors = Array.from(document.querySelectorAll('.xterm-rows span'))
+            .filter((s) => (s.textContent ?? '').includes(needle))
+            .map((s) => getComputedStyle(s).color);
+          return { text: rows?.textContent ?? '', colors };
+        }, colored);
+        expect(seen.text).toContain(marker);
+        const hasColoredRun = seen.colors.some((c) => c !== '' && c !== 'rgb(230, 237, 243)');
+        expect(hasColoredRun, `expected a colored run; span colors were ${JSON.stringify(seen.colors)}`).toBe(
+          true,
+        );
+      }).toPass({ timeout: 25_000, intervals: [500, 1000, 2000, 3000] });
+    } finally {
+      await closeDedicatedSession(win, sessionId);
+      await app.close();
+    }
   });
 });
