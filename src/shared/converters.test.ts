@@ -1,13 +1,19 @@
 import { describe, expect, it } from 'vitest';
 import { create } from '@bufbuild/protobuf';
+import type { MessageInitShape } from '@bufbuild/protobuf';
 import {
   NotificationSchema,
   KeystrokeNotification_Action,
   Modifiers,
   FocusChangedNotification_Window_WindowStatus,
   VariableScope,
+  GetBufferResponseSchema,
+  CellStyleSchema,
+  AlternateColor,
 } from '@shared/proto/gen/api_pb';
-import { classifyNotification, variableScopeName } from './converters';
+import { classifyNotification, variableScopeName, convertGetBuffer } from './converters';
+import { styledLinesToAnsi } from '@/domains/monitor/screenToAnsi';
+import type { AppCellStyleRun } from '@shared/domain';
 
 // [LAW:verifiable-goals] 449.7.10 STEP 1: the spine notification payload must be information-complete —
 // it carries the same keystroke/prompt/focus detail the now-deleted side-stores held, so no detail is
@@ -157,6 +163,100 @@ describe('classifyNotification — tolerates additive enum drift', () => {
       keyCode: 7,
       action: 'unknown',
     });
+  });
+});
+
+// [LAW:types-are-the-program] The CellStyle.fgColor/bgColor oneofs have four cases each; the converter
+// must resolve every legal case, never silently drop one to null. These exercise the real public path
+// (convertGetBuffer) so they assert the contract, not the private helpers [LAW:behavior-not-structure].
+describe('cell-style color conversion — exhaustive over the oneof', () => {
+  // Build a one-cell, one-line buffer carrying `style`, run it through the real conversion, return the run.
+  function runFor(style: MessageInitShape<typeof CellStyleSchema>): AppCellStyleRun {
+    const response = create(GetBufferResponseSchema, {
+      contents: [{ text: 'x', style: [create(CellStyleSchema, { repeats: 1, ...style })] }],
+    });
+    return convertGetBuffer(response).lines[0].styles[0];
+  }
+
+  it('resolves fgStandard across the full xterm-256 palette, not just ANSI 0-15', () => {
+    const cases: Array<[number, string]> = [
+      [1, '#800000'],   // ANSI
+      [9, '#ff0000'],   // bright ANSI
+      [21, '#0000ff'],  // 6×6×6 cube
+      [196, '#ff0000'], // cube
+      [240, '#585858'], // grayscale ramp
+    ];
+    for (const [index, hex] of cases) {
+      expect(runFor({ fgColor: { case: 'fgStandard', value: index } }).fg).toBe(hex);
+    }
+  });
+
+  it('resolves bgStandard across the full xterm-256 palette', () => {
+    expect(runFor({ bgColor: { case: 'bgStandard', value: 21 } }).bg).toBe('#0000ff');
+    expect(runFor({ bgColor: { case: 'bgStandard', value: 240 } }).bg).toBe('#585858');
+  });
+
+  it('Alternate(DEFAULT) inherits the viewport default — null is intentional, and no reverse video', () => {
+    const run = runFor({
+      fgColor: { case: 'fgAlternate', value: AlternateColor.DEFAULT },
+      bgColor: { case: 'bgAlternate', value: AlternateColor.DEFAULT },
+    });
+    expect(run.fg).toBeNull();
+    expect(run.bg).toBeNull();
+    expect(run.inverse).toBe(false);
+  });
+
+  it('Alternate(REVERSED_DEFAULT) folds into the inverse flag rather than dropping silently', () => {
+    const run = runFor({
+      fgColor: { case: 'fgAlternate', value: AlternateColor.REVERSED_DEFAULT },
+      bgColor: { case: 'bgAlternate', value: AlternateColor.REVERSED_DEFAULT },
+    });
+    // fg/bg inherit the default; the reversal rides on `inverse` so it resolves against the viewport.
+    expect(run.fg).toBeNull();
+    expect(run.bg).toBeNull();
+    expect(run.inverse).toBe(true);
+  });
+
+  it('Alternate(SYSTEM_MESSAGE) inherits the default without claiming reverse video', () => {
+    const run = runFor({ fgColor: { case: 'fgAlternate', value: AlternateColor.SYSTEM_MESSAGE } });
+    expect(run.fg).toBeNull();
+    expect(run.inverse).toBe(false);
+  });
+});
+
+// [LAW:verifiable-goals] The end-to-end claim the ticket cares about: a buffer of colored cells whose
+// fg is real RGB (the parts iTerm2 colors) survives convertGetBuffer → styledLinesToAnsi as actual SGR,
+// even when the surrounding default-colored cells are Alternate(DEFAULT). No monochrome wall.
+describe('styled buffer round-trips to ANSI with color', () => {
+  it('emits truecolor SGR for RGB runs sitting among Alternate(DEFAULT) runs', () => {
+    const response = create(GetBufferResponseSchema, {
+      contents: [
+        {
+          text: 'ok',
+          style: [
+            create(CellStyleSchema, {
+              repeats: 2,
+              fgColor: { case: 'fgRgb', value: { red: 0, green: 255, blue: 0 } },
+            }),
+          ],
+        },
+        {
+          text: 'plain',
+          style: [
+            create(CellStyleSchema, {
+              repeats: 5,
+              fgColor: { case: 'fgAlternate', value: AlternateColor.DEFAULT },
+            }),
+          ],
+        },
+      ],
+    });
+
+    const ansi = styledLinesToAnsi(convertGetBuffer(response).lines);
+    // green run carries an SGR; the default run does not.
+    expect(ansi).toContain('\x1b[38;2;0;255;0mok\x1b[0m');
+    expect(ansi).toContain('plain');
+    expect(ansi).not.toContain('38;2;0;255;0mplain');
   });
 });
 
