@@ -52,6 +52,16 @@ const config: ForgeConfig = {
   packagerConfig: {
     asar: true,
     appBundleId: 'com.brandonfryslie.iterm2-scripting-workbench',
+    // The bundled Nerd Font's woff2 ships inside app.asar via the Vite renderer build (it is a
+    // CSS @font-face asset). Its license must ship with it: the woff2 embeds the OFL in its name
+    // table, and these human-readable copies land in Contents/Resources/ so the OFL text +
+    // Nerd Fonts/JetBrains attribution are visible without unpacking the asar — OFL §2's condition
+    // for redistributing a bundled font. [LAW:one-source-of-truth] one source per file (src/.../fonts),
+    // copied into the package by the build; never a hand-edited second copy.
+    extraResource: [
+      './src/renderer/assets/fonts/OFL.txt',
+      './src/renderer/assets/fonts/README.md',
+    ],
     ...macCodesign,
   },
   rebuildConfig: {},

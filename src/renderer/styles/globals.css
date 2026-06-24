@@ -1,4 +1,5 @@
 @import "tailwindcss";
+@import "./fonts.css";
 
 @custom-variant dark (&:is(.dark *));
 
@@ -41,6 +42,14 @@
   --input: oklch(0.90 0.008 258);
   --ring: oklch(0.55 0.17 258);
   --radius: 0.625rem;
+  /* [LAW:one-source-of-truth] The terminal viewport's font stack. The bundled Nerd Font (declared once in
+     fonts.css) leads so powerline/devicon glyphs render; the system mono stack trails as graceful fallback.
+     The Screen viewport references this token — it never re-types the family literal, so the preferred-font
+     decision can't drift. Deliberately NOT named --font-mono: that token is Tailwind's reserved design-system
+     name (the `font-mono` utility); a second declaration there is a divergent copy the cascade silently picks
+     between. This is the terminal's font, a distinct concept, so it gets a distinct name and zero collision.
+     Register-independent: the font is the same in light and dark, so it lives in :root only. */
+  --font-terminal: 'JetBrainsMono Nerd Font', Menlo, Monaco, 'Courier New', monospace;
 }
 
 .dark {

@@ -1198,4 +1198,39 @@ end tell'`,
       await app.close();
     }
   });
+
+  test('Live state: Screen viewport is wired to the bundled Nerd Font family', async () => {
+    const app = await launchApp();
+    const win = await app.firstWindow();
+
+    await connectViaGear(win);
+    await closeSettings(win);
+
+    try {
+      // [LAW:verifiable-goals] Guards iterm2-screen-font-bk4 at the live-viewport seam. font-bundle.spec.ts
+      // proves the bundled font loads and carries powerline glyphs deterministically; this proves the
+      // remaining link — the live xterm viewport renders in that family, not the Menlo/Monaco fallback the
+      // bug shipped. Read-only: focus an existing session to mount the viewport; no injection, so it never
+      // touches the user's shell nor races a prompt redraw. Composes with font-bundle's glyph-coverage proof:
+      // the viewport renders in this family AND this family carries the powerline glyphs => glyphs render here.
+      await selectLens(win, 'inspect');
+      const firstSession = win.locator('[data-testid^="layout-session-"]').first();
+      await expect(firstSession).toBeVisible({ timeout: 10_000 });
+      await firstSession.click();
+
+      const screenPane = win.getByTestId('screen-pane');
+      await expect(screenPane).toBeVisible({ timeout: 15_000 });
+      await expect(screenPane).not.toHaveAttribute('data-empty', /./, { timeout: 15_000 });
+
+      // The DOM renderer applies the Terminal fontFamily to the row container; before the fix it was the
+      // Menlo/Monaco fallback stack with no Nerd Font.
+      const viewportFont = await win.evaluate(() => {
+        const el = document.querySelector('.xterm-rows') ?? document.querySelector('.xterm');
+        return el ? getComputedStyle(el).fontFamily : '';
+      });
+      expect(viewportFont, `xterm font-family was "${viewportFont}"`).toContain('JetBrainsMono Nerd Font');
+    } finally {
+      await app.close();
+    }
+  });
 });
