@@ -1,5 +1,33 @@
 import { describe, it, expect } from 'vitest';
-import { cursorToViewport } from './screenToAnsi';
+import type { AppCellStyleRun, AppLine } from '@shared/domain';
+import { cursorToViewport, styledLinesToAnsi } from './screenToAnsi';
+
+// A style run with neutral defaults; tests override only the fields under test.
+function run(partial: Partial<AppCellStyleRun> & { repeats: number }): AppCellStyleRun {
+  return {
+    fg: null,
+    bg: null,
+    bold: false,
+    faint: false,
+    italic: false,
+    blink: false,
+    underline: false,
+    strikethrough: false,
+    invisible: false,
+    inverse: false,
+    underlineColor: null,
+    url: null,
+    ...partial,
+  };
+}
+
+function line(text: string, styles: AppCellStyleRun[]): AppLine {
+  return { index: 0, text, styles, continuation: 'hard-eol' };
+}
+
+// OSC-8 open is `ESC ] 8 ; ; <uri> ST`, close is `ESC ] 8 ; ; ST`, where ST is `ESC \`.
+const OPEN = (uri: string) => `\x1b]8;;${uri}\x1b\\`;
+const CLOSE = '\x1b]8;;\x1b\\';
 
 // startIdx is how many lines sit above the viewport: max(0, lineCount - rows).
 // These tests pin the buffer-index -> viewport-row translation that the screen
@@ -33,5 +61,31 @@ describe('cursorToViewport', () => {
   it('translates the column 0-based to 1-based and clamps to cols', () => {
     expect(cursorToViewport({ x: 7, y: 0 }, 0, 40, 80).col).toBe(8);
     expect(cursorToViewport({ x: 200, y: 0 }, 0, 40, 80).col).toBe(80);
+  });
+});
+
+describe('styledLinesToAnsi OSC-8 hyperlinks', () => {
+  it('wraps a url-carrying run in an OSC-8 open/close pair around the text', () => {
+    const out = styledLinesToAnsi([line('click', [run({ repeats: 5, url: 'https://example.com' })])]);
+    expect(out).toBe(`${OPEN('https://example.com')}click${CLOSE}`);
+  });
+
+  it('emits no link sequence when a run has no url', () => {
+    const out = styledLinesToAnsi([line('plain', [run({ repeats: 5 })])]);
+    expect(out).toBe('plain');
+    expect(out).not.toContain('\x1b]8;');
+  });
+
+  it('nests SGR styling inside the hyperlink so a styled link both colors and links', () => {
+    const out = styledLinesToAnsi([line('go', [run({ repeats: 2, bold: true, url: 'https://x.io' })])]);
+    // link-open, then SGR (bold), text, SGR reset, then link-close — one wrap per run.
+    expect(out).toBe(`${OPEN('https://x.io')}\x1b[1mgo\x1b[0m${CLOSE}`);
+  });
+
+  it('links only the run that carries a url, leaving adjacent plain runs untouched', () => {
+    const out = styledLinesToAnsi([
+      line('abcd', [run({ repeats: 2 }), run({ repeats: 2, url: 'https://y.io' })]),
+    ]);
+    expect(out).toBe(`ab${OPEN('https://y.io')}cd${CLOSE}`);
   });
 });

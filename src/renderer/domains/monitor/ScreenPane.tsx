@@ -101,6 +101,16 @@ const XTermScreen = observer(function XTermScreen() {
         cursor: '#58a6ff',
         selectionBackground: '#264f78',
       },
+      // [LAW:effects-at-boundaries] OSC-8 hyperlinks (emitted by screenToAnsi from each cell's `url`)
+      // are made activatable here, at the viewport boundary. WebLinksAddon below only auto-detects
+      // plaintext URLs; this handles true OSC-8 links where the visible text differs from the target.
+      // allowNonHttpProtocols stays at its safe default (false) so only http(s) targets open — a
+      // file://-scheme link from a session never triggers an external open.
+      linkHandler: {
+        activate: (_event, uri) => {
+          window.open(uri, '_blank', 'noopener,noreferrer');
+        },
+      },
     });
 
     const fitAddon = new FitAddon();
