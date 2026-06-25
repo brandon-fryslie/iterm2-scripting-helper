@@ -106,6 +106,37 @@ test('snippet re-fire crosses IPC and lands on the Activity spine without a conn
   await app.close();
 });
 
+test('a saved snippet survives a reload — the console remembers experiments across restart', async () => {
+  test.skip(
+    process.env.CI === 'true',
+    'GitHub macOS runners cannot reliably launch the Electron app; run locally.',
+  );
+
+  const app = await launchApp();
+  const win = await app.firstWindow();
+
+  // Save a snippet on the Console lens. The acceptance is that it is still listed after a reload — the
+  // in-memory store is the authority, localStorage is the mirror it rehydrates from on restart.
+  await win.getByTestId('lens-console').click();
+  await win.getByTestId('action-activate').click();
+  await win.getByTestId('activate-id-input').fill('persist-me');
+  await win.getByTestId('snippet-name').fill('remembered snippet');
+  await win.getByTestId('snippet-save').click();
+  const saved = win.locator('[data-testid^="snippet-snip-"]').first();
+  await expect(saved).toBeVisible();
+  await expect(saved).toContainText('remembered snippet');
+
+  // Reload the renderer: the same userData partition keeps localStorage, so a fresh RootStore rehydrates
+  // the snippet. The persisted active lens also restores Console, so the snippet card is on screen again.
+  await win.reload();
+  await expect(win.getByTestId('facet-console')).toBeVisible();
+  const restored = win.locator('[data-testid^="snippet-snip-"]').first();
+  await expect(restored).toBeVisible();
+  await expect(restored).toContainText('remembered snippet');
+
+  await app.close();
+});
+
 test('dynamic profile editor surfaces JSON, shape, and parent-resolution states live', async () => {
   test.skip(
     process.env.CI === 'true',

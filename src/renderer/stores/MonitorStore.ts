@@ -1,4 +1,4 @@
-import { makeAutoObservable, runInAction } from 'mobx';
+import { makeAutoObservable, reaction, runInAction } from 'mobx';
 import type {
   AppEntityRef,
   AppProbeResult,
@@ -9,6 +9,7 @@ import type {
   PromptSnapshot,
 } from '@shared/rpc';
 import { APP_ENTITY } from '@shared/domain';
+import { versionedCell } from './persistence';
 
 const EMPTY_LAYOUT: LayoutSnapshot = {
   windows: [],
@@ -29,6 +30,17 @@ const EMPTY_SCREEN: ScreenSnapshot = {
 };
 const EMPTY_PROMPTS: PromptSnapshot = { sessionId: null, prompts: [] };
 
+// [LAW:one-source-of-truth] The probe draft is a single last-draft, not a per-entity map: a `\(…)`
+// template is interpolation text iTerm2 resolves against whatever entity is focused at eval time, so the
+// draft is valid against any entity (the ticket's "reloads against a different entity must still be valid
+// text"). Keying it by entity kind would add a dimension with no payload-specific meaning.
+const PROBE_DRAFT_CELL = versionedCell<string>({
+  key: 'monitor-probe-draft',
+  version: 1,
+  fallback: () => '',
+  decode: (data) => (typeof data === 'string' ? data : null),
+});
+
 export class MonitorStore {
   layout: LayoutSnapshot = EMPTY_LAYOUT;
   variables: VariableSnapshot = EMPTY_VARIABLES;
@@ -42,7 +54,7 @@ export class MonitorStore {
   // result and pending flag — so the input field and a variable row that inserts into it write one
   // authority instead of a private copy each. Stranding the draft in component state was the split
   // that made "a row feeds the probe" unrepresentable; unified, it is just another value.
-  probeDraft = '';
+  probeDraft = PROBE_DRAFT_CELL.load();
   // [LAW:one-source-of-truth] The result is self-describing (carries the entity + expression it was
   // evaluated against), so it stays accurate even after focus moves; no parallel "what was probed".
   probeResult: AppProbeResult | null = null;
@@ -55,6 +67,13 @@ export class MonitorStore {
     makeAutoObservable<MonitorStore, 'onLayoutApplied'>(this, {
       onLayoutApplied: false,
     });
+    // [LAW:effects-at-boundaries] The probe draft is mirrored to localStorage from this one boundary
+    // reaction, not from setProbeDraft/insertProbeReference. The probe RESULT and pending flag stay
+    // ephemeral — only the authored draft is the experiment worth remembering across a restart.
+    reaction(
+      () => this.probeDraft,
+      (draft) => PROBE_DRAFT_CELL.save(draft),
+    );
   }
 
   applyLayout(snap: LayoutSnapshot): void {

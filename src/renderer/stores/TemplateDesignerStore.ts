@@ -1,14 +1,43 @@
-import { makeAutoObservable, runInAction } from 'mobx';
+import { makeAutoObservable, reaction, runInAction } from 'mobx';
 import type { AppActionResult } from '@shared/domain';
 import { toHex } from '@shared/escape-sequences';
 import {
   findTemplateTarget,
   previewFromProbe,
+  TEMPLATE_TARGETS,
   type TemplatePreview,
   type TemplateTarget,
   type TemplateTargetId,
 } from '@shared/templateDesigner';
+import { versionedCell } from './persistence';
 import type { EntityFocusStore } from './EntityFocusStore';
+
+// [LAW:one-source-of-truth] The persisted authoring unit is exactly {targetId, draft} — the third draft
+// surface alongside Console snippets and the probe draft. The preview and applyResult are derived/effect
+// state that reset on every edit by design, so they are never persisted; only the authoring intent is.
+interface TemplateDraftPersisted {
+  targetId: TemplateTargetId;
+  draft: string;
+}
+
+const TARGET_IDS: ReadonlySet<string> = new Set(TEMPLATE_TARGETS.map((t) => t.id));
+
+// [LAW:no-silent-failure] targetId is a closed enum; a persisted id outside it (corrupt, or from a
+// renamed target set) makes the whole blob untrustworthy, so it is dropped+warned rather than coerced.
+function decodeTemplateDraft(data: unknown): TemplateDraftPersisted | null {
+  if (typeof data !== 'object' || data === null) return null;
+  const { targetId, draft } = data as Record<string, unknown>;
+  if (typeof targetId !== 'string' || !TARGET_IDS.has(targetId)) return null;
+  if (typeof draft !== 'string') return null;
+  return { targetId: targetId as TemplateTargetId, draft };
+}
+
+const TEMPLATE_DRAFT_CELL = versionedCell<TemplateDraftPersisted>({
+  key: 'template-designer-draft',
+  version: 1,
+  fallback: () => ({ targetId: 'badge', draft: '' }),
+  decode: decodeTemplateDraft,
+});
 
 // [LAW:decomposition] The Live Template Designer's authoring state and the two boundary calls it drives —
 // nothing more. Evaluation is the existing probe seam (`monitor/probe-variable`, which interpolates a
@@ -17,8 +46,8 @@ import type { EntityFocusStore } from './EntityFocusStore';
 // interpolation nor the variable set: it reads the canonical variable snapshot from MonitorStore for
 // insertion and routes both effects through the channels that already exist ([LAW:one-source-of-truth]).
 export class TemplateDesignerStore {
-  targetId: TemplateTargetId = 'badge';
-  draft = '';
+  targetId: TemplateTargetId;
+  draft: string;
   // [LAW:no-silent-failure] The preview always corresponds to the CURRENT draft: editing the draft
   // resets it to `idle` so a stale render is never shown as if it were live. A resolved preview, an
   // empty render, and an error are each distinct visible states — never a blank that hides which.
@@ -29,7 +58,19 @@ export class TemplateDesignerStore {
 
   constructor(entityFocus: EntityFocusStore) {
     this.entityFocus = entityFocus;
+    // [LAW:no-ambient-temporal-coupling] Load before makeAutoObservable wires the reaction, so the
+    // restored draft is the initial state and not a change the persistence reaction writes back.
+    const persisted = TEMPLATE_DRAFT_CELL.load();
+    this.targetId = persisted.targetId;
+    this.draft = persisted.draft;
     makeAutoObservable<TemplateDesignerStore, 'entityFocus'>(this, { entityFocus: false });
+    // [LAW:effects-at-boundaries] The draft+target are mirrored from this one boundary reaction; the
+    // preview stays ephemeral (it resets to idle on every edit, so persisting it would restore a stale
+    // render as if it were live).
+    reaction(
+      () => ({ targetId: this.targetId, draft: this.draft }),
+      (state) => TEMPLATE_DRAFT_CELL.save(state),
+    );
   }
 
   get target(): TemplateTarget {

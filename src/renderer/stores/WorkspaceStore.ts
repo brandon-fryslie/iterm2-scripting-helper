@@ -1,6 +1,7 @@
 import { makeAutoObservable, reaction } from 'mobx';
 import { LENSES } from '@shared/lenses';
 import type { LensId } from '@shared/lenses';
+import { hasPersistence } from './persistence';
 
 // [LAW:one-source-of-truth] The lens enumeration is owned by @shared/lenses (so a capability's typed
 // lens deep-link can name a real LensId without shared importing the renderer). Re-exported here
@@ -20,15 +21,6 @@ const DEFAULT_LENS: LensId = 'inspect';
 // The screen companion is the observe half of the experiment→observe loop, so a fresh workspace shows it
 // — it is shell furniture beside every lens, not Inspect-only content, and visible is the calm default.
 const DEFAULT_SCREEN_VISIBLE = true;
-
-// [LAW:no-silent-failure] Whether a persistence home exists is a typed environment condition, not an
-// exception to swallow: outside a renderer (node unit env, SSR) there is no window/localStorage, and
-// that absence is the one legitimate no-op. A genuine localStorage failure in a real renderer is NOT
-// caught here — it surfaces rather than masquerading as success. (Electron renderers always expose
-// localStorage, so the absent case is exactly the test/SSR env, never a privacy-mode browser quirk.)
-function hasPersistence(): boolean {
-  return typeof window !== 'undefined' && !!window.localStorage;
-}
 
 // [LAW:no-silent-failure] A corrupt or stale value (hand-edited, or written by an older lens set) is
 // not a failure — it is an unknown id that falls back to the default lens by validation, so a removed
