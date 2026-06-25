@@ -6,6 +6,7 @@ import type {
   VariableSnapshot,
   WatchlistSnapshot,
   ScreenSnapshot,
+  PromptSnapshot,
 } from '@shared/rpc';
 import { APP_ENTITY } from '@shared/domain';
 
@@ -20,17 +21,23 @@ const EMPTY_SCREEN: ScreenSnapshot = {
   sessionId: null,
   lines: [],
   cursor: null,
+  baseLine: 0,
   lastUpdatedAt: 0,
   requestsInflight: 0,
   updatesReceived: 0,
   lastError: null,
 };
+const EMPTY_PROMPTS: PromptSnapshot = { sessionId: null, prompts: [] };
 
 export class MonitorStore {
   layout: LayoutSnapshot = EMPTY_LAYOUT;
   variables: VariableSnapshot = EMPTY_VARIABLES;
   watchlist: WatchlistSnapshot = EMPTY_WATCHLIST;
   screen: ScreenSnapshot = EMPTY_SCREEN;
+  prompts: PromptSnapshot = EMPTY_PROMPTS;
+  // [LAW:dataflow-not-control-flow] The semantic overlay is a value the rail reads, not a fork in the
+  // render path: enabled or not, the rail maps over the same marks list — disabled simply yields no rail.
+  screenOverlayEnabled = true;
   // [LAW:one-source-of-truth] The probe's whole state lives here — the in-progress draft alongside the
   // result and pending flag — so the input field and a variable row that inserts into it write one
   // authority instead of a private copy each. Stranding the draft in component state was the split
@@ -79,18 +86,28 @@ export class MonitorStore {
     this.screen = snap;
   }
 
+  applyPrompts(snap: PromptSnapshot): void {
+    this.prompts = snap;
+  }
+
+  toggleScreenOverlay(): void {
+    this.screenOverlayEnabled = !this.screenOverlayEnabled;
+  }
+
   async hydrate(): Promise<void> {
-    const [layout, variables, watchlist, screen] = await Promise.all([
+    const [layout, variables, watchlist, screen, prompts] = await Promise.all([
       window.ipc.invoke('monitor/layout', undefined as never),
       window.ipc.invoke('monitor/variables', undefined as never),
       window.ipc.invoke('monitor/watchlist', undefined as never),
       window.ipc.invoke('monitor/screen', undefined as never),
+      window.ipc.invoke('monitor/prompts', undefined as never),
     ]);
     runInAction(() => {
       this.layout = layout;
       this.variables = variables;
       this.watchlist = watchlist;
       this.screen = screen;
+      this.prompts = prompts;
       this.mirrorsHydrated = true;
     });
     this.onLayoutApplied();

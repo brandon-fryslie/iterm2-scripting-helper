@@ -1233,4 +1233,47 @@ end tell'`,
       await app.close();
     }
   });
+
+  test('Semantic overlay: an OSC-133 command that exits non-zero is flagged in the prompt structure rail', async () => {
+    const app = await launchApp();
+    const win = await app.firstWindow();
+
+    await connectViaGear(win);
+    await closeSettings(win);
+
+    // [LAW:no-ambient-temporal-coupling] Own the session we drive the marks into — never the user's shell.
+    const sessionId = createDedicatedSession();
+    try {
+      // Focus the dedicated session so the prompt monitor (session-scoped) subscribes to it and its
+      // captured screen is the one the Screen pane renders.
+      await selectLens(win, 'inspect');
+      await expect(win.getByTestId(`layout-session-${sessionId}`)).toBeVisible({ timeout: 10_000 });
+      await win.getByTestId(`layout-session-${sessionId}`).click();
+
+      const screenPane = win.getByTestId('screen-pane');
+      await expect(screenPane).toBeVisible({ timeout: 15_000 });
+      await expect(screenPane).not.toHaveAttribute('data-empty', /./, { timeout: 15_000 });
+
+      // [LAW:verifiable-goals] Run a REAL command that exits non-zero under the shell's OSC-133 integration
+      // (the prompt monitor reports prompt regions + the exit code exactly as iTerm2 sees them). A distinct
+      // exit code (37, not the ambient 0/1) makes the failed-mark assertion unambiguous: only this command
+      // produces it. Requires an OSC-133-emitting shell, which is the ticket's stated scope.
+      await runCommand(win, sessionId, '(exit 37)');
+
+      // The rail surfaces only when the overlay is enabled (default) AND at least one mark is present, so a
+      // failed row carrying the exit code is the end-to-end proof of the whole pipeline: prompt notification
+      // → PromptStore correlation by uniquePromptId → baseLine-relative extraction → exhaustive render.
+      await expect(win.getByTestId('prompt-overlay-rail')).toBeVisible({ timeout: 25_000 });
+      const exit37 = win.locator('[data-testid="prompt-mark-failed"][data-exit="37"]');
+      await expect(exit37.first()).toBeVisible({ timeout: 25_000 });
+
+      // [LAW:dataflow-not-control-flow] The toggle is a value the rail reads: switching the overlay off
+      // removes the rail entirely (the same empty-render path as a session with no marks).
+      await win.getByTestId('screen-overlay-toggle').click();
+      await expect(win.getByTestId('prompt-overlay-rail')).toHaveCount(0);
+    } finally {
+      await closeDedicatedSession(win, sessionId);
+      await app.close();
+    }
+  });
 });

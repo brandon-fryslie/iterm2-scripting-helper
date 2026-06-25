@@ -121,6 +121,7 @@ export const EntityWorkspace = observer(function EntityWorkspace() {
       window.ipc.on('variables-snapshot', (s) => monitor.applyVariables(s)),
       window.ipc.on('watchlist-snapshot', (s) => monitor.applyWatchlist(s)),
       window.ipc.on('screen-snapshot', (s) => monitor.applyScreen(s)),
+      window.ipc.on('prompt-snapshot', (s) => monitor.applyPrompts(s)),
       window.ipc.on('dynamic-profiles-snapshot', (s) =>
         workbench.applyDynamicSnapshot(s),
       ),

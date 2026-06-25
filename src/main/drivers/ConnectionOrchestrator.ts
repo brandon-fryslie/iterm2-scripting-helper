@@ -34,6 +34,7 @@ import {
 import {
   convertLayout,
   convertGetBuffer,
+  convertPromptNotification,
   classifyNotification,
   variableScopeName,
 } from '@shared/converters';
@@ -55,6 +56,7 @@ import type { VariableStore } from '../stores/VariableStore';
 import type { WatchlistStore } from '../stores/WatchlistStore';
 import { AppEventLog } from '../stores/AppEventLog';
 import type { ScreenStreamStore } from '../stores/ScreenStreamStore';
+import type { PromptStore } from '../stores/PromptStore';
 import type { RegistrationStore } from '../stores/RegistrationStore';
 import type {
   RegistrationSpec,
@@ -99,6 +101,7 @@ export interface MonitorStores {
   watchlist: WatchlistStore;
   appEvents: AppEventLog;
   screen: ScreenStreamStore;
+  prompt: PromptStore;
   registrations: RegistrationStore;
   customEscape: CustomEscapeStore;
 }
@@ -213,6 +216,7 @@ export class ConnectionOrchestrator extends EventEmitter {
       else this.monitor.variables.clearValuesPreservingFocus();
       this.monitor.appEvents.clear();
       this.monitor.screen.clear();
+      this.monitor.prompt.clear();
       // Unlike the other monitor stores, registrations are not blanket-cleared: a close ends the
       // current connection era (so every registration reads dead) and forgets only the
       // connection-scoped specs. Persistent specs survive so connect() can re-register them.
@@ -408,6 +412,9 @@ export class ConnectionOrchestrator extends EventEmitter {
     await this.tearDownSessionSubscriptions(prevSession);
     this.monitor.variables.setFocused(sessionId);
     this.monitor.screen.setFocused(sessionId);
+    // [LAW:single-enforcer] Prompt structure is focused-session-scoped exactly like the screen mirror, so
+    // it resets on the same focus transition and through the same owner — never on a separate cadence.
+    this.monitor.prompt.setFocused(sessionId);
 
     if (!sessionId || this.protocol.getState() !== 'ready') return;
 
@@ -441,6 +448,7 @@ export class ConnectionOrchestrator extends EventEmitter {
     // exception, even though the sole caller asserts immediately before with no await in between today.
     this.assertCurrent(epoch, 'before focus restore');
     this.monitor.screen.setFocused(sessionId);
+    this.monitor.prompt.setFocused(sessionId);
 
     const dump = await this.fetchAllVariablesForSession(sessionId).catch((err) => {
       // [LAW:no-silent-failure] A genuine dump failure on the current connection is surfaced; but a
@@ -1065,8 +1073,8 @@ export class ConnectionOrchestrator extends EventEmitter {
       });
       if (isCurrent && !isCurrent()) return; // superseded mid-fetch; the newer attempt owns the screen
       if (response.submessage.case === 'getBufferResponse') {
-        const { lines, cursor } = convertGetBuffer(response.submessage.value);
-        this.monitor.screen.applyBuffer(sessionId, lines, cursor);
+        const { lines, cursor, baseLine } = convertGetBuffer(response.submessage.value);
+        this.monitor.screen.applyBuffer(sessionId, lines, cursor, baseLine);
       } else {
         this.monitor.screen.noteFetchFailed(
           response.submessage.case === 'error'
@@ -1119,6 +1127,14 @@ export class ConnectionOrchestrator extends EventEmitter {
       if (session && this.monitor.screen.buffer.sessionId === session) {
         this.screenRefetch.request();
       }
+    }
+    if (n.promptNotification) {
+      // [LAW:dataflow-not-control-flow] The prompt notification becomes a typed update applied to the
+      // prompt store; the store's focus guard owns "is this the focused session", so no branch on session
+      // is re-derived here. A notification the converter cannot place (no session / unknown event) is
+      // dropped at the boundary, never defaulted onto the wrong prompt.
+      const converted = convertPromptNotification(n.promptNotification);
+      if (converted) this.monitor.prompt.applyUpdate(converted.sessionId, converted.update);
     }
     if (n.customEscapeSequenceNotification) {
       this.monitor.customEscape.record(n.customEscapeSequenceNotification);

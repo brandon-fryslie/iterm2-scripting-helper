@@ -5,6 +5,7 @@ export interface ScreenBuffer {
   sessionId: string | null;
   lines: AppLine[];
   cursor: { x: number; y: number } | null;
+  baseLine: number;
   lastUpdatedAt: number;
   requestsInflight: number;
   updatesReceived: number;
@@ -15,6 +16,7 @@ const EMPTY: ScreenBuffer = {
   sessionId: null,
   lines: [],
   cursor: null,
+  baseLine: 0,
   lastUpdatedAt: 0,
   requestsInflight: 0,
   updatesReceived: 0,
@@ -34,12 +36,18 @@ export class ScreenStreamStore {
     this.buffer = { ...EMPTY, sessionId };
   }
 
-  applyBuffer(sessionId: string, lines: AppLine[], cursor: { x: number; y: number } | null): void {
+  applyBuffer(
+    sessionId: string,
+    lines: AppLine[],
+    cursor: { x: number; y: number } | null,
+    baseLine: number,
+  ): void {
     if (this.buffer.sessionId !== sessionId) return;
     this.buffer = {
       sessionId,
       lines,
       cursor,
+      baseLine,
       lastUpdatedAt: Date.now(),
       requestsInflight: Math.max(0, this.buffer.requestsInflight - 1),
       updatesReceived: this.buffer.updatesReceived + 1,

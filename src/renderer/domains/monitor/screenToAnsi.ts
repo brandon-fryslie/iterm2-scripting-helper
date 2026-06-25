@@ -13,12 +13,15 @@ export function styledLinesToAnsi(lines: AppLine[]): string {
       const slice = text.slice(col, col + count);
       if (slice.length === 0) break;
       const sgr = buildSgr(run);
-      if (sgr) {
-        parts.push(sgr);
-        parts.push(slice);
-        parts.push('\x1b[0m');
+      const styled = sgr ? `${sgr}${slice}\x1b[0m` : slice;
+      // [LAW:dataflow-not-control-flow] An OSC-8 hyperlink is a value on the run (`url`), re-encoded
+      // back into the stream so xterm's own link handler can make the cell clickable — not a separate
+      // overlay re-rendering the text. A run with no url emits no link sequence; cells sharing one url
+      // are a single RLE run, so each hyperlink is wrapped exactly once. ST is `ESC \`.
+      if (run.url) {
+        parts.push(`\x1b]8;;${run.url}\x1b\\`, styled, '\x1b]8;;\x1b\\');
       } else {
-        parts.push(slice);
+        parts.push(styled);
       }
       col += count;
     }
