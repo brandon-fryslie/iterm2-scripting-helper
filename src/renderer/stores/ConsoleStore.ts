@@ -1,4 +1,4 @@
-import { makeAutoObservable, observable } from 'mobx';
+import { makeAutoObservable, observable, reaction, toJS } from 'mobx';
 import type {
   ActionResult,
   AppActionKind,
@@ -9,6 +9,7 @@ import type {
   RpcArgs,
 } from '@shared/rpc';
 import { parseDomainsText } from '@shared/broadcastDomains';
+import { versionedCell } from './persistence';
 import type { EntityFocusStore } from './EntityFocusStore';
 
 // [LAW:one-source-of-truth] The console fires exactly the action kinds the spine records;
@@ -130,6 +131,67 @@ const DEFAULT_FORMS: ActionForms = {
   'apply-color-preset': { presetName: '', guidsCsv: '' },
 };
 
+// [LAW:one-source-of-truth] The Console's persisted authoring state is one blob under one key: the saved
+// snippets and the per-action argument forms. They are saved together because both are the user's
+// in-progress console work and a single boundary reaction mirrors the whole of it.
+interface ConsolePersisted {
+  snippets: Snippet[];
+  forms: ActionForms;
+}
+
+const ACTION_KINDS: ReadonlySet<string> = new Set(Object.keys(ACTION_METHODS));
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+// [LAW:types-are-the-program] A persisted snippet is only trustworthy if its `action` is one the console
+// can actually fire — `fireSnippet` indexes ACTION_METHODS by it — so the action membership is validated,
+// not assumed. The other fields are checked for the types the snippet card and re-fire path rely on.
+function isSnippet(value: unknown): value is Snippet {
+  return (
+    isRecord(value) &&
+    typeof value.id === 'string' &&
+    typeof value.name === 'string' &&
+    typeof value.action === 'string' &&
+    ACTION_KINDS.has(value.action) &&
+    'args' in value &&
+    typeof value.createdAt === 'number'
+  );
+}
+
+// [LAW:no-silent-failure] Validation is total: snippets must all be well-formed and forms must be a record
+// of records, or the whole blob is rejected (the seam warns and drops). The version guarantees the inner
+// form shape within a build; merging the validated forms over the defaults guarantees every action key is
+// present, so a hand-edited blob missing a key cannot strand a form at `undefined`.
+function decodeConsole(data: unknown): ConsolePersisted | null {
+  if (!isRecord(data)) return null;
+  const { snippets, forms } = data;
+  if (!Array.isArray(snippets) || !snippets.every(isSnippet)) return null;
+  if (!isRecord(forms) || !Object.values(forms).every(isRecord)) return null;
+  return {
+    snippets,
+    forms: { ...structuredClone(DEFAULT_FORMS), ...(forms as Partial<ActionForms>) },
+  };
+}
+
+const CONSOLE_CELL = versionedCell<ConsolePersisted>({
+  key: 'console-state',
+  version: 1,
+  fallback: () => ({ snippets: [], forms: structuredClone(DEFAULT_FORMS) }),
+  decode: decodeConsole,
+});
+
+// The id allocator restored so a snippet saved after a reload cannot collide with a persisted id. The
+// counter is an internal allocation detail, not persisted state — it is derived from the loaded ids so
+// the on-disk blob stays the natural {snippets, forms} unit.
+function nextIdAfter(snippets: readonly Snippet[]): number {
+  return snippets.reduce((max, s) => {
+    const n = Number(s.id.replace(/^snip-/, ''));
+    return Number.isFinite(n) && n >= max ? n + 1 : max;
+  }, 1);
+}
+
 export class ConsoleStore {
   selectedAction: ActionKind = 'send-text';
   forms: ActionForms;
@@ -139,7 +201,12 @@ export class ConsoleStore {
 
   constructor(entityFocus: EntityFocusStore) {
     this.entityFocus = entityFocus;
-    this.forms = structuredClone(DEFAULT_FORMS);
+    // [LAW:no-ambient-temporal-coupling] Load before makeAutoObservable wires reactions: the restore is
+    // the initial state, never a change the persistence reaction observes and writes straight back.
+    const persisted = CONSOLE_CELL.load();
+    this.forms = persisted.forms;
+    this.snippets = persisted.snippets;
+    this.nextSnippetId = nextIdAfter(persisted.snippets);
     // [LAW:one-source-of-truth] A snippet is an immutable value: created whole, never mutated
     // field-by-field. Deep observation would wrap its stored args in Proxies — a second
     // representation that cannot survive structured clone when the snippet re-fires across the IPC
@@ -148,6 +215,13 @@ export class ConsoleStore {
       entityFocus: false,
       snippets: observable.shallow,
     });
+    // [LAW:effects-at-boundaries] The store mutates pure state; persistence is the one effect, pushed to
+    // this boundary reaction rather than fired from inside saveSnippet/deleteSnippet/updateForm. Reading
+    // the snippets and forms here tracks both, so the mirror is rewritten whenever either changes.
+    reaction(
+      () => ({ snippets: this.snippets.map((s) => ({ ...s })), forms: toJS(this.forms) }),
+      (state) => CONSOLE_CELL.save(state),
+    );
   }
 
   setAction(action: ActionKind): void {
