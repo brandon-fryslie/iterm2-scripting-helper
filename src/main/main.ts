@@ -12,6 +12,7 @@ import { WatchlistStore } from './stores/WatchlistStore';
 import { AppEventLog } from './stores/AppEventLog';
 import { ScreenStreamStore } from './stores/ScreenStreamStore';
 import { PromptStore } from './stores/PromptStore';
+import { FleetStore } from './stores/FleetStore';
 import { DynamicProfileStore } from './stores/DynamicProfileStore';
 import { RegistrationStore, registrationSnapshot } from './stores/RegistrationStore';
 import { CustomEscapeStore } from './stores/CustomEscapeStore';
@@ -83,6 +84,7 @@ const variableStore = new VariableStore(appEventLog);
 const watchlistStore = new WatchlistStore();
 const screenStreamStore = new ScreenStreamStore();
 const promptStore = new PromptStore();
+const fleetStore = new FleetStore();
 const dynamicProfileStore = new DynamicProfileStore();
 const registrationStore = new RegistrationStore();
 const customEscapeStore = new CustomEscapeStore();
@@ -94,6 +96,7 @@ const monitorStores = {
   appEvents: appEventLog,
   screen: screenStreamStore,
   prompt: promptStore,
+  fleet: fleetStore,
   registrations: registrationStore,
   customEscape: customEscapeStore,
 };
@@ -135,6 +138,10 @@ autorun(() => {
 
 autorun(() => {
   broadcast('prompt-snapshot', promptStore.snapshot());
+});
+
+autorun(() => {
+  broadcast('fleet-snapshot', fleetStore.snapshot());
 });
 
 autorun(() => {

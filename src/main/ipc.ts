@@ -22,6 +22,7 @@ import { type AppEventLog } from './stores/AppEventLog';
 import type { AppEntityRef, AppActionKind } from '@shared/domain';
 import type { ScreenStreamStore } from './stores/ScreenStreamStore';
 import type { PromptStore } from './stores/PromptStore';
+import type { FleetStore } from './stores/FleetStore';
 import type { DynamicProfileStore } from './stores/DynamicProfileStore';
 import { registrationSnapshot, type RegistrationStore } from './stores/RegistrationStore';
 import type { CustomEscapeStore } from './stores/CustomEscapeStore';
@@ -67,6 +68,7 @@ export interface MonitorStoresRef {
   appEvents: AppEventLog;
   screen: ScreenStreamStore;
   prompt: PromptStore;
+  fleet: FleetStore;
   registrations: RegistrationStore;
   customEscape: CustomEscapeStore;
 }
@@ -254,6 +256,13 @@ export function registerIpc(
     },
     'monitor/screen': async () => monitor.screen.snapshot(),
     'monitor/prompts': async () => monitor.prompt.snapshot(),
+
+    // [LAW:effects-at-boundaries] Schedules a coalesced fleet capture and returns immediately; the
+    // captured FleetSnapshot arrives over the 'fleet-snapshot' broadcast, not this response.
+    'fleet/refresh': async () => {
+      orchestrator.refreshFleet();
+      return { ok: true as const };
+    },
     'actions/send-text': action('send-text', (args) => actionSendText(orchestrator, args)),
     'actions/inject': action('inject', (args) => actionInject(orchestrator, args)),
     'actions/activate': action('activate', (args) => actionActivate(orchestrator, args)),

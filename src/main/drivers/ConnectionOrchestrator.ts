@@ -10,6 +10,8 @@ import {
   NotificationRequestSchema,
   VariableRequestSchema,
   GetBufferRequestSchema,
+  GetPromptRequestSchema,
+  GetPromptResponse_Status,
   LineRangeSchema,
   RPCRegistrationRequestSchema,
   RPCRegistrationRequest_RPCArgumentSignatureSchema,
@@ -35,9 +37,18 @@ import {
   convertLayout,
   convertGetBuffer,
   convertPromptNotification,
+  convertGetPrompt,
   classifyNotification,
   variableScopeName,
 } from '@shared/converters';
+import {
+  buildFleetSessionRecord,
+  collectFleetTargets,
+  emptyFleetSnapshot,
+  type FleetReadFailure,
+  type FleetSessionRecord,
+  type FleetTarget,
+} from '@shared/fleetQuery';
 import { AppleScriptDriver, AppleScriptError } from './AppleScriptDriver';
 import { buildRegistrationRequest, buildToolRequest } from './registrationWire';
 import {
@@ -57,6 +68,7 @@ import type { WatchlistStore } from '../stores/WatchlistStore';
 import { AppEventLog } from '../stores/AppEventLog';
 import type { ScreenStreamStore } from '../stores/ScreenStreamStore';
 import type { PromptStore } from '../stores/PromptStore';
+import type { FleetStore } from '../stores/FleetStore';
 import type { RegistrationStore } from '../stores/RegistrationStore';
 import type {
   RegistrationSpec,
@@ -69,6 +81,7 @@ import {
   type AppEntityRef,
   type AppProbeResult,
   type AppInvocationPayload,
+  type AppPrompt,
 } from '@shared/domain';
 import {
   normalizeProbeTarget,
@@ -84,6 +97,11 @@ export const DEFAULT_SOCKET_PATH = path.join(
 );
 
 const SCREEN_COALESCE_MS = 16;
+
+// A fleet capture sweeps every session (a variable dump + a prompt poll each), so it is far heavier than
+// one screen refetch and is user-triggered, not a 60fps stream. A wider window collapses an impatient
+// burst of Refresh clicks into a single bridge sweep without adding perceptible latency to one click.
+const FLEET_COALESCE_MS = 150;
 
 // Seconds iTerm2 waits for probe_eval to answer before failing the invocation. The handler echoes
 // the already-interpolated value immediately, so this only bounds a stalled connection.
@@ -102,6 +120,7 @@ export interface MonitorStores {
   appEvents: AppEventLog;
   screen: ScreenStreamStore;
   prompt: PromptStore;
+  fleet: FleetStore;
   registrations: RegistrationStore;
   customEscape: CustomEscapeStore;
 }
@@ -125,6 +144,14 @@ export class ConnectionOrchestrator extends EventEmitter {
   private readonly screenRefetch = new CoalescingScheduler(
     () => this.refetchFocusedScreen(),
     SCREEN_COALESCE_MS,
+  );
+  // [LAW:no-ambient-temporal-coupling] Single owner of "when to run the next fleet capture". A Refresh
+  // click (or several) calls request(); this guarantees at most one capture in flight and a trailing one
+  // if a request lands mid-sweep, so the fleet view converges to the latest state without N overlapping
+  // bridge sweeps — the same discipline the screen refetch uses, applied to the whole-fleet read.
+  private readonly fleetRefetch = new CoalescingScheduler(
+    () => this.captureFleetSnapshot(),
+    FLEET_COALESCE_MS,
   );
   // [LAW:no-ambient-temporal-coupling] Single owner of the probe_eval registration lifecycle: the
   // in-flight (or settled) registration promise for this connection. Template probes await it so the
@@ -227,6 +254,10 @@ export class ConnectionOrchestrator extends EventEmitter {
       this.activeVariableSubs = [];
       this.sessionScopedSubscriptions = [];
       this.screenRefetch.cancel();
+      // The fleet snapshot referenced now-dead sessions; cancel any pending sweep and drop it so a query
+      // can never match a session that died with the connection. [LAW:no-silent-failure]
+      this.fleetRefetch.cancel();
+      this.monitor.fleet.clear();
       this.emit('close', { code, reason });
       this.superviseAfterClose(requested);
     });
@@ -383,6 +414,7 @@ export class ConnectionOrchestrator extends EventEmitter {
     this.connectEpoch += 1;
     this.reconnect.cancel();
     this.screenRefetch.cancel();
+    this.fleetRefetch.cancel();
     await this.protocol.disconnect();
     this.credentials = null;
     // [LAW:one-source-of-truth] Disconnect is the single owner of establishing the disconnected state,
@@ -480,6 +512,82 @@ export class ConnectionOrchestrator extends EventEmitter {
     } catch (err) {
       this.emit('error', err);
     }
+  }
+
+  // [LAW:effects-at-boundaries] The renderer's Fleet lens calls this to (re)capture the whole fleet. It only
+  // SCHEDULES the capture through the coalescing window — the sweep runs in captureFleetSnapshot and the
+  // result rides the 'fleet-snapshot' broadcast — so an impatient burst of Refresh clicks collapses to one
+  // bridge sweep. Safe to call unconditionally; the scheduler enforces the bound.
+  refreshFleet(): void {
+    this.fleetRefetch.request();
+  }
+
+  // The one IO boundary of the Fleet Query Console: read every live session's variables + last prompt and
+  // assemble a FleetSnapshot. A session that cannot be read is NEVER dropped — it lands in `failures` with
+  // its reason ([LAW:no-silent-failure]), so a query over a partial fleet is labeled partial, not quietly
+  // short. Reads run concurrently and are gathered with allSettled, so one unreadable session cannot abort
+  // the whole sweep.
+  private async captureFleetSnapshot(): Promise<void> {
+    if (this.protocol.getState() !== 'ready') {
+      this.monitor.fleet.apply(emptyFleetSnapshot(Date.now()));
+      return;
+    }
+    const targets = collectFleetTargets(this.monitor.layout.windows);
+    const settled = await Promise.allSettled(
+      targets.map((target) => this.fetchFleetSessionRecord(target)),
+    );
+    const sessions: FleetSessionRecord[] = [];
+    const failures: FleetReadFailure[] = [];
+    settled.forEach((result, index) => {
+      if (result.status === 'fulfilled') sessions.push(result.value);
+      else failures.push({ ref: targets[index].ref, reason: errString(result.reason) });
+    });
+    this.monitor.fleet.apply({ sessions, failures, capturedAt: Date.now() });
+  }
+
+  private async fetchFleetSessionRecord(target: FleetTarget): Promise<FleetSessionRecord> {
+    const [dump, lastPrompt] = await Promise.all([
+      this.fetchFleetSessionVariables(target.ref.sessionId),
+      this.fetchLastPrompt(target.ref.sessionId),
+    ]);
+    return buildFleetSessionRecord(target, dump, lastPrompt);
+  }
+
+  // [LAW:no-silent-failure] Unlike fetchAllVariablesForEntity (which folds an error into an empty dict for
+  // the focused-pane display), the fleet read must distinguish "read failed" from "no variables": an error
+  // or unexpected response THROWS so the session lands in `failures`, never silently matching nothing.
+  private async fetchFleetSessionVariables(sessionId: string): Promise<Record<string, unknown>> {
+    const req = create(VariableRequestSchema, {
+      scope: variableRequestScope(sessionVariableEntity(sessionId)),
+      get: ['*'],
+    });
+    const { message } = await this.protocol.send({
+      submessage: { case: 'variableRequest' as const, value: req },
+    });
+    if (message.submessage.case === 'error') throw new Error(message.submessage.value);
+    if (message.submessage.case !== 'variableResponse') {
+      throw new Error(`unexpected response: ${message.submessage.case ?? '<none>'}`);
+    }
+    const values = message.submessage.value.values;
+    if (values.length === 0) return {};
+    return JSON.parse(values[0]) as Record<string, unknown>;
+  }
+
+  // Poll one session's last OSC-133 prompt. A clean non-OK status (PROMPT_UNAVAILABLE / SESSION_NOT_FOUND)
+  // is the session legitimately having no marks → null (a valid record with no exit code), NOT a failure.
+  // A transport error or unexpected case THROWS, surfacing the session as unreadable. [LAW:no-silent-failure]
+  private async fetchLastPrompt(sessionId: string): Promise<AppPrompt | null> {
+    const req = create(GetPromptRequestSchema, { session: sessionId });
+    const { message } = await this.protocol.send({
+      submessage: { case: 'getPromptRequest' as const, value: req },
+    });
+    if (message.submessage.case === 'error') throw new Error(message.submessage.value);
+    if (message.submessage.case !== 'getPromptResponse') {
+      throw new Error(`unexpected response: ${message.submessage.case ?? '<none>'}`);
+    }
+    const response = message.submessage.value;
+    if (response.status !== GetPromptResponse_Status.OK) return null;
+    return convertGetPrompt(response);
   }
 
   // [LAW:composability] Resolve one variable path against any entity scope and return a

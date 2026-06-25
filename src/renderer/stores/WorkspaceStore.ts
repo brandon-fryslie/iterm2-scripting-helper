@@ -6,6 +6,7 @@ import { makeAutoObservable, reaction } from 'mobx';
 export const LENSES = [
   { id: 'inspect', label: 'Inspect' },
   { id: 'events', label: 'Events' },
+  { id: 'fleet', label: 'Fleet' },
   { id: 'console', label: 'Console' },
   { id: 'build', label: 'Build' },
 ] as const;

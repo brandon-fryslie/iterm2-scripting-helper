@@ -3,6 +3,7 @@ import { observer } from 'mobx-react-lite';
 import { Group, Panel, Separator } from 'react-resizable-panels';
 import { useStore } from '@/stores/context';
 import { ActivityTimeline } from '@/domains/activity/ActivityTimeline';
+import { FleetLens } from '@/domains/fleet/FleetLens';
 import { ActPane } from '@/domains/console/ActPane';
 import { AuthorPane } from '@/domains/workbench/AuthorPane';
 import { ScreenPane } from '@/domains/monitor/ScreenPane';
@@ -82,6 +83,11 @@ const LENS_CONTENT: Record<LensId, () => ReactNode> = {
       <ActivityTimeline />
     </FacetFrame>
   ),
+  fleet: () => (
+    <FacetFrame title="Fleet" testId="facet-fleet">
+      <FleetLens />
+    </FacetFrame>
+  ),
   console: () => (
     <FacetFrame title="Console" testId="facet-console">
       <ActPane />
@@ -108,7 +114,7 @@ const LENS_CONTENT: Record<LensId, () => ReactNode> = {
 // [LAW:one-source-of-truth] Which lens is focal is owned by WorkspaceStore; region sizes by
 // react-resizable-panels' persisted-layout groups. The layout below is a pure function of those two.
 export const EntityWorkspace = observer(function EntityWorkspace() {
-  const { monitor, connection, workbench, workspace } = useStore();
+  const { monitor, connection, workbench, workspace, fleet } = useStore();
   const [settingsOpen, setSettingsOpen] = useState(false);
 
   useEffect(() => {
@@ -122,6 +128,7 @@ export const EntityWorkspace = observer(function EntityWorkspace() {
       window.ipc.on('watchlist-snapshot', (s) => monitor.applyWatchlist(s)),
       window.ipc.on('screen-snapshot', (s) => monitor.applyScreen(s)),
       window.ipc.on('prompt-snapshot', (s) => monitor.applyPrompts(s)),
+      window.ipc.on('fleet-snapshot', (s) => fleet.applySnapshot(s)),
       window.ipc.on('dynamic-profiles-snapshot', (s) =>
         workbench.applyDynamicSnapshot(s),
       ),
@@ -129,7 +136,7 @@ export const EntityWorkspace = observer(function EntityWorkspace() {
       window.ipc.on('wire-frame', () => connection.bumpFrame()),
     ];
     return () => unsubs.forEach((unsub) => unsub());
-  }, [monitor, connection, workbench]);
+  }, [monitor, connection, workbench, fleet]);
 
   return (
     <div className="flex h-screen flex-col" data-testid="entity-workspace">

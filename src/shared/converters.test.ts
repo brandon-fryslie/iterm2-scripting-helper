@@ -11,12 +11,15 @@ import {
   CellStyleSchema,
   AlternateColor,
   PromptNotificationSchema,
+  GetPromptResponseSchema,
+  GetPromptResponse_State,
 } from '@shared/proto/gen/api_pb';
 import {
   classifyNotification,
   variableScopeName,
   convertGetBuffer,
   convertPromptNotification,
+  convertGetPrompt,
 } from './converters';
 import { styledLinesToAnsi } from '@/domains/monitor/screenToAnsi';
 import type { AppCellStyleRun } from '@shared/domain';
@@ -370,5 +373,46 @@ describe('convertPromptNotification — typed prompt updates', () => {
     const result = convertPromptNotification(p);
     expect(result?.update.kind).toBe('prompt');
     expect(result?.update).toMatchObject({ promptRange: null });
+  });
+});
+
+describe('convertGetPrompt — poll-on-demand prompt to canonical AppPrompt', () => {
+  it('maps FINISHED to the finished variant carrying the exit code', () => {
+    const r = create(GetPromptResponseSchema, {
+      uniquePromptId: 'p-9',
+      promptState: GetPromptResponse_State.FINISHED,
+      exitStatus: 37,
+      command: 'exit 37',
+      workingDirectory: '/code',
+    });
+    expect(convertGetPrompt(r)).toEqual({
+      uniquePromptId: 'p-9',
+      promptRange: null,
+      commandRange: null,
+      outputRange: null,
+      workingDirectory: '/code',
+      command: 'exit 37',
+      state: 'finished',
+      exitStatus: 37,
+    });
+  });
+
+  it('maps RUNNING to the running variant with no exit code field', () => {
+    const r = create(GetPromptResponseSchema, {
+      uniquePromptId: 'p-9',
+      promptState: GetPromptResponse_State.RUNNING,
+      command: 'sleep 10',
+    });
+    const prompt = convertGetPrompt(r);
+    expect(prompt.state).toBe('running');
+    expect('exitStatus' in prompt).toBe(false);
+  });
+
+  it('maps EDITING to the editing variant', () => {
+    const r = create(GetPromptResponseSchema, {
+      uniquePromptId: 'p-9',
+      promptState: GetPromptResponse_State.EDITING,
+    });
+    expect(convertGetPrompt(r).state).toBe('editing');
   });
 });

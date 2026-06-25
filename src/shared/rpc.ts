@@ -1,5 +1,6 @@
 import type { PlistJson } from './plist';
 import type { SpanRange } from './fixture';
+import type { FleetSnapshot } from './fleetQuery';
 import type {
   AppEntityRef,
   AppLayout,
@@ -528,6 +529,15 @@ export type RpcSchema = {
     args: void;
     result: PromptSnapshot;
   };
+  // [LAW:effects-at-boundaries] Trigger a coalesced fleet capture (the one IO boundary): walk every live
+  // session, dump its variables + poll its last OSC-133 prompt, assemble a FleetSnapshot. The capture is
+  // bounded by a CoalescingScheduler so a burst of refreshes collapses to one bridge sweep; the snapshot
+  // itself arrives asynchronously over the 'fleet-snapshot' broadcast, so this only acknowledges that the
+  // capture was scheduled — it does not block on the wire round-trips.
+  'fleet/refresh': {
+    args: void;
+    result: { ok: true };
+  };
   // [LAW:dataflow-not-control-flow] Every action carries the focused `entity` it is scoped to as a
   // value. The main process records it on the action's spine event — it does not re-derive a target
   // by branching on which fields the args happen to contain. Explicit per-action target overrides
@@ -716,6 +726,7 @@ export type EventSchema = {
   'watchlist-snapshot': WatchlistSnapshot;
   'screen-snapshot': ScreenSnapshot;
   'prompt-snapshot': PromptSnapshot;
+  'fleet-snapshot': FleetSnapshot;
   'dynamic-profiles-snapshot': DynamicProfileSnapshot;
   'registrations-snapshot': RegistrationSnapshot;
   'custom-escape-snapshot': CustomEscapeSnapshot;
