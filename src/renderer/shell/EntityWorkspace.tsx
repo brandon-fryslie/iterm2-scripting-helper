@@ -4,6 +4,7 @@ import { Group, Panel, Separator } from 'react-resizable-panels';
 import { useStore } from '@/stores/context';
 import { ActivityTimeline } from '@/domains/activity/ActivityTimeline';
 import { FleetLens } from '@/domains/fleet/FleetLens';
+import { TemplateLens } from '@/domains/template/TemplateLens';
 import { ActPane } from '@/domains/console/ActPane';
 import { AuthorPane } from '@/domains/workbench/AuthorPane';
 import { ScreenPane } from '@/domains/monitor/ScreenPane';
@@ -91,6 +92,11 @@ const LENS_CONTENT: Record<LensId, () => ReactNode> = {
   console: () => (
     <FacetFrame title="Console" testId="facet-console">
       <ActPane />
+    </FacetFrame>
+  ),
+  template: () => (
+    <FacetFrame title="Template" testId="facet-template">
+      <TemplateLens />
     </FacetFrame>
   ),
   build: () => (
