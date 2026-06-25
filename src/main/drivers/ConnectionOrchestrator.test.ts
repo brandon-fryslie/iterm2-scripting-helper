@@ -14,6 +14,7 @@ import { VariableStore } from '../stores/VariableStore';
 import { WatchlistStore } from '../stores/WatchlistStore';
 import { ScreenStreamStore } from '../stores/ScreenStreamStore';
 import { PromptStore } from '../stores/PromptStore';
+import { FleetStore } from '../stores/FleetStore';
 import { RegistrationStore } from '../stores/RegistrationStore';
 import { CustomEscapeStore } from '../stores/CustomEscapeStore';
 import type { RpcRegistrationSpec } from '@shared/rpc';
@@ -95,6 +96,7 @@ function buildOrchestrator() {
     appEvents,
     screen: new ScreenStreamStore(),
     prompt: new PromptStore(),
+    fleet: new FleetStore(),
     registrations: new RegistrationStore(),
     customEscape: new CustomEscapeStore(),
   };

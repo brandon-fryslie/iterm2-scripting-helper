@@ -1,7 +1,7 @@
 import { test, expect, type Page } from '@playwright/test';
 import path from 'node:path';
 import { execSync } from 'node:child_process';
-import { existsSync } from 'node:fs';
+import { existsSync, mkdtempSync, rmSync } from 'node:fs';
 import os from 'node:os';
 import { launchApp } from './launch-app';
 
@@ -31,7 +31,7 @@ async function closeSettings(win: Page): Promise<void> {
 // lens is focal. Each launch gets an isolated userData dir (launch-app), so the persisted lens cannot
 // leak between launches — every test still selects the lens it drives because that subject's panes are
 // only mounted when its lens is focal, not because of any cross-launch carryover.
-type Lens = 'inspect' | 'events' | 'console' | 'build';
+type Lens = 'inspect' | 'events' | 'fleet' | 'console' | 'build';
 async function selectLens(win: Page, lens: Lens): Promise<void> {
   await win.getByTestId(`lens-${lens}`).click();
   await expect(win.getByTestId(`facet-${lens === 'inspect' ? 'variables' : lens}`)).toBeVisible();
@@ -1273,6 +1273,71 @@ end tell'`,
       await expect(win.getByTestId('prompt-overlay-rail')).toHaveCount(0);
     } finally {
       await closeDedicatedSession(win, sessionId);
+      await app.close();
+    }
+  });
+
+  test('Fleet Query Console: a pwd query returns only the matching session and clicking it focuses it', async () => {
+    const app = await launchApp();
+    const win = await app.firstWindow();
+
+    await connectViaGear(win);
+    await closeSettings(win);
+
+    // Two sessions the test owns, with DISTINCT working directories: session A is moved into a freshly
+    // minted unique dir, B is left elsewhere. The unique basename is the query token, so the result can
+    // only be A — never an ambient session of the user's that happens to share a common path fragment.
+    const uniqueDir = mkdtempSync(path.join(os.tmpdir(), 'fleet-e2e-'));
+    const token = path.basename(uniqueDir);
+    const sessionA = createDedicatedSession();
+    const sessionB = createDedicatedSession();
+    try {
+      // [LAW:no-ambient-temporal-coupling] iTerm2 tracks session.path from the shell's reported cwd under
+      // shell integration; cd both sessions away from their shared home so the fleet read sees two
+      // distinct PWDs, then let the variable updates settle before the capture reads them.
+      await runCommand(win, sessionA, `cd '${uniqueDir}'`);
+      await runCommand(win, sessionB, 'cd /usr');
+
+      await selectLens(win, 'fleet');
+
+      // The console opens with one ready pwd/contains row — type the unique token as the value.
+      await win.getByTestId('fleet-value-0').fill(token);
+
+      const matchA = win.locator(`[data-testid="fleet-result"][data-session-id="${sessionA}"]`);
+      const matchB = win.locator(`[data-testid="fleet-result"][data-session-id="${sessionB}"]`);
+
+      // [LAW:verifiable-goals] Re-capture inside the poll: session.path updates are async, so each poll
+      // re-fires the coalesced fleet capture and re-evaluates the (unchanged) pure query until A's path has
+      // settled into the unique dir. The token is unique, so exactly one session can ever match.
+      await expect
+        .poll(
+          async () => {
+            await win.getByTestId('fleet-refresh').click();
+            await win.waitForTimeout(500);
+            return matchA.count();
+          },
+          { timeout: 30_000 },
+        )
+        .toBe(1);
+
+      // The non-matching session (and every ambient session) is absent — the query filtered, it did not
+      // merely highlight. The matching count is exactly one.
+      await expect(matchB).toHaveCount(0);
+      await expect(win.getByTestId('fleet-result-count')).toHaveText('1');
+
+      // [LAW:one-source-of-truth] Clicking a result routes through the ONE focus authority
+      // (selectEntityFocus), so the entity rail marks session A focused — results are AppEntityRefs into
+      // the existing focus model, not a parallel selection.
+      await matchA.click();
+      await expect(win.getByTestId(`layout-session-${sessionA}`)).toHaveAttribute(
+        'data-focused',
+        'true',
+        { timeout: 10_000 },
+      );
+    } finally {
+      await closeDedicatedSession(win, sessionA);
+      await closeDedicatedSession(win, sessionB);
+      rmSync(uniqueDir, { recursive: true, force: true });
       await app.close();
     }
   });
