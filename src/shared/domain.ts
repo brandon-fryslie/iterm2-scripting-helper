@@ -175,6 +175,56 @@ export interface AppLine {
   continuation: AppLineContinuation;
 }
 
+// [FRAMING:representation] An OSC-133 region in ABSOLUTE iTerm2 line coordinates: `line` is the stable
+// buffer line number (0 = first line ever; the numbering survives scrollback eviction), NOT an index
+// into the currently-fetched buffer. `end` is the first cell AFTER the region (iTerm2's half-open
+// convention). The relativization to the live viewport happens at one render seam (screenMarks.ts),
+// against the buffer's exposed base line — never baked in here, so the canonical region cannot drift
+// out of step with whatever slice of scrollback is currently mirrored.
+export interface AppPromptRange {
+  start: { x: number; line: number };
+  end: { x: number; line: number };
+}
+
+// [LAW:types-are-the-program] One shell prompt's lifecycle, accumulated across the three OSC-133
+// notifications (prompt → command-start → command-end), correlated by uniquePromptId. The regions and
+// command arrive on the `prompt`/`command-start` events; the exit code arrives LATER on `command-end`.
+// `state` discriminates what is known: `exitStatus` exists ONLY on the 'finished' variant, so "flag a
+// non-zero exit" can never read an absent or stale code on a still-running command — that illegal state
+// is unrepresentable, not guarded against.
+export type AppPromptState = 'editing' | 'running' | 'finished';
+
+interface AppPromptBase {
+  uniquePromptId: string;
+  promptRange: AppPromptRange | null;
+  commandRange: AppPromptRange | null;
+  outputRange: AppPromptRange | null;
+  workingDirectory: string | null;
+  command: string | null;
+}
+
+export type AppPrompt =
+  | (AppPromptBase & { state: 'editing' })
+  | (AppPromptBase & { state: 'running' })
+  | (AppPromptBase & { state: 'finished'; exitStatus: number });
+
+// [LAW:dataflow-not-control-flow] The converter turns a raw PromptNotification into one of these typed
+// updates; the store merges it into the per-prompt accumulator by uniquePromptId. Each carries only the
+// fields its event actually delivers — command-end carries the exit code and nothing else — so the merge
+// is value-driven, never a re-parse of which proto fields happened to be set.
+export type AppPromptUpdate =
+  | {
+      kind: 'prompt';
+      uniquePromptId: string;
+      promptRange: AppPromptRange | null;
+      commandRange: AppPromptRange | null;
+      outputRange: AppPromptRange | null;
+      workingDirectory: string | null;
+      command: string | null;
+    }
+  | { kind: 'command-start'; uniquePromptId: string; command: string }
+  | { kind: 'command-end'; uniquePromptId: string; exitStatus: number };
+
 // [LAW:no-silent-failure] 'unknown' is the explicit landing spot for an additive protocol enum value
 // this release does not recognize — the converters map drift here rather than coercing it into a
 // valid-but-wrong name (a future modifier silently reported as Control).

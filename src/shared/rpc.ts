@@ -11,6 +11,7 @@ import type {
   AppProbeResult,
   AppCellStyleRun,
   AppLine,
+  AppPrompt,
   AppEvent,
   AppEventKind,
   AppEventLogSnapshot,
@@ -29,6 +30,7 @@ export type {
   AppProbeResult,
   AppCellStyleRun,
   AppLine,
+  AppPrompt,
   AppEvent,
   AppEventKind,
   AppEventLogSnapshot,
@@ -104,10 +106,26 @@ export interface ScreenSnapshot {
   sessionId: string | null;
   lines: AppLine[];
   cursor: { x: number; y: number } | null;
+  // [LAW:one-source-of-truth] The absolute iTerm2 line number of `lines[0]` — the buffer's window into
+  // the (possibly evicted) scrollback. iTerm2 reports prompt regions in this same absolute space, so
+  // exposing the base here is what lets the render seam convert an absolute prompt line to the matching
+  // mirrored row. The cursor is pre-relativized against this base in convertGetBuffer; the base travels
+  // alongside so prompt marks relativize identically and the two can never drift.
+  baseLine: number;
   lastUpdatedAt: number;
   requestsInflight: number;
   updatesReceived: number;
   lastError: string | null;
+}
+
+// [LAW:decomposition] Prompt structure is a distinct concept from the pixel mirror — it accumulates
+// across OSC-133 notifications on its own cadence, not on screen-update cadence — so it rides its own
+// snapshot rather than being fused into ScreenSnapshot. `prompts` is ordered top-to-bottom (insertion
+// order = prompt-draw order); an empty list is a session emitting no marks, which the overlay renders
+// as the plain mirror.
+export interface PromptSnapshot {
+  sessionId: string | null;
+  prompts: AppPrompt[];
 }
 
 // [LAW:one-source-of-truth] One ActionResult shape, defined in domain.ts (the lower layer) and reused
@@ -506,6 +524,10 @@ export type RpcSchema = {
     args: void;
     result: ScreenSnapshot;
   };
+  'monitor/prompts': {
+    args: void;
+    result: PromptSnapshot;
+  };
   // [LAW:dataflow-not-control-flow] Every action carries the focused `entity` it is scoped to as a
   // value. The main process records it on the action's spine event — it does not re-derive a target
   // by branching on which fields the args happen to contain. Explicit per-action target overrides
@@ -693,6 +715,7 @@ export type EventSchema = {
   'variables-snapshot': VariableSnapshot;
   'watchlist-snapshot': WatchlistSnapshot;
   'screen-snapshot': ScreenSnapshot;
+  'prompt-snapshot': PromptSnapshot;
   'dynamic-profiles-snapshot': DynamicProfileSnapshot;
   'registrations-snapshot': RegistrationSnapshot;
   'custom-escape-snapshot': CustomEscapeSnapshot;

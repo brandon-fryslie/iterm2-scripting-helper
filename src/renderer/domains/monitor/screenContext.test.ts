@@ -12,6 +12,7 @@ function screen(over: Partial<ScreenSnapshot>): ScreenSnapshot {
     sessionId: null,
     lines: [],
     cursor: null,
+    baseLine: 0,
     lastUpdatedAt: 0,
     requestsInflight: 0,
     updatesReceived: 0,

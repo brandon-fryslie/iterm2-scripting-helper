@@ -10,8 +10,14 @@ import {
   GetBufferResponseSchema,
   CellStyleSchema,
   AlternateColor,
+  PromptNotificationSchema,
 } from '@shared/proto/gen/api_pb';
-import { classifyNotification, variableScopeName, convertGetBuffer } from './converters';
+import {
+  classifyNotification,
+  variableScopeName,
+  convertGetBuffer,
+  convertPromptNotification,
+} from './converters';
 import { styledLinesToAnsi } from '@/domains/monitor/screenToAnsi';
 import type { AppCellStyleRun } from '@shared/domain';
 
@@ -270,5 +276,99 @@ describe('variableScopeName', () => {
 
   it('maps an additive (unrecognized) scope to unknown rather than session', () => {
     expect(variableScopeName(999 as VariableScope)).toBe('unknown');
+  });
+});
+
+describe('convertGetBuffer — baseLine carries the absolute window origin', () => {
+  it('exposes the buffer window start as baseLine and relativizes the cursor against it', () => {
+    const response = create(GetBufferResponseSchema, {
+      windowedCoordRange: { coordRange: { start: { x: 0, y: 1000n }, end: { x: 0, y: 1050n } } },
+      contents: [{ text: 'hi', style: [] }],
+      cursor: { x: 3, y: 1004n },
+    });
+    const { baseLine, cursor } = convertGetBuffer(response);
+    expect(baseLine).toBe(1000);
+    // cursor.y is absolute 1004 minus the 1000-line base => buffer row 4.
+    expect(cursor).toEqual({ x: 3, y: 4 });
+  });
+
+  it('defaults baseLine to 0 when no windowed range is reported', () => {
+    const response = create(GetBufferResponseSchema, { contents: [{ text: '', style: [] }] });
+    expect(convertGetBuffer(response).baseLine).toBe(0);
+  });
+});
+
+describe('convertPromptNotification — typed prompt updates', () => {
+  it('converts a prompt event with absolute regions and working directory', () => {
+    const p = create(PromptNotificationSchema, {
+      session: 's1',
+      uniquePromptId: 'p-1',
+      event: {
+        case: 'prompt',
+        value: {
+          prompt: {
+            promptRange: { start: { x: 0, y: 1005n }, end: { x: 2, y: 1005n } },
+            commandRange: { start: { x: 2, y: 1005n }, end: { x: 8, y: 1005n } },
+            workingDirectory: '/home/me',
+            command: 'ls',
+          },
+        },
+      },
+    });
+    expect(convertPromptNotification(p)).toEqual({
+      sessionId: 's1',
+      update: {
+        kind: 'prompt',
+        uniquePromptId: 'p-1',
+        promptRange: { start: { x: 0, line: 1005 }, end: { x: 2, line: 1005 } },
+        commandRange: { start: { x: 2, line: 1005 }, end: { x: 8, line: 1005 } },
+        outputRange: null,
+        workingDirectory: '/home/me',
+        command: 'ls',
+      },
+    });
+  });
+
+  it('converts command-start into a typed command update', () => {
+    const p = create(PromptNotificationSchema, {
+      session: 's1',
+      uniquePromptId: 'p-1',
+      event: { case: 'commandStart', value: { command: 'false' } },
+    });
+    expect(convertPromptNotification(p)).toEqual({
+      sessionId: 's1',
+      update: { kind: 'command-start', uniquePromptId: 'p-1', command: 'false' },
+    });
+  });
+
+  it('converts command-end into the exit code update', () => {
+    const p = create(PromptNotificationSchema, {
+      session: 's1',
+      uniquePromptId: 'p-1',
+      event: { case: 'commandEnd', value: { status: 1 } },
+    });
+    expect(convertPromptNotification(p)).toEqual({
+      sessionId: 's1',
+      update: { kind: 'command-end', uniquePromptId: 'p-1', exitStatus: 1 },
+    });
+  });
+
+  it('drops a notification with no session rather than placing it on a guessed session', () => {
+    const p = create(PromptNotificationSchema, {
+      uniquePromptId: 'p-1',
+      event: { case: 'commandEnd', value: { status: 0 } },
+    });
+    expect(convertPromptNotification(p)).toBeNull();
+  });
+
+  it('treats a half-present region as no region (null), never a guessed coordinate', () => {
+    const p = create(PromptNotificationSchema, {
+      session: 's1',
+      uniquePromptId: 'p-1',
+      event: { case: 'prompt', value: { prompt: { promptRange: { start: { x: 0, y: 5n } } } } },
+    });
+    const result = convertPromptNotification(p);
+    expect(result?.update.kind).toBe('prompt');
+    expect(result?.update).toMatchObject({ promptRange: null });
   });
 });

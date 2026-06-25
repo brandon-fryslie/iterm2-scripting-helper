@@ -21,6 +21,7 @@ import type { WatchlistStore } from './stores/WatchlistStore';
 import { type AppEventLog } from './stores/AppEventLog';
 import type { AppEntityRef, AppActionKind } from '@shared/domain';
 import type { ScreenStreamStore } from './stores/ScreenStreamStore';
+import type { PromptStore } from './stores/PromptStore';
 import type { DynamicProfileStore } from './stores/DynamicProfileStore';
 import { registrationSnapshot, type RegistrationStore } from './stores/RegistrationStore';
 import type { CustomEscapeStore } from './stores/CustomEscapeStore';
@@ -65,6 +66,7 @@ export interface MonitorStoresRef {
   watchlist: WatchlistStore;
   appEvents: AppEventLog;
   screen: ScreenStreamStore;
+  prompt: PromptStore;
   registrations: RegistrationStore;
   customEscape: CustomEscapeStore;
 }
@@ -251,6 +253,7 @@ export function registerIpc(
       return monitor.watchlist.snapshot();
     },
     'monitor/screen': async () => monitor.screen.snapshot(),
+    'monitor/prompts': async () => monitor.prompt.snapshot(),
     'actions/send-text': action('send-text', (args) => actionSendText(orchestrator, args)),
     'actions/inject': action('inject', (args) => actionInject(orchestrator, args)),
     'actions/activate': action('activate', (args) => actionActivate(orchestrator, args)),
