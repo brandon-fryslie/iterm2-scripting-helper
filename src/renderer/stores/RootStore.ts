@@ -6,6 +6,7 @@ import { WorkbenchStore } from './WorkbenchStore';
 import { ActivityStore } from './ActivityStore';
 import { EntityFocusStore } from './EntityFocusStore';
 import { FleetStore } from './FleetStore';
+import { TemplateDesignerStore } from './TemplateDesignerStore';
 import { TmuxStore } from './TmuxStore';
 import { ColorPresetStore } from './ColorPresetStore';
 import { ErrorStore } from './ErrorStore';
@@ -23,6 +24,7 @@ export class RootStore {
   readonly entityFocus: EntityFocusStore;
   readonly monitor: MonitorStore;
   readonly fleet: FleetStore;
+  readonly templateDesigner: TemplateDesignerStore;
   readonly console: ConsoleStore;
   readonly workbench: WorkbenchStore;
   readonly activity: ActivityStore;
@@ -45,6 +47,7 @@ export class RootStore {
     this.entityFocus = new EntityFocusStore();
     this.monitor = new MonitorStore(() => this.reconcileEntityFocusWithLayout());
     this.fleet = new FleetStore();
+    this.templateDesigner = new TemplateDesignerStore(this.entityFocus);
     this.console = new ConsoleStore(this.entityFocus);
     this.workbench = new WorkbenchStore();
     this.activity = new ActivityStore();
@@ -57,6 +60,7 @@ export class RootStore {
       entityFocus: false,
       monitor: false,
       fleet: false,
+      templateDesigner: false,
       console: false,
       workbench: false,
       activity: false,

@@ -17,7 +17,7 @@ import { ExpressionProbe } from '@/components/ExpressionProbe';
 import { CustomEscapeSubscriber } from './CustomEscapeSubscriber';
 import { flatSessions, sessionEntityRef } from '@shared/domain';
 import type { AppEntitySessionRef } from '@shared/domain';
-import { ESCAPE_TEMPLATES, effectiveValues, renderTemplate } from '@shared/escape-sequences';
+import { ESCAPE_TEMPLATES, effectiveValues, renderTemplate, toHex, utf8Hex } from '@shared/escape-sequences';
 import type { EscapeTemplate, TemplateField } from '@shared/escape-sequences';
 
 const TEMPLATE_GROUPS: ReadonlyArray<{ group: EscapeTemplate['group']; label: string }> = [
@@ -302,16 +302,6 @@ function humanize(s: string): string {
     .replace(/\x07/g, '\\a')
     .replace(/\x00/g, '\\0');
   /* eslint-enable no-control-regex */
-}
-
-// [LAW:one-source-of-truth] The hex shown in the preview and the hex sent over inject are the
-// same UTF-8 byte derivation; charCodeAt would report UTF-16 code units, not wire bytes.
-function utf8Hex(s: string): string[] {
-  return Array.from(new TextEncoder().encode(s)).map((b) => b.toString(16).padStart(2, '0'));
-}
-
-function toHex(s: string): string {
-  return utf8Hex(s).join('');
 }
 
 function hexdump(s: string): string {

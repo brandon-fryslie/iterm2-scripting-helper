@@ -8,6 +8,7 @@ export const LENSES = [
   { id: 'events', label: 'Events' },
   { id: 'fleet', label: 'Fleet' },
   { id: 'console', label: 'Console' },
+  { id: 'template', label: 'Template' },
   { id: 'build', label: 'Build' },
 ] as const;
 

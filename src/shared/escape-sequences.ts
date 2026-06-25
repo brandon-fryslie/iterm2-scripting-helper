@@ -2,7 +2,7 @@ export const ESC = '\x1b';
 export const ST = '\x1b\\';
 export const BEL = '\x07';
 
-function base64Utf8(input: string): string {
+export function base64Utf8(input: string): string {
   const bytes = new TextEncoder().encode(input);
   let binary = '';
   for (const b of bytes) binary += String.fromCharCode(b);
@@ -71,8 +71,20 @@ export function renderTemplate(
   }
 }
 
-function osc1337(body: string): string {
+export function osc1337(body: string): string {
   return `${ESC}]1337;${body}${ST}`;
+}
+
+// [LAW:one-source-of-truth] The hex shown in any preview and the hex sent over `actions/inject` are
+// the same UTF-8 byte derivation, in one place: charCodeAt would report UTF-16 code units, not the
+// wire bytes iTerm2 receives. Every emitter of escape bytes (the escape editor, the template designer)
+// shares this derivation rather than re-deriving it per call site.
+export function utf8Hex(s: string): string[] {
+  return Array.from(new TextEncoder().encode(s)).map((b) => b.toString(16).padStart(2, '0'));
+}
+
+export function toHex(s: string): string {
+  return utf8Hex(s).join('');
 }
 
 function osc133(letter: string): string {

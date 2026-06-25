@@ -31,7 +31,7 @@ async function closeSettings(win: Page): Promise<void> {
 // lens is focal. Each launch gets an isolated userData dir (launch-app), so the persisted lens cannot
 // leak between launches — every test still selects the lens it drives because that subject's panes are
 // only mounted when its lens is focal, not because of any cross-launch carryover.
-type Lens = 'inspect' | 'events' | 'fleet' | 'console' | 'build';
+type Lens = 'inspect' | 'events' | 'fleet' | 'console' | 'template' | 'build';
 async function selectLens(win: Page, lens: Lens): Promise<void> {
   await win.getByTestId(`lens-${lens}`).click();
   await expect(win.getByTestId(`facet-${lens === 'inspect' ? 'variables' : lens}`)).toBeVisible();
@@ -1337,6 +1337,86 @@ end tell'`,
     } finally {
       await closeDedicatedSession(win, sessionA);
       await closeDedicatedSession(win, sessionB);
+      rmSync(uniqueDir, { recursive: true, force: true });
+      await app.close();
+    }
+  });
+
+  test('Template Designer: a badge template previews against live vars and applies to the session', async () => {
+    const app = await launchApp();
+    const win = await app.firstWindow();
+
+    await connectViaGear(win);
+    await closeSettings(win);
+
+    // A session the test owns, moved into a freshly minted unique dir. The unique basename is the proof
+    // token: it appears in this session's pwd and nowhere in the ambient fleet, so a preview/badge that
+    // contains it can only have resolved \(path) against THIS session. [LAW:verifiable-goals]
+    const uniqueDir = mkdtempSync(path.join(os.tmpdir(), 'tpl-e2e-'));
+    const token = path.basename(uniqueDir);
+    const sessionId = createDedicatedSession();
+    const sessionRef = { kind: 'session' as const, windowId: '', tabId: '', sessionId };
+    try {
+      await runCommand(win, sessionId, `cd '${uniqueDir}'`);
+
+      // Focus the dedicated session so the designer previews/applies against it (not the user's shell).
+      await selectLens(win, 'inspect');
+      await expect(win.getByTestId(`layout-session-${sessionId}`)).toBeVisible({ timeout: 10_000 });
+      await win.getByTestId(`layout-session-${sessionId}`).click();
+
+      await selectLens(win, 'template');
+
+      // Badge is the default target. Author a template that interpolates the session's working directory.
+      await win.getByTestId('template-draft').fill('\\(path)');
+
+      // [LAW:no-ambient-temporal-coupling] session.path settles asynchronously after cd, so re-run the
+      // preview until it resolves into the unique dir. The preview is the SAME probe eval the rest of the
+      // app trusts — there is no second evaluator — so when it contains the token, the eval has settled.
+      const previewValue = win.getByTestId('template-preview-value');
+      await expect
+        .poll(
+          async () => {
+            await win.getByTestId('template-preview-run').click();
+            await win.waitForTimeout(400);
+            return (await previewValue.textContent()) ?? '';
+          },
+          { timeout: 30_000 },
+        )
+        .toContain(token);
+
+      // The preview matches a direct eval of the same expression through the one probe seam — proof the
+      // designer reuses iTerm2's interpolation rather than reimplementing it. [LAW:one-source-of-truth]
+      const directProbe = await win.evaluate(
+        (ref) => window.ipc.invoke('monitor/probe-variable', { entity: ref, expression: '\\(path)' }),
+        sessionRef,
+      );
+      expect(directProbe.outcome).toBe('value');
+      const shownPreview = (await previewValue.textContent()) ?? '';
+      if (directProbe.outcome === 'value') {
+        expect(shownPreview).toBe(directProbe.value);
+      }
+
+      // Apply the badge format. iTerm2 stores SetBadgeFormat and re-interpolates it, so the session's
+      // `badge` variable becomes the live pwd — the end-to-end proof the apply landed on the session.
+      await win.getByTestId('template-apply').click();
+      await expect(win.getByTestId('template-apply-result')).toHaveAttribute('data-ok', 'true', {
+        timeout: 15_000,
+      });
+
+      await expect
+        .poll(
+          async () => {
+            const r = await win.evaluate(
+              (ref) => window.ipc.invoke('monitor/probe-variable', { entity: ref, expression: 'badge' }),
+              sessionRef,
+            );
+            return r.outcome === 'value' ? r.value : '';
+          },
+          { timeout: 20_000 },
+        )
+        .toContain(token);
+    } finally {
+      await closeDedicatedSession(win, sessionId);
       rmSync(uniqueDir, { recursive: true, force: true });
       await app.close();
     }
