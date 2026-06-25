@@ -1,18 +1,12 @@
 import { makeAutoObservable, reaction } from 'mobx';
+import { LENSES } from '@shared/lenses';
+import type { LensId } from '@shared/lenses';
 
-// [LAW:one-source-of-truth] The canonical enumeration of workspace lenses and their switcher labels.
-// A lens is a SUBJECT (observe + act + author fused), not a verb. The switcher maps over this list and
-// the shell renders the active lens against it; neither hard-codes a second list that could drift.
-export const LENSES = [
-  { id: 'inspect', label: 'Inspect' },
-  { id: 'events', label: 'Events' },
-  { id: 'fleet', label: 'Fleet' },
-  { id: 'console', label: 'Console' },
-  { id: 'template', label: 'Template' },
-  { id: 'build', label: 'Build' },
-] as const;
-
-export type LensId = (typeof LENSES)[number]['id'];
+// [LAW:one-source-of-truth] The lens enumeration is owned by @shared/lenses (so a capability's typed
+// lens deep-link can name a real LensId without shared importing the renderer). Re-exported here
+// because the shell and switcher already source the list and the type from this store.
+export { LENSES };
+export type { LensId };
 
 const LENS_IDS: ReadonlySet<string> = new Set(LENSES.map((l) => l.id));
 const STORAGE_KEY = 'workspace-active-lens';

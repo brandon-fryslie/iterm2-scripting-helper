@@ -180,7 +180,7 @@ test('escape editor previews incomplete input as an error and copies a built seq
   await app.close();
 });
 
-test('docs index deep-links the OSC catalog to the matching escape template editor', async () => {
+test('Explore lens deep-links the OSC catalog to the matching escape template editor', async () => {
   test.skip(
     process.env.CI === 'true',
     'GitHub macOS runners cannot reliably launch the Electron app; run locally.',
@@ -195,24 +195,23 @@ test('docs index deep-links the OSC catalog to the matching escape template edit
 
   // CurrentDir is not the default template (SetMark is), so selecting it proves the link sets the
   // template, not just the artifact.
-  await win.getByTestId('settings-gear').click();
-  await win.getByTestId('docs-search-input').fill('OSC 1337 CurrentDir');
-  await win.getByTestId('docs-result-osc-osc1337-current-dir').click();
-  await expect(win.getByTestId('settings-overlay')).not.toBeVisible();
+  await win.getByTestId('lens-explore').click();
+  await expect(win.getByTestId('facet-explore')).toBeVisible();
+  await win.getByTestId('explorer-search-input').fill('OSC 1337 CurrentDir');
+  await win.getByTestId('explorer-try-escape-osc1337-current-dir').click();
   await expect(win.getByTestId('workbench-escape-editor')).toBeVisible();
   await expect(win.getByTestId('escape-template-select')).toContainText('CurrentDir');
 
   // The literal epic acceptance: search "OSC 1337 SetMark", land on the SetMark template entry.
-  await win.getByTestId('settings-gear').click();
-  await win.getByTestId('docs-search-input').fill('OSC 1337 SetMark');
-  await win.getByTestId('docs-result-osc-osc1337-set-mark').click();
-  await expect(win.getByTestId('settings-overlay')).not.toBeVisible();
+  await win.getByTestId('lens-explore').click();
+  await win.getByTestId('explorer-search-input').fill('OSC 1337 SetMark');
+  await win.getByTestId('explorer-try-escape-osc1337-set-mark').click();
   await expect(win.getByTestId('escape-template-select')).toContainText('SetMark');
 
   await app.close();
 });
 
-test('docs index deep-links a protobuf message to its console action', async () => {
+test('Explore lens "Try in Console" deep-links a protobuf message to its console action', async () => {
   test.skip(
     process.env.CI === 'true',
     'GitHub macOS runners cannot reliably launch the Electron app; run locally.',
@@ -222,12 +221,37 @@ test('docs index deep-links a protobuf message to its console action', async () 
   const win = await app.firstWindow();
 
   // send-text is the default action, so route to a non-default one to prove the link selects it.
-  await win.getByTestId('settings-gear').click();
-  await win.getByTestId('docs-search-input').fill('InvokeFunctionRequest');
-  await win.getByTestId('docs-result-proto-invoke-function').click();
-  await expect(win.getByTestId('settings-overlay')).not.toBeVisible();
-  // The invoke-function form is mounted only when its action is selected.
+  await win.getByTestId('lens-explore').click();
+  await win.getByTestId('explorer-search-input').fill('InvokeFunctionRequest');
+  await expect(win.getByTestId('explorer-result-rpc-actions-invoke-function')).toBeVisible();
+  await win.getByTestId('explorer-try-rpc-actions-invoke-function').click();
+  // The deep-link switches to the Console lens and the invoke-function form mounts only when selected.
+  await expect(win.getByTestId('facet-console')).toBeVisible();
   await expect(win.getByTestId('form-invoke-function')).toBeVisible();
+
+  await app.close();
+});
+
+test('Explore lens deep-links a read-only capability to its home lens', async () => {
+  test.skip(
+    process.env.CI === 'true',
+    'GitHub macOS runners cannot reliably launch the Electron app; run locally.',
+  );
+
+  const app = await launchApp();
+  const win = await app.firstWindow();
+
+  // A read method (monitor/layout) has no Console form — it deep-links to the lens where its data lives.
+  // Starting from Explore and landing on Inspect's Variables facet proves the lens arm of the navigator.
+  await win.getByTestId('lens-explore').click();
+  await win.getByTestId('explorer-search-input').fill('LayoutSnapshot');
+  const row = win.getByTestId('explorer-result-rpc-monitor-layout');
+  await expect(row).toBeVisible();
+  // It is classified read, not mutate — the typed kind surfaces as the row badge.
+  await expect(win.getByTestId('explorer-kind-badge-rpc-monitor-layout')).toHaveText('read');
+  await win.getByTestId('explorer-try-rpc-monitor-layout').click();
+  await expect(win.getByTestId('facet-variables')).toBeVisible();
+  await expect(win.getByTestId('facet-explore')).toHaveCount(0);
 
   await app.close();
 });
