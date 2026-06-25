@@ -12,6 +12,10 @@ test.describe('bundled terminal font', () => {
   const POWERLINE = '\uE0B0'; // PUA: powerline right-pointing triangle, a canonical Nerd Font glyph
 
   test('vendors + loads the Nerd Font and carries powerline glyphs', async () => {
+    test.skip(
+      process.env.CI === 'true',
+      'GitHub macOS runners cannot reliably launch the Electron app; run locally.',
+    );
     const app = await launchApp();
     const win = await app.firstWindow();
     try {
