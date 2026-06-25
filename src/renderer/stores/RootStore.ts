@@ -17,7 +17,7 @@ import {
   appEntityExistsInLayout,
   type AppEntityRef,
 } from '@shared/domain';
-import type { DocLink } from '@shared/docs';
+import type { DocLink } from '@shared/capabilities';
 
 export class RootStore {
   readonly connection: ConnectionStore;
@@ -72,11 +72,12 @@ export class RootStore {
     });
   }
 
-  // [LAW:single-enforcer] The one place a docs deep-link becomes navigation. The DocLink is data;
-  // this exhaustive match is the only translation from "where the index points" to store state, so
+  // [LAW:single-enforcer] The one place a capability deep-link becomes navigation. The DocLink is data;
+  // this exhaustive match is the only translation from "where the catalog points" to store state, so
   // the destination cannot be opened two inconsistent ways from two callsites. Each destination also
   // brings its lens into focus ([LAW:no-silent-failure]): deep-linking to a pane that lives in a
-  // non-focal lens would otherwise land the user on something not on screen.
+  // non-focal lens would otherwise land the user on something not on screen. The 'lens' arm is the
+  // home a read capability lives in — switching the lens IS the whole navigation (no sub-target).
   navigateToDoc(link: DocLink): void {
     switch (link.kind) {
       case 'escape':
@@ -87,6 +88,9 @@ export class RootStore {
       case 'console':
         this.workspace.setLens('console');
         this.console.setAction(link.action);
+        return;
+      case 'lens':
+        this.workspace.setLens(link.lens);
         return;
     }
   }

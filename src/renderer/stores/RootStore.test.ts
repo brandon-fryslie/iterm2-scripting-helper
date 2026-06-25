@@ -21,6 +21,11 @@ describe('RootStore.navigateToDoc', () => {
     expect(store.console.selectedAction).toBe('invoke-function');
   });
 
+  it('lens link focuses the named home lens of a read capability', () => {
+    store.navigateToDoc({ kind: 'lens', lens: 'fleet' });
+    expect(store.workspace.activeLens).toBe('fleet');
+  });
+
   // This suite runs in the node env (no window). Focusing a destination lens changes activeLens, which
   // fires the persistence reaction; the write boundary must no-op rather than throw an uncaught reaction
   // exception when there is no localStorage to persist into.

@@ -6,6 +6,7 @@ import { ActivityTimeline } from '@/domains/activity/ActivityTimeline';
 import { FleetLens } from '@/domains/fleet/FleetLens';
 import { TemplateLens } from '@/domains/template/TemplateLens';
 import { ActPane } from '@/domains/console/ActPane';
+import { ExplorePane } from '@/domains/explore/ExplorePane';
 import { AuthorPane } from '@/domains/workbench/AuthorPane';
 import { ScreenPane } from '@/domains/monitor/ScreenPane';
 import { VariablesPane } from '@/domains/monitor/VariablesPane';
@@ -97,6 +98,11 @@ const LENS_CONTENT: Record<LensId, () => ReactNode> = {
   template: () => (
     <FacetFrame title="Template" testId="facet-template">
       <TemplateLens />
+    </FacetFrame>
+  ),
+  explore: () => (
+    <FacetFrame title="Explore" testId="facet-explore">
+      <ExplorePane />
     </FacetFrame>
   ),
   build: () => (
